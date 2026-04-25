@@ -1,0 +1,70 @@
+[host.database_pool]
+max_connections = 30
+min_connections = 2
+connect_timeout_seconds = 10
+acquire_timeout_seconds = 5
+idle_timeout_seconds = 300
+max_lifetime_seconds = 1800
+test_before_acquire = false
+sqlx_logging = false
+
+[database]
+connection = "postgres://postgres:123456@127.0.0.1:5432/webcore"
+
+[lock]
+component = "in_memory"
+connection = "redis://127.0.0.1/"
+prefix = "task_service"
+expiry_seconds = 60
+
+[poll]
+queue_interval_seconds = 5
+schedule_interval_milliseconds = 256
+
+[logger]
+component = "local_file"
+project = "task_service"
+save_days = 14
+
+[file]
+component = "local"
+root_path = "presentation/task_service/storage"
+additional_root_paths = [
+	"presentation/admin_webapi/storage",
+	"presentation/client_webapi/storage",
+]
+public_base_url = ""
+
+[file.aliyun_oss]
+region = ""
+use_internal_endpoint = false
+access_key_id = ""
+access_key_secret = ""
+bucket_name = ""
+endpoint = ""
+
+[file.tencent_cos]
+app_id = ""
+region = ""
+secret_id = ""
+secret_key = ""
+bucket_name = ""
+endpoint = ""
+
+[sms]
+component = "aliyun"
+
+[sms.aliyun]
+access_key_id = ""
+access_key_secret = ""
+
+[sms.tencent]
+app_id = ""
+secret_id = ""
+secret_key = ""
+
+[message.smtp]
+host = "smtp.example.com"
+port = 587
+username = ""
+password = ""

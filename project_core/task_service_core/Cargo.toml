@@ -1,0 +1,27 @@
+[package]
+name = "task_service_core"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+application_interface = { path = "../../application/application_interface" }
+application_model = { path = "../../application/application_model" }
+application_service_sms = { path = "../../application/application_service_sms" }
+application_service_task_service = { path = "../../application/application_service_task_service" }
+common = { path = "../../infrastructure/common" }
+distributed_cache = { path = "../../infrastructure/distributed_cache" }
+distributed_lock = { path = "../../infrastructure/distributed_lock" }
+identifier_generator = { path = "../../infrastructure/identifier_generator" }
+logger = { path = "../../infrastructure/logger" }
+repository = { path = "../../repository" }
+source_generator_runtime = { path = "../../source_generator/source_generator_runtime" }
+
+async-trait = "0.1"
+chrono = "0.4.44"
+config = "0.15.22"
+cron = "0.16.0"
+sea-orm = { version = "1.1.20", features = [ "sqlx-postgres", "runtime-tokio-rustls" ] }
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0"
+tokio = { version = "1.52.1", features = ["net", "time", "signal"] }
+tracing = "0.1.44"

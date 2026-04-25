@@ -1,0 +1,12 @@
+[package]
+name = "application_service_sms"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+application_interface = { path = "../application_interface" }
+application_model = { path = "../application_model" }
+common = { path = "../../infrastructure/common" }
+
+serde_json = "1.0"
+source_generator_runtime = { path = "../../source_generator/source_generator_runtime" }

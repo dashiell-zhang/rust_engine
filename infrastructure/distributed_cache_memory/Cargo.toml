@@ -1,0 +1,11 @@
+[package]
+name = "distributed_cache_memory"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+distributed_cache = { path = "../distributed_cache" }
+
+async-trait = "0.1"
+dashmap = "6"
+

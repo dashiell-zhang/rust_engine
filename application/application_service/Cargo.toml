@@ -1,0 +1,36 @@
+[package]
+name = "application_service"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+application_interface = { path = "../application_interface" }
+application_model = { path = "../application_model" }
+common = { path = "../../infrastructure/common" }
+distributed_cache = { path = "../../infrastructure/distributed_cache" }
+distributed_lock = { path = "../../infrastructure/distributed_lock" }
+repository = { path = "../../repository" }
+source_generator_runtime = { path = "../../source_generator/source_generator_runtime" }
+
+base64 = "0.22.1"
+chrono = "0.4.44"
+indexmap = { version = "2", features = ["serde"] }
+mime_guess = "2.0"
+hmac = "0.13.0"
+pbkdf2 = "0.13.0"
+async-recursion = "1"
+async-trait = "0.1"
+rsa = { version = "0.9.10", features = ["pem", "sha2"] }
+rand = "0.10"
+pem = "3.0"
+reqwest = { version = "0.13.2", default-features = false, features = ["json", "rustls"] }
+tokio = { version = "1", features = ["rt", "fs", "io-util"] }
+sea-orm = { version = "1.1.20", features = ["sqlx-postgres", "runtime-tokio-rustls", "macros"] }
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0"
+sha2 = "0.11.0"
+subtle = "2.6.1"
+tracing = "0.1"
+url = "2.5.8"
+uuid = "1"
+x509-cert = { version = "0.2", features = ["pem"] }

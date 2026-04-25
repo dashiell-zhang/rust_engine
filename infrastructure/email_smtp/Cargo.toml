@@ -1,0 +1,14 @@
+[package]
+name = "email_smtp"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+application_interface = { path = "../../application/application_interface" }
+common = { path = "../common" }
+email = { path = "../email" }
+async-trait = "0.1"
+lettre = { version = "0.11", default-features = false, features = ["smtp-transport", "tokio1-rustls", "ring", "rustls-native-certs", "hostname", "builder"] }
+mime_guess = "2"
+serde = { version = "1", features = ["derive"] }
+tracing = "0.1"

@@ -1,0 +1,87 @@
+[host]
+listen_address = "0.0.0.0:3001"
+
+[host.database_pool]
+test_before_acquire = false
+max_connections = 30
+min_connections = 3
+connect_timeout_seconds = 10
+acquire_timeout_seconds = 5
+idle_timeout_seconds = 300
+max_lifetime_seconds = 1800
+sqlx_logging = false
+
+[database]
+connection = "postgres://postgres:123456@127.0.0.1:5432/webcore"
+
+[cors]
+allowed_origin_list = [
+	"*"
+]
+
+[jwt]
+issuer = "*"
+audience = "*"
+private_key = "MHcCAQEEIM46BrFOgAQYogx27I1vhqUnoX7dy3NND/yNSIXl8OLDoAoGCCqGSM49AwEHoUQDQgAEWIDxFn39cqNZdikMuwqF097X8BlIejvhb7QMp3fzXeGY+kcd7oku0dOQB34e5uOhYiHtzkDM/k+xdubSpp0dNA=="
+public_key = "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEWIDxFn39cqNZdikMuwqF097X8BlIejvhb7QMp3fzXeGY+kcd7oku0dOQB34e5uOhYiHtzkDM/k+xdubSpp0dNA=="
+expiry_seconds = 43200
+
+[lock]
+component = "in_memory"
+connection = "redis://127.0.0.1/"
+prefix = "client_webapi"
+
+[logger]
+component = "local_file"
+project = "client_webapi"
+save_days = 14
+
+[logger.log_level]
+default = "info"
+"http.request" = "warning"
+
+[file]
+component = "local"
+root_path = "presentation/client_webapi/storage"
+public_base_url = "http://127.0.0.1:3001"
+
+[file.aliyun_oss]
+region = ""
+use_internal_endpoint = false
+access_key_id = ""
+access_key_secret = ""
+bucket_name = ""
+endpoint = ""
+
+[file.tencent_cos]
+app_id = ""
+region = ""
+secret_id = ""
+secret_key = ""
+bucket_name = ""
+endpoint = ""
+
+[cache]
+component = "in_memory"
+connection = "redis://127.0.0.1/"
+prefix = "client_webapi"
+
+[sms_verify]
+code_ttl_seconds = 300
+resend_interval_seconds = 60
+queue_task_name = "System.Queue.SendSms"
+sign_name = ""
+template_code = ""
+
+[llm.providers.deepseek]
+base_url = "https://api.deepseek.com/v1"
+api_key = ""
+
+[llm.providers.qwen]
+base_url = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+api_key = ""
+
+[rate_limit]
+enabled = false
+max_requests = 100
+window_seconds = 60

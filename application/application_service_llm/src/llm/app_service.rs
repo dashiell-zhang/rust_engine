@@ -1,0 +1,565 @@
+use std::collections::{BTreeSet, HashMap};
+use std::sync::OnceLock;
+
+use chrono::Utc;
+use common::json_helper::{
+    JsonObjectStringError, parse_optional_json_object_string, parse_optional_json_object_value,
+    validate_optional_json_object_string,
+};
+use regex::Regex;
+use repository::extensions::SoftDeleteQueryExt;
+use repository::llm_app;
+use sea_orm::{
+    ActiveModelTrait, ColumnTrait, EntityTrait, IntoActiveModel, PaginatorTrait, QueryFilter,
+    QueryOrder, QuerySelect, Set,
+};
+use serde_json::{Map, Value};
+
+use application_interface::{
+    context::{CurrentUser, LlmContext},
+    error::AppError,
+    llm::{AppLlmChatRequest, AppLlmMessage, AppLlmRole, AppLlmUsage},
+};
+use application_model::shared::models::{normalize_page, validate_page_request};
+use application_model::user::models::PageListDto;
+
+use super::models::{
+    EditLlmAppDto, LlmAppDto, LlmAppPageListDto, LlmAppPageRequest, TestLlmAppRequest,
+    TestLlmAppResult, TestLlmAppUsage,
+};
+
+/// LLM 应用配置服务
+///
+/// 负责 LLM 应用配置的增删改查与测试调用
+pub struct LlmAppService<'a> {
+    /// 应用层上下文
+    context: LlmContext<'a>,
+}
+
+impl<'a> LlmAppService<'a> {
+    /// 创建 LLM 应用配置服务
+    ///
+    /// 使用统一 LLM 上下文访问数据库和客户端工厂
+    pub fn new(context: LlmContext<'a>) -> Self {
+        Self { context }
+    }
+
+    /// 获取 LLM 应用配置分页列表
+    pub async fn get_llm_app_list(
+        &self,
+        params: LlmAppPageRequest,
+    ) -> Result<LlmAppPageListDto, AppError> {
+        validate_page_request(params.page, params.page_size)?;
+
+        let mut query = llm_app::Entity::find().not_deleted(llm_app::Column::DeleteTime);
+
+        if let Some(keyword) = &params.keyword {
+            let keyword = keyword.trim();
+            if !keyword.is_empty() {
+                let pattern = format!("%{keyword}%");
+                query = query.filter(
+                    llm_app::Column::Code
+                        .like(pattern.clone())
+                        .or(llm_app::Column::Name.like(pattern.clone()))
+                        .or(llm_app::Column::Provider.like(pattern.clone()))
+                        .or(llm_app::Column::Model.like(pattern.clone()))
+                        .or(llm_app::Column::Remark.like(pattern)),
+                );
+            }
+        }
+
+        if let Some(provider) = &params.provider {
+            let provider = provider.trim();
+            if !provider.is_empty() {
+                query = query.filter(llm_app::Column::Provider.eq(provider));
+            }
+        }
+
+        if let Some(is_enable) = params.is_enable {
+            query = query.filter(llm_app::Column::IsEnable.eq(is_enable));
+        }
+
+        let total = query
+            .clone()
+            .count(self.context.app.db)
+            .await
+            .map_err(to_app_error)?;
+
+        if total == 0 {
+            return Ok(PageListDto {
+                total: 0,
+                list: vec![],
+            });
+        }
+
+        let page = normalize_page(params.page);
+        let skip = (page - 1) * params.page_size;
+        let list = query
+            .order_by_desc(llm_app::Column::Id)
+            .offset(skip)
+            .limit(params.page_size)
+            .all(self.context.app.db)
+            .await
+            .map_err(to_app_error)?
+            .into_iter()
+            .map(to_llm_app_dto)
+            .collect();
+
+        Ok(PageListDto { total, list })
+    }
+
+    /// 获取单个 LLM 应用配置
+    pub async fn get_llm_app(&self, llm_app_id: i64) -> Result<Option<LlmAppDto>, AppError> {
+        if llm_app_id <= 0 {
+            return Err(AppError::bad_request("无效的 llmAppId"));
+        }
+
+        let model = llm_app::Entity::find()
+            .filter(llm_app::Column::Id.eq(llm_app_id))
+            .not_deleted(llm_app::Column::DeleteTime)
+            .one(self.context.app.db)
+            .await
+            .map_err(to_app_error)?;
+
+        Ok(model.map(to_llm_app_dto))
+    }
+
+    /// 创建 LLM 应用配置，返回新配置 ID
+    pub async fn create_llm_app(
+        &self,
+        dto: EditLlmAppDto,
+        current_user: &CurrentUser,
+    ) -> Result<String, AppError> {
+        validate_edit_llm_app(&dto)?;
+
+        let code = dto.code.trim().to_string();
+        let exists = llm_app::Entity::find()
+            .filter(llm_app::Column::Code.eq(code.clone()))
+            .not_deleted(llm_app::Column::DeleteTime)
+            .count(self.context.app.db)
+            .await
+            .map_err(to_app_error)?;
+
+        if exists > 0 {
+            return Err(AppError::conflict("Code 已存在"));
+        }
+
+        let id = self
+            .context
+            .app
+            .id_generator
+            .get_id()
+            .await
+            .map_err(|error| AppError::internal(format!("生成 LLM 应用主键失败: {error}")))?;
+        let model = llm_app::ActiveModel {
+            id: Set(id),
+            code: Set(code),
+            name: Set(dto.name.trim().to_string()),
+            provider: Set(dto.provider.trim().to_string()),
+            model: Set(dto.model.trim().to_string()),
+            system_prompt_template: Set(normalize_optional_string(
+                dto.system_prompt_template.as_deref(),
+            )),
+            prompt_template: Set(dto.prompt_template.trim().to_string()),
+            max_tokens: Set(dto.max_tokens),
+            temperature: Set(dto.temperature),
+            extra_body_json: Set(normalize_optional_string(dto.extra_body_json.as_deref())),
+            is_enable: Set(dto.is_enable),
+            remark: Set(normalize_optional_string(dto.remark.as_deref())),
+            create_time: Set(Utc::now().into()),
+            delete_time: Set(None),
+            update_time: Set(None),
+            create_user_id: Set(Some(current_user.user_id)),
+            update_user_id: Set(None),
+            delete_user_id: Set(None),
+        };
+
+        model
+            .insert(self.context.app.db)
+            .await
+            .map_err(|e| AppError::internal(format!("创建 LLM 应用配置失败: {e}")))?;
+
+        Ok(id.to_string())
+    }
+
+    /// 更新 LLM 应用配置
+    pub async fn update_llm_app(
+        &self,
+        llm_app_id: i64,
+        dto: EditLlmAppDto,
+        current_user: &CurrentUser,
+    ) -> Result<bool, AppError> {
+        if llm_app_id <= 0 {
+            return Err(AppError::bad_request("无效的 llmAppId"));
+        }
+
+        validate_edit_llm_app(&dto)?;
+
+        let code = dto.code.trim().to_string();
+        let duplicate_count = llm_app::Entity::find()
+            .filter(llm_app::Column::Id.ne(llm_app_id))
+            .filter(llm_app::Column::Code.eq(code.clone()))
+            .not_deleted(llm_app::Column::DeleteTime)
+            .count(self.context.app.db)
+            .await
+            .map_err(to_app_error)?;
+
+        if duplicate_count > 0 {
+            return Err(AppError::conflict("Code 已存在"));
+        }
+
+        let model = llm_app::Entity::find()
+            .filter(llm_app::Column::Id.eq(llm_app_id))
+            .not_deleted(llm_app::Column::DeleteTime)
+            .one(self.context.app.db)
+            .await
+            .map_err(to_app_error)?;
+
+        let Some(model) = model else {
+            return Err(AppError::bad_request("无效的 llmAppId"));
+        };
+
+        let mut active = model.into_active_model();
+        active.code = Set(code);
+        active.name = Set(dto.name.trim().to_string());
+        active.provider = Set(dto.provider.trim().to_string());
+        active.model = Set(dto.model.trim().to_string());
+        active.system_prompt_template = Set(normalize_optional_string(
+            dto.system_prompt_template.as_deref(),
+        ));
+        active.prompt_template = Set(dto.prompt_template.trim().to_string());
+        active.max_tokens = Set(dto.max_tokens);
+        active.temperature = Set(dto.temperature);
+        active.extra_body_json = Set(normalize_optional_string(dto.extra_body_json.as_deref()));
+        active.is_enable = Set(dto.is_enable);
+        active.remark = Set(normalize_optional_string(dto.remark.as_deref()));
+        active.update_user_id = Set(Some(current_user.user_id));
+
+        active
+            .update(self.context.app.db)
+            .await
+            .map_err(|e| AppError::internal(format!("更新 LLM 应用配置失败: {e}")))?;
+
+        Ok(true)
+    }
+
+    /// 软删除 LLM 应用配置
+    pub async fn delete_llm_app(
+        &self,
+        llm_app_id: i64,
+        current_user: &CurrentUser,
+    ) -> Result<bool, AppError> {
+        if llm_app_id <= 0 {
+            return Err(AppError::bad_request("无效的 llmAppId"));
+        }
+
+        let model = llm_app::Entity::find()
+            .filter(llm_app::Column::Id.eq(llm_app_id))
+            .not_deleted(llm_app::Column::DeleteTime)
+            .one(self.context.app.db)
+            .await
+            .map_err(to_app_error)?;
+
+        let Some(model) = model else {
+            return Ok(true);
+        };
+
+        let mut active = model.into_active_model();
+        active.delete_time = Set(Some(Utc::now().into()));
+        active.delete_user_id = Set(Some(current_user.user_id));
+        active.update_user_id = Set(Some(current_user.user_id));
+
+        active
+            .update(self.context.app.db)
+            .await
+            .map_err(|e| AppError::internal(format!("删除 LLM 应用配置失败: {e}")))?;
+
+        Ok(true)
+    }
+
+    /// 执行 LLM 应用测试调用
+    ///
+    /// 通过应用层客户端工厂执行一次模板渲染后的测试调用
+    pub async fn test_llm_app(
+        &self,
+        request: TestLlmAppRequest,
+    ) -> Result<TestLlmAppResult, AppError> {
+        validate_test_llm_app_request(&request)?;
+
+        let client = self
+            .context
+            .llm_client_factory
+            .require_client(request.provider.trim())?;
+
+        let parameters = request.parameters.unwrap_or_default();
+        validate_required_parameters(
+            request.system_prompt_template.as_deref(),
+            Some(request.prompt_template.as_str()),
+            &parameters,
+        )?;
+
+        let system_prompt = render_template(request.system_prompt_template.as_deref(), &parameters);
+        let prompt = render_template(Some(request.prompt_template.as_str()), &parameters)
+            .unwrap_or_default();
+
+        let mut messages = Vec::new();
+
+        if let Some(system_prompt) = system_prompt
+            .as_deref()
+            .filter(|item| !item.trim().is_empty())
+        {
+            messages.push(AppLlmMessage {
+                role: AppLlmRole::System,
+                content: system_prompt.to_string(),
+            });
+        }
+
+        messages.push(AppLlmMessage {
+            role: AppLlmRole::User,
+            content: prompt,
+        });
+
+        let chat_request = AppLlmChatRequest {
+            model: request.model.trim().to_string(),
+            messages,
+            temperature: request.temperature.map(|item| item as f32),
+            max_tokens: request.max_tokens.and_then(|item| u32::try_from(item).ok()),
+            extra_body: parse_extra_body_value(request.extra_body)?,
+        };
+
+        let response = client.chat(chat_request).await?;
+
+        Ok(TestLlmAppResult {
+            model: response.model,
+            response_id: response.response_id,
+            content: response
+                .messages
+                .first()
+                .map(|message| message.content.clone()),
+            usage: response.usage.map(to_test_usage),
+        })
+    }
+}
+
+/// 校验编辑 LLM 应用配置请求
+fn validate_edit_llm_app(dto: &EditLlmAppDto) -> Result<(), AppError> {
+    if dto.code.trim().is_empty() {
+        return Err(AppError::bad_request("Code 不可以为空"));
+    }
+
+    if dto.name.trim().is_empty() {
+        return Err(AppError::bad_request("应用名称不可以为空"));
+    }
+
+    if dto.provider.trim().is_empty() {
+        return Err(AppError::bad_request("Provider 标识不可以为空"));
+    }
+
+    if dto.model.trim().is_empty() {
+        return Err(AppError::bad_request("模型名称不可以为空"));
+    }
+
+    if dto.prompt_template.trim().is_empty() {
+        return Err(AppError::bad_request("PromptTemplate 不可以为空"));
+    }
+
+    validate_extra_body_json(dto.extra_body_json.as_deref())
+}
+
+/// 校验测试调用请求
+fn validate_test_llm_app_request(request: &TestLlmAppRequest) -> Result<(), AppError> {
+    if request.provider.trim().is_empty() {
+        return Err(AppError::bad_request("Provider 不可以为空"));
+    }
+
+    if request.model.trim().is_empty() {
+        return Err(AppError::bad_request("模型名称不可以为空"));
+    }
+
+    if request.prompt_template.trim().is_empty() {
+        return Err(AppError::bad_request("PromptTemplate 不可以为空"));
+    }
+
+    if let Some(extra_body) = &request.extra_body {
+        parse_extra_body_value(Some(extra_body.clone()))?;
+    }
+
+    Ok(())
+}
+
+/// 校验额外请求参数 JSON
+fn validate_extra_body_json(extra_body_json: Option<&str>) -> Result<(), AppError> {
+    validate_optional_json_object_string(extra_body_json).map_err(map_extra_body_json_string_error)
+}
+
+/// 解析额外请求参数 JSON 字符串
+pub(crate) fn parse_extra_body_json(
+    extra_body_json: Option<&str>,
+) -> Result<Option<Map<String, Value>>, AppError> {
+    parse_optional_json_object_string(extra_body_json).map_err(map_extra_body_json_string_error)
+}
+
+/// 解析额外请求参数对象
+fn parse_extra_body_value(
+    extra_body: Option<Value>,
+) -> Result<Option<Map<String, Value>>, AppError> {
+    parse_optional_json_object_value(extra_body).map_err(map_extra_body_value_error)
+}
+
+/// 映射 ExtraBodyJson 字符串错误
+fn map_extra_body_json_string_error(error: JsonObjectStringError) -> AppError {
+    match error {
+        JsonObjectStringError::InvalidJson => {
+            AppError::bad_request("ExtraBodyJson 不是合法的 JSON")
+        }
+        JsonObjectStringError::NotObject => AppError::bad_request(
+            "ExtraBodyJson 必须是 JSON 对象（例如 {\"enable_thinking\":true}）",
+        ),
+    }
+}
+
+/// 映射 ExtraBody 值错误
+fn map_extra_body_value_error(error: JsonObjectStringError) -> AppError {
+    match error {
+        JsonObjectStringError::InvalidJson => AppError::bad_request("ExtraBody 不是合法的 JSON"),
+        JsonObjectStringError::NotObject => {
+            AppError::bad_request("ExtraBody 必须是 JSON 对象（例如 {\"enable_thinking\":true}）")
+        }
+    }
+}
+
+/// 校验模板必填参数
+pub(crate) fn validate_required_parameters(
+    system_prompt_template: Option<&str>,
+    prompt_template: Option<&str>,
+    parameters: &HashMap<String, String>,
+) -> Result<(), AppError> {
+    let required_keys = extract_required_keys(system_prompt_template)
+        .into_iter()
+        .chain(extract_required_keys(prompt_template))
+        .collect::<BTreeSet<_>>();
+
+    if required_keys.is_empty() {
+        return Ok(());
+    }
+
+    let missing = required_keys
+        .into_iter()
+        .filter(|key| {
+            !parameters
+                .get(key)
+                .map(|value| !value.trim().is_empty())
+                .unwrap_or(false)
+        })
+        .collect::<Vec<_>>();
+
+    if missing.is_empty() {
+        Ok(())
+    } else {
+        Err(AppError::bad_request(format!(
+            "必传参数未填写: {}",
+            missing.join("、")
+        )))
+    }
+}
+
+/// 提取必填占位参数
+fn extract_required_keys(template: Option<&str>) -> Vec<String> {
+    let Some(template) = template.filter(|item| !item.trim().is_empty()) else {
+        return Vec::new();
+    };
+
+    placeholder_regex()
+        .captures_iter(template)
+        .filter(|capture| capture.name("required").is_some())
+        .filter_map(|capture| {
+            capture
+                .name("key")
+                .map(|item| item.as_str().trim().to_string())
+        })
+        .filter(|item| !item.is_empty())
+        .collect()
+}
+
+/// 渲染提示词模板
+pub(crate) fn render_template(
+    template: Option<&str>,
+    parameters: &HashMap<String, String>,
+) -> Option<String> {
+    let template = template?;
+
+    Some(
+        placeholder_regex()
+            .replace_all(template, |captures: &regex::Captures<'_>| {
+                let key = captures
+                    .name("key")
+                    .map(|item| item.as_str())
+                    .unwrap_or_default();
+
+                parameters.get(key).cloned().unwrap_or_else(|| {
+                    captures
+                        .get(0)
+                        .map(|item| item.as_str())
+                        .unwrap_or_default()
+                        .to_string()
+                })
+            })
+            .to_string(),
+    )
+}
+
+/// 获取占位符正则
+fn placeholder_regex() -> &'static Regex {
+    static PLACEHOLDER_REGEX: OnceLock<Regex> = OnceLock::new();
+
+    PLACEHOLDER_REGEX.get_or_init(|| {
+        Regex::new(r"\{\{\s*(?P<required>\*)?\s*(?P<key>[^{}\s]+)\s*\}\}")
+            .expect("placeholder regex must be valid")
+    })
+}
+
+/// 规整可选字符串
+fn normalize_optional_string(value: Option<&str>) -> Option<String> {
+    value
+        .map(str::trim)
+        .filter(|item| !item.is_empty())
+        .map(str::to_string)
+}
+
+/// 转换应用层用量为测试返回用量
+fn to_test_usage(usage: AppLlmUsage) -> TestLlmAppUsage {
+    TestLlmAppUsage {
+        prompt_tokens: usage
+            .prompt_tokens
+            .and_then(|item| i32::try_from(item).ok()),
+        completion_tokens: usage
+            .completion_tokens
+            .and_then(|item| i32::try_from(item).ok()),
+        total_tokens: usage.total_tokens.and_then(|item| i32::try_from(item).ok()),
+    }
+}
+
+/// 将实体模型转换为返回模型
+fn to_llm_app_dto(model: llm_app::Model) -> LlmAppDto {
+    LlmAppDto {
+        id: model.id.to_string(),
+        code: model.code,
+        name: model.name,
+        provider: model.provider,
+        model: model.model,
+        system_prompt_template: model.system_prompt_template,
+        prompt_template: model.prompt_template,
+        max_tokens: model.max_tokens,
+        temperature: model.temperature,
+        extra_body_json: model.extra_body_json,
+        is_enable: model.is_enable,
+        remark: model.remark,
+        create_time: model.create_time.to_rfc3339(),
+        update_time: model.update_time.map(|item| item.to_rfc3339()),
+    }
+}
+
+/// 将数据库错误转换为应用层错误
+fn to_app_error(error: sea_orm::DbErr) -> AppError {
+    AppError::internal(error.to_string())
+}

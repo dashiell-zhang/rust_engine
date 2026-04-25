@@ -1,0 +1,40 @@
+[package]
+name = "admin_webapi"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+tokio = { version = "1.52.1", features = ["full"] }
+tokio-util = { version = "0.7", features = ["io"] }
+webapi_core = { path = "../../project_core/webapi_core" }
+application_service = { path = "../../application/application_service" }
+application_service_llm = { path = "../../application/application_service_llm" }
+application_model = { path = "../../application/application_model" }
+application_interface = { path = "../../application/application_interface" }
+distributed_cache = { path = "../../infrastructure/distributed_cache" }
+distributed_cache_memory = { path = "../../infrastructure/distributed_cache_memory" }
+distributed_cache_redis = { path = "../../infrastructure/distributed_cache_redis" }
+distributed_lock = { path = "../../infrastructure/distributed_lock" }
+distributed_lock_memory = { path = "../../infrastructure/distributed_lock_memory" }
+distributed_lock_redis = { path = "../../infrastructure/distributed_lock_redis" }
+email_smtp = { path = "../../infrastructure/email_smtp" }
+file_storage = { path = "../../infrastructure/file_storage" }
+file_storage_ali_cloud = { path = "../../infrastructure/file_storage_ali_cloud" }
+file_storage_tencent_cloud = { path = "../../infrastructure/file_storage_tencent_cloud" }
+logger = { path = "../../infrastructure/logger" }
+logger_database = { path = "../../infrastructure/logger_database" }
+logger_local_file = { path = "../../infrastructure/logger_local_file" }
+llm = { path = "../../infrastructure/llm" }
+llm_deepseek = { path = "../../infrastructure/llm_deepseek" }
+llm_qwen = { path = "../../infrastructure/llm_qwen" }
+
+common = { path = "../../infrastructure/common" }
+
+axum = { version = "0.8.9", features = ["multipart"] }
+utoipa = { version = "5", features = ["axum_extras", "chrono"] }
+mime_guess = "2.0"
+base64 = "0.22"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+serde_urlencoded = "0.7"
+uuid = "1"

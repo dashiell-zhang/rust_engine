@@ -1,0 +1,21 @@
+[package]
+name = "application_service_llm"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+application_interface = { path = "../application_interface" }
+application_model = { path = "../application_model" }
+common = { path = "../../infrastructure/common" }
+llm = { path = "../../infrastructure/llm" }
+repository = { path = "../../repository" }
+source_generator_runtime = { path = "../../source_generator/source_generator_runtime" }
+
+chrono = "0.4.44"
+async-stream = "0.3"
+async-trait = "0.1"
+futures-util = "0.3"
+regex = "1"
+sea-orm = { version = "1.1.20", features = ["sqlx-postgres", "runtime-tokio-rustls", "macros"] }
+serde_json = "1.0"
+tracing = "0.1"

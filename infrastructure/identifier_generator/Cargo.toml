@@ -1,0 +1,12 @@
+[package]
+name = "identifier_generator"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+distributed_cache = { path = "../distributed_cache" }
+distributed_lock = { path = "../distributed_lock" }
+rand = "0.10"
+serde = { version = "1", features = ["derive"] }
+tokio = { version = "1", features = ["time", "sync", "rt"] }
+

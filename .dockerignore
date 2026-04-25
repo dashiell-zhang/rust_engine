@@ -1,0 +1,8 @@
+.git
+.vscode
+target
+dist
+logs
+presentation/admin_webapi/storage
+presentation/client_webapi/storage
+presentation/task_service/storage

@@ -1,0 +1,9 @@
+[package]
+name = "llm_deepseek"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+async-trait = "0.1"
+futures-util = "0.3"
+llm = { path = "../llm" }
