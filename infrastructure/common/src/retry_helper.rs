@@ -59,7 +59,8 @@ impl RetryConfig {
                     return self.initial_delay.min(self.max_delay);
                 }
 
-                let factor = multiplier.powi(attempt as i32);
+                let exponent = i32::try_from(attempt).unwrap_or(i32::MAX);
+                let factor = multiplier.powi(exponent);
                 let millis = (self.initial_delay.as_millis() as f64 * factor) as u128;
                 Duration::from_millis(millis.min(self.max_delay.as_millis()) as u64)
             }

@@ -2,7 +2,7 @@ use calamine::{Data, Reader, open_workbook_auto};
 use rust_xlsxwriter::Workbook;
 use serde::{Serialize, de::DeserializeOwned};
 use serde_json::{Map, Value};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 const EXCEL_MAX_ROWS: usize = 1_048_576;
 const EXCEL_MAX_COLUMNS: usize = 16_384;
@@ -103,6 +103,7 @@ pub fn excel_to_data_table(
             .map(|index| format!("column{}", index + 1))
             .collect::<Vec<_>>()
     };
+    validate_unique_headers(&headers)?;
 
     let data_rows = if is_have_column_name {
         rows.collect::<Vec<_>>()
@@ -209,9 +210,11 @@ where
         headers.to_vec()
     } else {
         let mut headers = rows
-            .first()
-            .map(|row| row.keys().cloned().collect::<Vec<_>>())
-            .unwrap_or_default();
+            .iter()
+            .flat_map(|row| row.keys().cloned())
+            .collect::<HashSet<_>>()
+            .into_iter()
+            .collect::<Vec<_>>();
         headers.sort();
         headers
     };
@@ -284,6 +287,18 @@ fn extract_nested_value(value: &Value, field: &str) -> Option<Value> {
     }
 
     Some(current.clone())
+}
+
+/// 校验表头不能重复
+fn validate_unique_headers(headers: &[String]) -> Result<(), String> {
+    let mut seen = HashSet::new();
+    for header in headers {
+        if !seen.insert(header) {
+            return Err(format!("Excel 表头重复: {header}"));
+        }
+    }
+
+    Ok(())
 }
 
 /// 校验 Excel 行索引

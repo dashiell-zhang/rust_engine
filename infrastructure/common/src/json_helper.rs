@@ -79,7 +79,12 @@ where
     match value {
         Some(I64OrString::I64(value)) => Ok(Some(value)),
         Some(I64OrString::String(value)) => {
-            value.parse::<i64>().map(Some).map_err(D::Error::custom)
+            let value = value.trim();
+            if value.is_empty() {
+                Ok(None)
+            } else {
+                value.parse::<i64>().map(Some).map_err(D::Error::custom)
+            }
         }
         None => Ok(None),
     }

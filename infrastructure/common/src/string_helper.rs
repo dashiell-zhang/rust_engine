@@ -109,9 +109,45 @@ pub fn normalize_optional_str(value: &str) -> Option<String> {
     }
 }
 
-/// Unicode 转普通字符串
-pub fn unicode_to_string(text: &str) -> Result<String, serde_json::Error> {
-    serde_json::from_str::<String>(&format!("\"{}\"", escape_json_text_preserve_slash(text)))
+/// Unicode 转普通字符串，仅转换 \uXXXX 序列，其他反斜杠内容保持原样
+pub fn unicode_to_string(text: &str) -> String {
+    let mut output = String::with_capacity(text.len());
+    let mut chars = text.chars().peekable();
+
+    while let Some(ch) = chars.next() {
+        if ch != '\\' || chars.peek() != Some(&'u') {
+            output.push(ch);
+            continue;
+        }
+
+        let mut probe = chars.clone();
+        let _ = probe.next();
+        let mut hex = String::with_capacity(4);
+        for _ in 0..4 {
+            let Some(item) = probe.next() else {
+                output.push(ch);
+                break;
+            };
+            hex.push(item);
+        }
+
+        if hex.len() != 4 {
+            continue;
+        }
+
+        let Some(decoded) = decode_unicode_escape(&hex) else {
+            output.push(ch);
+            continue;
+        };
+
+        let _ = chars.next();
+        for _ in 0..4 {
+            let _ = chars.next();
+        }
+        output.push(decoded);
+    }
+
+    output
 }
 
 /// 过滤删除掉字符串中的数字
@@ -411,22 +447,8 @@ fn html_unescape(value: &str) -> String {
         .replace("&copy;", "\u{00A9}")
 }
 
-/// 转义 JSON 字符串内容，同时保留反斜杠转义序列供 serde_json 解码
-fn escape_json_text_preserve_slash(value: &str) -> String {
-    let mut output = String::with_capacity(value.len());
-
-    for ch in value.chars() {
-        match ch {
-            '"' => output.push_str("\\\""),
-            '\n' => output.push_str("\\n"),
-            '\r' => output.push_str("\\r"),
-            '\t' => output.push_str("\\t"),
-            '\u{08}' => output.push_str("\\b"),
-            '\u{0C}' => output.push_str("\\f"),
-            ch if ch.is_control() => output.push_str(&format!("\\u{:04X}", ch as u32)),
-            ch => output.push(ch),
-        }
-    }
-
-    output
+/// 解码 4 位 Unicode 转义值
+fn decode_unicode_escape(hex: &str) -> Option<char> {
+    let value = u32::from_str_radix(hex, 16).ok()?;
+    char::from_u32(value)
 }

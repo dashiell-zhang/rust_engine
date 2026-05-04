@@ -63,8 +63,9 @@ pub async fn download_file(
         .or_else(|| infer_file_name(url))
         .unwrap_or_else(|| "download.bin".to_string());
     let file_path = folder_path.join(resolved_name);
+    let temp_file_path = temporary_download_path(&file_path);
 
-    let mut file = fs::File::create(&file_path)
+    let mut file = fs::File::create(&temp_file_path)
         .await
         .map_err(|error| CustomError::with_source("创建本地文件失败", error))?;
     let mut response = response;
@@ -76,6 +77,15 @@ pub async fn download_file(
         file.write_all(&bytes)
             .await
             .map_err(|error| CustomError::with_source("写入本地文件失败", error))?;
+    }
+    file.flush()
+        .await
+        .map_err(|error| CustomError::with_source("刷新本地文件失败", error))?;
+    drop(file);
+
+    if let Err(error) = fs::rename(&temp_file_path, &file_path).await {
+        let _ = fs::remove_file(&temp_file_path).await;
+        return Err(CustomError::with_source("保存下载文件失败", error));
     }
 
     Ok(Some(file_path))
@@ -240,4 +250,15 @@ fn sanitize_file_name(file_name: &str) -> Result<String, CustomError> {
         .to_string();
 
     Ok(name)
+}
+
+/// 生成下载临时文件路径
+fn temporary_download_path(file_path: &Path) -> PathBuf {
+    let mut temp_name = file_path
+        .file_name()
+        .map(|value| value.to_os_string())
+        .unwrap_or_else(|| "download.bin".into());
+    temp_name.push(format!(".{}.tmp", uuid::Uuid::now_v7()));
+
+    file_path.with_file_name(temp_name)
 }
