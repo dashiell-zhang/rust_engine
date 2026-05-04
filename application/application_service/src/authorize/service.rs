@@ -1161,16 +1161,11 @@ impl<'a> AuthorizeService<'a> {
         route: &str,
         allow_unbound: bool,
     ) -> Result<bool, AppError> {
-        // 缓存键中包含路由版本和用户版本 便于低成本整体失效
+        // 缓存键中包含路由版本和用户版本 便于低成本整体失效。
+        // 路由绑定和功能有效性仍需在缓存命中前确认，避免功能被软删除后旧的 true 缓存继续放行。
         let cache_key = self
             .build_route_authorize_cache_key(current_user.user_id, module, route, allow_unbound)
             .await?;
-
-        if let Some(cache) = self.context.cache {
-            if let Some(cached_value) = cache.get_string(&cache_key).await? {
-                return parse_cached_bool(&cached_value);
-            }
-        }
 
         let function_id = function_route::Entity::find()
             .filter(function_route::Column::Module.eq(module))
@@ -1182,6 +1177,24 @@ impl<'a> AuthorizeService<'a> {
             .and_then(|item| item.function_id);
 
         let result = if let Some(function_id) = function_id {
+            let function_is_active = function::Entity::find_by_id(function_id)
+                .not_deleted(function::Column::DeleteTime)
+                .one(self.context.app.db)
+                .await
+                .map_err(|error| AppError::internal(format!("功能信息查询失败: {error}")))?
+                .is_some();
+
+            if !function_is_active {
+                self.try_cache_bool(&cache_key, false).await;
+                return Ok(false);
+            }
+
+            if let Some(cache) = self.context.cache {
+                if let Some(cached_value) = cache.get_string(&cache_key).await? {
+                    return parse_cached_bool(&cached_value);
+                }
+            }
+
             // 已绑定功能时 同时检查用户直授和角色继承的权限
             let role_ids = user_role::Entity::find()
                 .filter(user_role::Column::UserId.eq(current_user.user_id))
@@ -1210,6 +1223,12 @@ impl<'a> AuthorizeService<'a> {
                 .map_err(|error| AppError::internal(format!("权限数据查询失败: {error}")))?
                 .is_some()
         } else {
+            if let Some(cache) = self.context.cache {
+                if let Some(cached_value) = cache.get_string(&cache_key).await? {
+                    return parse_cached_bool(&cached_value);
+                }
+            }
+
             allow_unbound
         };
 

@@ -35,13 +35,13 @@ impl<'a> PermissionRouteService<'a> {
         &self,
         module_name: &str,
         routes: &[PermissionRouteSyncItem<'_>],
-    ) -> Result<(), AppError> {
+    ) -> Result<bool, AppError> {
         if module_name.trim().is_empty() {
             return Err(AppError::bad_request("权限模块名不可以为空"));
         }
 
         if routes.is_empty() {
-            return Ok(());
+            return Ok(false);
         }
 
         let existing_routes = function_route::Entity::find()
@@ -51,6 +51,7 @@ impl<'a> PermissionRouteService<'a> {
             .map_err(|error| AppError::internal(format!("权限路由读取失败: {error}")))?;
 
         let route_paths = routes.iter().map(|item| item.route).collect::<Vec<_>>();
+        let mut changed = false;
 
         for model in &existing_routes {
             if model.delete_time.is_some() {
@@ -90,6 +91,7 @@ impl<'a> PermissionRouteService<'a> {
                 None,
             )
             .await?;
+            changed = true;
         }
 
         for route in routes {
@@ -135,6 +137,7 @@ impl<'a> PermissionRouteService<'a> {
                     None,
                 )
                 .await?;
+                changed = true;
                 continue;
             }
 
@@ -172,8 +175,9 @@ impl<'a> PermissionRouteService<'a> {
                 None,
             )
             .await?;
+            changed = true;
         }
 
-        Ok(())
+        Ok(changed)
     }
 }

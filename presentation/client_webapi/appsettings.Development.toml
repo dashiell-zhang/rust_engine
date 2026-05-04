@@ -44,6 +44,7 @@ default = "info"
 component = "local"
 root_path = "presentation/client_webapi/storage"
 public_base_url = "http://127.0.0.1:3001"
+max_upload_bytes = 52428800
 
 [file.aliyun_oss]
 region = ""

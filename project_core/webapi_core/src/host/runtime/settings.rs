@@ -108,6 +108,10 @@ pub struct FileSettings {
     #[serde(default)]
     pub public_base_url: String,
 
+    /// 普通文件上传最大字节数
+    #[serde(default = "default_file_max_upload_bytes")]
+    pub max_upload_bytes: usize,
+
     /// 阿里云 OSS 配置
     #[serde(default)]
     pub aliyun_oss: AliyunOssFileStorageSettings,
@@ -378,6 +382,7 @@ impl Default for FileSettings {
             component: default_file_storage_component(),
             root_path: default_file_root_path(),
             public_base_url: String::new(),
+            max_upload_bytes: default_file_max_upload_bytes(),
             aliyun_oss: AliyunOssFileStorageSettings::default(),
             tencent_cos: TencentCosFileStorageSettings::default(),
         }
@@ -559,6 +564,11 @@ fn default_lock_prefix() -> String {
 /// 获取默认文件根目录
 fn default_file_root_path() -> String {
     "data/files".to_string()
+}
+
+/// 获取默认普通文件上传最大字节数
+fn default_file_max_upload_bytes() -> usize {
+    50 * 1024 * 1024
 }
 
 /// 获取默认文件存储组件类型

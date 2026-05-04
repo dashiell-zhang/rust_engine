@@ -20,6 +20,7 @@ use application_interface::context::AppContext;
 use application_interface::email::AppEmailSender;
 use application_interface::http_client::HttpClientFactory;
 use application_interface::storage::AppFileStorage;
+use application_service::authorize::service::invalidate_route_authorize_cache;
 use application_service::permission_route::service::{
     PermissionRouteService, PermissionRouteSyncItem,
 };
@@ -178,7 +179,7 @@ impl WebApiHostBuilder {
             })
             .collect::<Vec<_>>();
 
-        PermissionRouteService::new(AppContext {
+        let route_permissions_changed = PermissionRouteService::new(AppContext {
             db: db_pool.as_ref(),
             id_generator: &id_generator,
             // 启动阶段同步权限路由时尚未进入请求上下文
@@ -190,6 +191,10 @@ impl WebApiHostBuilder {
         )
         .await
         .map_err(|error| error.message().to_string())?;
+
+        if route_permissions_changed {
+            invalidate_route_authorize_cache(Some(distributed_cache.as_ref())).await;
+        }
 
         // 提前取出限流配置，避免 settings move 进 AppState 后无法访问
         let rate_limit_settings = self.settings.rate_limit.clone();

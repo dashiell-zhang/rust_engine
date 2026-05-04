@@ -10,7 +10,7 @@ use application_interface::{
 use application_service::{
     app_setting::service::AppSettingService,
     article::service::{ArticleService, ArticleWebApiService},
-    authorize::service::AuthorizeService,
+    authorize::service::{AuthorizeService, invalidate_route_authorize_cache},
     factory::{
         AppContextProvider, ApplicationServiceFactory, FileContextProvider, MessageContextProvider,
         PayContextProvider, RoleContextProvider,
@@ -78,9 +78,14 @@ impl AppState {
             })
             .collect::<Vec<_>>();
 
-        self.permission_route()
+        let changed = self
+            .permission_route()
             .sync_routes(&self.settings.permission_module, &routes)
             .await?;
+
+        if changed {
+            invalidate_route_authorize_cache(Some(self.cache.as_ref())).await;
+        }
 
         Ok(true)
     }

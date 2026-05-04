@@ -36,6 +36,8 @@ const SCRAWL_MAX_SIZE: usize = 5 * 1024 * 1024;
 const FILE_MAX_SIZE: usize = 50 * 1024 * 1024;
 /// UEditor 视频最大上传大小
 const VIDEO_MAX_SIZE: usize = 200 * 1024 * 1024;
+/// UEditor 请求体最大上传大小
+pub const MAX_UEDITOR_UPLOAD_BODY_BYTES: usize = VIDEO_MAX_SIZE;
 /// UEditor 远程抓图表单最大大小
 const CRAWL_FORM_MAX_SIZE: usize = 64 * 1024;
 /// UEditor 远程抓图最大数量

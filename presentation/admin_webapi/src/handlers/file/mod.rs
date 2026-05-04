@@ -120,6 +120,7 @@ pub async fn upload_file(
     let mut file_name = None;
     let mut temp_file_path = None;
     let mut file_length = 0_u64;
+    let max_upload_bytes = app_state.settings.file.max_upload_bytes as u64;
 
     // 与 NetEngine 对齐：直接把上传流复制到临时文件，避免整文件进入内存。
     while let Some(mut field) = multipart.next_field().await.map_err(|error| {
@@ -150,6 +151,16 @@ pub async fn upload_file(
             )))
         })? {
             current_length += chunk.len() as u64;
+            if current_length > max_upload_bytes {
+                drop(temp_file);
+                cleanup_temp_file(&temp_path).await;
+                return Err(AppError::from(
+                    application_service::error::AppError::bad_request(format!(
+                        "上传文件大小超过限制，最大允许 {max_upload_bytes} 字节"
+                    )),
+                ));
+            }
+
             temp_file.write_all(&chunk).await.map_err(|error| {
                 AppError::from(application_service::error::AppError::internal(format!(
                     "写入临时文件失败: {error}"

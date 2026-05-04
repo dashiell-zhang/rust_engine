@@ -1,4 +1,4 @@
-use axum::Router;
+use axum::{Router, extract::DefaultBodyLimit};
 use std::sync::Arc;
 use utoipa::{OpenApi, openapi::OpenApi as OpenApiDocument};
 use webapi_core::builder::protect_method_router;
@@ -24,6 +24,7 @@ impl WebApiFeature for FileFeature {
         app_state: Arc<AppState>,
     ) -> Router<Arc<AppState>> {
         let permission_module = app_state.settings.permission_module.clone();
+        let max_upload_bytes = app_state.settings.file.max_upload_bytes;
 
         router
             .route(
@@ -34,7 +35,8 @@ impl WebApiFeature for FileFeature {
                     permission_module.clone(),
                     "/File/UploadFile",
                     false,
-                ),
+                )
+                .layer(DefaultBodyLimit::max(max_upload_bytes)),
             )
             .route(
                 "/File/RemoteUploadFile",
