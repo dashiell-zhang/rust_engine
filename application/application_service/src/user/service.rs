@@ -5,7 +5,7 @@ use common::string_helper::trim_prefix_name;
 use repository::extensions::{SoftDeleteQueryExt, not_deleted_expr};
 use repository::{
     function, function_authorize, region_area, region_city, region_province, role, user, user_info,
-    user_role,
+    user_role, user_token,
 };
 use sea_orm::{
     ActiveModelTrait, ColumnTrait, ConnectionTrait, DatabaseConnection, DbErr, EntityTrait,
@@ -446,6 +446,7 @@ impl<'a> UserService<'a> {
         } else if direct_authorize.is_some() {
             let user_authorize_list = function_authorize::Entity::find()
                 .filter(function_authorize::Column::UserId.eq(dto.user_id))
+                .filter(function_authorize::Column::FunctionId.eq(dto.function_id))
                 .not_deleted(function_authorize::Column::DeleteTime)
                 .all(&tx)
                 .await
@@ -779,6 +780,22 @@ impl<'a> UserService<'a> {
             .update(&tx)
             .await
             .map_err(|error| AppError::internal(format!("删除用户失败: {error}")))?;
+
+        let token_list = user_token::Entity::find()
+            .filter(user_token::Column::UserId.eq(target_id))
+            .not_deleted(user_token::Column::DeleteTime)
+            .all(&tx)
+            .await
+            .map_err(|error| AppError::internal(format!("查询用户 Token 失败: {error}")))?;
+
+        for token in token_list {
+            let mut token_active = token.into_active_model();
+            token_active.delete_time = Set(Some(delete_time.into()));
+            token_active
+                .update(&tx)
+                .await
+                .map_err(|error| AppError::internal(format!("用户 Token 失效失败: {error}")))?;
+        }
 
         write_data_update_log_with_connection(
             &tx,
@@ -1278,6 +1295,7 @@ mod webapi_impl {
     use repository::extensions::SoftDeleteQueryExt;
 
     use super::UserService;
+    use crate::authorize::service::try_cache_token_validity;
     use crate::region::service::RegionWebApiService;
 
     use crate::write_support::{
@@ -1292,7 +1310,7 @@ mod webapi_impl {
         EditUserDto, EditUserPhoneBySmsDto, EditUserProfileDto, PageListDto, SetUserFunctionDto,
         SetUserRoleDto, UserDto, UserFunctionDto, UserPageRequest, UserProfileDto, UserRoleDto,
     };
-    use repository::user;
+    use repository::{user, user_token};
     use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, IntoActiveModel, QueryFilter, Set};
     use serde_json::json;
     use std::time::Duration;
@@ -1452,9 +1470,24 @@ mod webapi_impl {
             target_id: i64,
             current_user: &CurrentUser,
         ) -> Result<bool, AppError> {
+            let token_ids = user_token::Entity::find()
+                .filter(user_token::Column::UserId.eq(target_id))
+                .not_deleted(user_token::Column::DeleteTime)
+                .all(self.context.app.db)
+                .await
+                .map_err(to_app_error)?
+                .into_iter()
+                .map(|token| token.id)
+                .collect::<Vec<_>>();
+
             let result = UserService::new(self.context.app)
                 .delete_user(target_id, current_user)
                 .await?;
+
+            for token_id in token_ids {
+                try_cache_token_validity(self.context.cache, target_id, token_id, false).await;
+            }
+
             self.invalidate_user_permission_cache(target_id).await;
             Ok(result)
         }

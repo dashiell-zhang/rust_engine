@@ -15,6 +15,7 @@ use std::{
 };
 use tokio::fs;
 use tokio::io::AsyncWriteExt;
+use webapi_core::body_limit::DEFAULT_BUFFERED_BODY_LIMIT_BYTES;
 use webapi_core::extract::{Json, Query};
 use webapi_core::{auth::UserContext, error::AppError};
 
@@ -28,13 +29,15 @@ const DEFAULT_UPLOAD_FIELD_NAME: &str = "upfile";
 /// UEditor 历史前端在配置缺失时可能退化成 undefined 字段名
 const FALLBACK_BASE64_FIELD_NAME: &str = "undefined";
 /// UEditor 图片最大上传大小
-const IMAGE_MAX_SIZE: usize = 2_147_483_647;
+const IMAGE_MAX_SIZE: usize = 10 * 1024 * 1024;
 /// UEditor 涂鸦最大上传大小
-const SCRAWL_MAX_SIZE: usize = 2_147_483_647;
+const SCRAWL_MAX_SIZE: usize = 5 * 1024 * 1024;
 /// UEditor 文件最大上传大小
-const FILE_MAX_SIZE: usize = 2_147_483_647;
+const FILE_MAX_SIZE: usize = 50 * 1024 * 1024;
 /// UEditor 视频最大上传大小
-const VIDEO_MAX_SIZE: usize = 2_147_483_647;
+const VIDEO_MAX_SIZE: usize = 200 * 1024 * 1024;
+/// UEditor 远程抓图表单最大大小
+const CRAWL_FORM_MAX_SIZE: usize = 64 * 1024;
 /// UEditor 远程抓图最大数量
 const MAX_CRAWL_IMAGE_COUNT: usize = 20;
 /// UEditor 图片允许扩展名
@@ -285,7 +288,7 @@ async fn handle_base64_upload_request(
     request: Request,
     upload_spec: UeditorUploadSpec,
 ) -> Result<Response, AppError> {
-    let bytes = match to_bytes(request.into_body(), usize::MAX).await {
+    let bytes = match to_bytes(request.into_body(), DEFAULT_BUFFERED_BODY_LIMIT_BYTES).await {
         Ok(bytes) => bytes,
         Err(error) => return Ok(ueditor_state_response(format!("读取上传表单失败: {error}"))),
     };
@@ -427,7 +430,7 @@ async fn handle_crawl_image_request(
     current_user: CurrentUser,
     request: Request,
 ) -> Result<Response, AppError> {
-    let bytes = to_bytes(request.into_body(), usize::MAX)
+    let bytes = to_bytes(request.into_body(), CRAWL_FORM_MAX_SIZE)
         .await
         .map_err(|error| {
             AppError::from(application_service::error::AppError::bad_request(format!(

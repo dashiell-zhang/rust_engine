@@ -967,6 +967,12 @@ struct WxPayCertificatesResponse {
 /// 微信支付支付成功通知资源明文
 #[derive(Debug, Deserialize)]
 struct WxPayTransactionResource {
+    /// 应用标识
+    appid: String,
+
+    /// 商户号
+    mchid: String,
+
     /// 订单号
     out_trade_no: String,
 
@@ -1244,7 +1250,8 @@ impl<'a> PayService<'a> {
                 })?;
 
             if transaction.trade_state == "SUCCESS" {
-                self.apply_wx_pay_transaction(&transaction).await?;
+                self.apply_wx_pay_transaction(&settings, &transaction)
+                    .await?;
             }
         }
 
@@ -1660,8 +1667,17 @@ impl<'a> PayService<'a> {
     /// 已支付的订单会直接跳过，防止重复处理
     async fn apply_wx_pay_transaction(
         &self,
+        settings: &WxPaySettings,
         transaction: &WxPayTransactionResource,
     ) -> Result<(), AppError> {
+        if transaction.appid != settings.app_id {
+            return Err(AppError::bad_request("微信支付通知 AppId 与配置不一致"));
+        }
+
+        if transaction.mchid != settings.mch_id {
+            return Err(AppError::bad_request("微信支付通知商户号与配置不一致"));
+        }
+
         let order_model = order::Entity::find()
             .filter(order::Column::OrderNo.eq(&transaction.out_trade_no))
             .not_deleted(order::Column::DeleteTime)
@@ -1685,10 +1701,13 @@ impl<'a> PayService<'a> {
             return Ok(());
         }
 
+        let expected_total = decimal_to_fen(order_model.price)?;
+        if transaction.amount.total != expected_total {
+            return Err(AppError::bad_request("微信支付金额与订单金额不一致"));
+        }
+
         // 微信支付金额单位为分，转回元存储
-        let pay_price =
-            Decimal::from_str(&(transaction.amount.total as f64 / 100.0).to_string())
-                .map_err(|error| AppError::internal(format!("转换微信支付金额失败: {error}")))?;
+        let pay_price = Decimal::from(transaction.amount.total) / Decimal::from(100);
         let paid_at = transaction.success_time.unwrap_or_else(Utc::now);
 
         // 记录支付回调写入前的订单状态
