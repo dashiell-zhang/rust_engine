@@ -1,4 +1,5 @@
 use std::{
+    io,
     net::{IpAddr, ToSocketAddrs},
     process::Command,
 };
@@ -25,13 +26,31 @@ pub fn get_ipv6_address() -> Option<String> {
 /// Linux 运行 shell 脚本
 pub fn linux_shell(shell: &str) -> std::io::Result<String> {
     let output = Command::new("/bin/bash").arg("-c").arg(shell).output()?;
+    ensure_command_success(output.status, &output.stderr)?;
     Ok(String::from_utf8_lossy(&output.stdout).into_owned())
 }
 
 /// Windows 运行 shell 脚本
 pub fn windows_shell(shell: &str) -> std::io::Result<String> {
     let output = Command::new("powershell").arg("-c").arg(shell).output()?;
+    ensure_command_success(output.status, &output.stderr)?;
     Ok(String::from_utf8_lossy(&output.stdout).into_owned())
+}
+
+/// 检查命令是否执行成功
+fn ensure_command_success(status: std::process::ExitStatus, stderr: &[u8]) -> io::Result<()> {
+    if status.success() {
+        return Ok(());
+    }
+
+    let message = String::from_utf8_lossy(stderr).trim().to_string();
+    let message = if message.is_empty() {
+        format!("命令执行失败，退出码: {:?}", status.code())
+    } else {
+        message
+    };
+
+    Err(io::Error::other(message))
 }
 
 /// 解析本机地址

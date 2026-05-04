@@ -111,7 +111,7 @@ pub fn normalize_optional_str(value: &str) -> Option<String> {
 
 /// Unicode 转普通字符串
 pub fn unicode_to_string(text: &str) -> Result<String, serde_json::Error> {
-    serde_json::from_str::<String>(&format!("\"{}\"", escape_json_string(text)))
+    serde_json::from_str::<String>(&format!("\"{}\"", escape_json_text_preserve_slash(text)))
 }
 
 /// 过滤删除掉字符串中的数字
@@ -327,20 +327,6 @@ where
 {
     let object = serde_json::to_value(value)?;
     let mut result = String::from(url);
-    let separator = if url.contains('?') {
-        if url.ends_with('&') || url.ends_with('?') {
-            ""
-        } else {
-            "&"
-        }
-    } else {
-        "?"
-    };
-
-    if !separator.is_empty() {
-        result.push_str(separator);
-    }
-
     let mut first = true;
 
     if let serde_json::Value::Object(map) = object {
@@ -357,9 +343,18 @@ where
                 other => other.to_string(),
             };
 
-            if !first {
+            if first {
+                if !url.ends_with('&') && !url.ends_with('?') {
+                    if url.contains('?') {
+                        result.push('&');
+                    } else {
+                        result.push('?');
+                    }
+                }
+            } else {
                 result.push('&');
             }
+
             first = false;
             result.push_str(&urlencoding::encode(&key));
             result.push('=');
@@ -416,7 +411,22 @@ fn html_unescape(value: &str) -> String {
         .replace("&copy;", "\u{00A9}")
 }
 
-/// 转义 JSON 字符串内容，便于借助 serde_json 解析 unicode 转义序列
-fn escape_json_string(value: &str) -> String {
-    value.replace('\\', "\\\\").replace('"', "\\\"")
+/// 转义 JSON 字符串内容，同时保留反斜杠转义序列供 serde_json 解码
+fn escape_json_text_preserve_slash(value: &str) -> String {
+    let mut output = String::with_capacity(value.len());
+
+    for ch in value.chars() {
+        match ch {
+            '"' => output.push_str("\\\""),
+            '\n' => output.push_str("\\n"),
+            '\r' => output.push_str("\\r"),
+            '\t' => output.push_str("\\t"),
+            '\u{08}' => output.push_str("\\b"),
+            '\u{0C}' => output.push_str("\\f"),
+            ch if ch.is_control() => output.push_str(&format!("\\u{:04X}", ch as u32)),
+            ch => output.push(ch),
+        }
+    }
+
+    output
 }

@@ -87,6 +87,16 @@ pub fn verify_code(
     algo: Algo,
 ) -> Result<bool, String> {
     validate_digits(digits)?;
+    if period == 0 {
+        return Err("时间步长必须大于 0".to_string());
+    }
+    if allowed_drift < 0 {
+        return Err("允许漂移窗口不能小于 0".to_string());
+    }
+    if allowed_drift > 10 {
+        return Err("允许漂移窗口不能大于 10".to_string());
+    }
+
     if code.len() != digits as usize || !code.chars().all(|item| item.is_ascii_digit()) {
         return Ok(false);
     }
@@ -136,10 +146,10 @@ fn compute_hotp(key: &[u8], counter: u64, digits: u32, algo: Algo) -> Result<Str
         | (u32::from(mac[offset + 2]) << 8)
         | u32::from(mac[offset + 3]);
 
-    let modulo = 10u32.pow(digits);
+    let modulo = 10u64.pow(digits);
     Ok(format!(
         "{:0width$}",
-        binary % modulo,
+        u64::from(binary) % modulo,
         width = digits as usize
     ))
 }

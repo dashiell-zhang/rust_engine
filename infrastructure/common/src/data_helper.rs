@@ -4,6 +4,9 @@ use serde::{Serialize, de::DeserializeOwned};
 use serde_json::{Map, Value};
 use std::collections::HashMap;
 
+const EXCEL_MAX_ROWS: usize = 1_048_576;
+const EXCEL_MAX_COLUMNS: usize = 16_384;
+
 /// 数据表行
 pub type DataTableRow = HashMap<String, Value>;
 
@@ -130,14 +133,6 @@ where
     list_to_excel_internal(list, None)
 }
 
-/// 将列表导出为 Excel 文件流并兼容显示名
-pub fn list_to_excel_display_name<T>(list: &[T]) -> Result<Vec<u8>, String>
-where
-    T: Serialize,
-{
-    list_to_excel_internal(list, None)
-}
-
 /// 将列表按模板导出为 Excel 文件流
 pub fn list_to_excel_with_template<T>(
     list: &[T],
@@ -150,21 +145,19 @@ where
     let worksheet = workbook.add_worksheet();
 
     for (column_index, column) in excel_template.column_list.iter().enumerate() {
+        let column_index = excel_column_index(column_index)?;
         worksheet
-            .write_string(0, column_index as u16, &column.title)
+            .write_string(0, column_index, &column.title)
             .map_err(|error| error.to_string())?;
     }
 
     for (row_index, item) in list.iter().enumerate() {
+        let row_index = excel_row_index(row_index + 1)?;
         let value = serde_json::to_value(item).map_err(|error| error.to_string())?;
         for (column_index, column) in excel_template.column_list.iter().enumerate() {
+            let column_index = excel_column_index(column_index)?;
             let cell_value = extract_nested_value(&value, &column.field).unwrap_or(Value::Null);
-            write_excel_value(
-                worksheet,
-                (row_index + 1) as u32,
-                column_index as u16,
-                &cell_value,
-            )?;
+            write_excel_value(worksheet, row_index, column_index, &cell_value)?;
         }
     }
 
@@ -215,26 +208,27 @@ where
     let header_list = if let Some(headers) = headers {
         headers.to_vec()
     } else {
-        rows.first()
+        let mut headers = rows
+            .first()
             .map(|row| row.keys().cloned().collect::<Vec<_>>())
-            .unwrap_or_default()
+            .unwrap_or_default();
+        headers.sort();
+        headers
     };
 
     for (index, header) in header_list.iter().enumerate() {
+        let index = excel_column_index(index)?;
         worksheet
-            .write_string(0, index as u16, header)
+            .write_string(0, index, header)
             .map_err(|error| error.to_string())?;
     }
 
     for (row_index, row) in rows.iter().enumerate() {
+        let row_index = excel_row_index(row_index + 1)?;
         for (column_index, header) in header_list.iter().enumerate() {
+            let column_index = excel_column_index(column_index)?;
             let value = row.get(header).cloned().unwrap_or(Value::Null);
-            write_excel_value(
-                worksheet,
-                (row_index + 1) as u32,
-                column_index as u16,
-                &value,
-            )?;
+            write_excel_value(worksheet, row_index, column_index, &value)?;
         }
     }
 
@@ -290,6 +284,24 @@ fn extract_nested_value(value: &Value, field: &str) -> Option<Value> {
     }
 
     Some(current.clone())
+}
+
+/// 校验 Excel 行索引
+fn excel_row_index(index: usize) -> Result<u32, String> {
+    if index >= EXCEL_MAX_ROWS {
+        return Err(format!("Excel 行数不能超过 {EXCEL_MAX_ROWS}"));
+    }
+
+    Ok(index as u32)
+}
+
+/// 校验 Excel 列索引
+fn excel_column_index(index: usize) -> Result<u16, String> {
+    if index >= EXCEL_MAX_COLUMNS {
+        return Err(format!("Excel 列数不能超过 {EXCEL_MAX_COLUMNS}"));
+    }
+
+    Ok(index as u16)
 }
 
 /// Excel 单元格转 Json

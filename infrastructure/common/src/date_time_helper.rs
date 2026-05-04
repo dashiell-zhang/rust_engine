@@ -53,7 +53,13 @@ pub fn get_network_time() -> std::io::Result<DateTime<Utc>> {
     let mut packet = [0u8; 48];
     packet[0] = 0x1B;
     socket.send(&packet)?;
-    socket.recv(&mut packet)?;
+    let received = socket.recv(&mut packet)?;
+    if received < packet.len() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::UnexpectedEof,
+            "NTP 响应长度不足",
+        ));
+    }
 
     let seconds = u32::from_be_bytes([packet[40], packet[41], packet[42], packet[43]]) as i64;
     let fraction = u32::from_be_bytes([packet[44], packet[45], packet[46], packet[47]]) as u64;

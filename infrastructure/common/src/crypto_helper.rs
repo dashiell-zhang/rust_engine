@@ -97,10 +97,12 @@ pub fn base64_encode(text: &str) -> String {
 }
 
 /// Base64 解码
-pub fn base64_decode(text: &str) -> Result<String, base64::DecodeError> {
-    general_purpose::STANDARD
+pub fn base64_decode(text: &str) -> Result<String, String> {
+    let bytes = general_purpose::STANDARD
         .decode(text)
-        .map(|bytes| String::from_utf8_lossy(&bytes).into_owned())
+        .map_err(|error| error.to_string())?;
+
+    String::from_utf8(bytes).map_err(|error| error.to_string())
 }
 
 /// 使用 Aes ECB 加密
@@ -249,16 +251,16 @@ pub fn rsa_sign_data(
     let signature = match signature_padding {
         RsaSignaturePadding::Pkcs1 => match hash_algorithm {
             RsaHashAlgorithm::Md5 => private_key
-                .sign(Pkcs1v15Sign::new_unprefixed(), &digest)
+                .sign(pkcs1v15_sign_padding(hash_algorithm), &digest)
                 .map_err(|error| error.to_string())?,
             RsaHashAlgorithm::Sha1 => private_key
-                .sign(Pkcs1v15Sign::new_unprefixed(), &digest)
+                .sign(pkcs1v15_sign_padding(hash_algorithm), &digest)
                 .map_err(|error| error.to_string())?,
             RsaHashAlgorithm::Sha256 => private_key
-                .sign(Pkcs1v15Sign::new_unprefixed(), &digest)
+                .sign(pkcs1v15_sign_padding(hash_algorithm), &digest)
                 .map_err(|error| error.to_string())?,
             RsaHashAlgorithm::Sha512 => private_key
-                .sign(Pkcs1v15Sign::new_unprefixed(), &digest)
+                .sign(pkcs1v15_sign_padding(hash_algorithm), &digest)
                 .map_err(|error| error.to_string())?,
         },
         RsaSignaturePadding::Pss => match hash_algorithm {
@@ -296,16 +298,16 @@ pub fn rsa_verify_data(
     let result = match signature_padding {
         RsaSignaturePadding::Pkcs1 => match hash_algorithm {
             RsaHashAlgorithm::Md5 => {
-                public_key.verify(Pkcs1v15Sign::new_unprefixed(), &digest, &signature)
+                public_key.verify(pkcs1v15_sign_padding(hash_algorithm), &digest, &signature)
             }
             RsaHashAlgorithm::Sha1 => {
-                public_key.verify(Pkcs1v15Sign::new_unprefixed(), &digest, &signature)
+                public_key.verify(pkcs1v15_sign_padding(hash_algorithm), &digest, &signature)
             }
             RsaHashAlgorithm::Sha256 => {
-                public_key.verify(Pkcs1v15Sign::new_unprefixed(), &digest, &signature)
+                public_key.verify(pkcs1v15_sign_padding(hash_algorithm), &digest, &signature)
             }
             RsaHashAlgorithm::Sha512 => {
-                public_key.verify(Pkcs1v15Sign::new_unprefixed(), &digest, &signature)
+                public_key.verify(pkcs1v15_sign_padding(hash_algorithm), &digest, &signature)
             }
         },
         RsaSignaturePadding::Pss => match hash_algorithm {
@@ -559,6 +561,45 @@ fn digest_for_rsa(hash_algorithm: RsaHashAlgorithm, content: &[u8]) -> Vec<u8> {
         RsaHashAlgorithm::Sha1 => Sha1::digest(content).to_vec(),
         RsaHashAlgorithm::Sha256 => Sha256::digest(content).to_vec(),
         RsaHashAlgorithm::Sha512 => Sha512::digest(content).to_vec(),
+    }
+}
+
+/// 构造标准 PKCS#1 v1.5 签名填充
+fn pkcs1v15_sign_padding(hash_algorithm: RsaHashAlgorithm) -> Pkcs1v15Sign {
+    let (hash_len, prefix): (usize, &[u8]) = match hash_algorithm {
+        RsaHashAlgorithm::Md5 => (
+            16,
+            &[
+                0x30, 0x20, 0x30, 0x0C, 0x06, 0x08, 0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x02, 0x05,
+                0x05, 0x00, 0x04, 0x10,
+            ],
+        ),
+        RsaHashAlgorithm::Sha1 => (
+            20,
+            &[
+                0x30, 0x21, 0x30, 0x09, 0x06, 0x05, 0x2B, 0x0E, 0x03, 0x02, 0x1A, 0x05, 0x00, 0x04,
+                0x14,
+            ],
+        ),
+        RsaHashAlgorithm::Sha256 => (
+            32,
+            &[
+                0x30, 0x31, 0x30, 0x0D, 0x06, 0x09, 0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02,
+                0x01, 0x05, 0x00, 0x04, 0x20,
+            ],
+        ),
+        RsaHashAlgorithm::Sha512 => (
+            64,
+            &[
+                0x30, 0x51, 0x30, 0x0D, 0x06, 0x09, 0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02,
+                0x03, 0x05, 0x00, 0x04, 0x40,
+            ],
+        ),
+    };
+
+    Pkcs1v15Sign {
+        hash_len: Some(hash_len),
+        prefix: prefix.into(),
     }
 }
 

@@ -1,6 +1,7 @@
 use std::{
     collections::HashMap,
-    path::{Path, PathBuf},
+    ffi::OsString,
+    path::{Component, Path, PathBuf},
 };
 
 use reqwest::{
@@ -57,21 +58,25 @@ pub async fn download_file(
         .map_err(|error| CustomError::with_source("创建下载目录失败", error))?;
 
     let resolved_name = file_name
-        .map(str::to_string)
+        .map(sanitize_file_name)
+        .transpose()?
         .or_else(|| infer_file_name(url))
         .unwrap_or_else(|| "download.bin".to_string());
     let file_path = folder_path.join(resolved_name);
-    let bytes = response
-        .bytes()
-        .await
-        .map_err(|error| CustomError::with_source("读取远程文件内容失败", error))?;
 
     let mut file = fs::File::create(&file_path)
         .await
         .map_err(|error| CustomError::with_source("创建本地文件失败", error))?;
-    file.write_all(&bytes)
+    let mut response = response;
+    while let Some(bytes) = response
+        .chunk()
         .await
-        .map_err(|error| CustomError::with_source("写入本地文件失败", error))?;
+        .map_err(|error| CustomError::with_source("读取远程文件内容失败", error))?
+    {
+        file.write_all(&bytes)
+            .await
+            .map_err(|error| CustomError::with_source("写入本地文件失败", error))?;
+    }
 
     Ok(Some(file_path))
 }
@@ -81,8 +86,11 @@ pub async fn get(
     http_client: &Client,
     url: &str,
     headers: Option<&HashMap<String, String>>,
-) -> Result<Response, reqwest::Error> {
-    apply_headers(http_client.get(url), headers).send().await
+) -> Result<Response, CustomError> {
+    apply_headers(http_client.get(url), headers)?
+        .send()
+        .await
+        .map_err(|error| CustomError::with_source("远程请求失败", error))
 }
 
 /// 以 Post 方式提交 Json 或 Xml 字符串
@@ -92,16 +100,17 @@ pub async fn post_string(
     data: String,
     content_type: &str,
     headers: Option<&HashMap<String, String>>,
-) -> Result<Response, reqwest::Error> {
+) -> Result<Response, CustomError> {
     apply_headers(
         http_client
             .post(url)
             .header("content-type", content_type)
             .body(data),
         headers,
-    )
+    )?
     .send()
     .await
+    .map_err(|error| CustomError::with_source("远程请求失败", error))
 }
 
 /// 以 Delete 方式发出请求
@@ -109,8 +118,11 @@ pub async fn delete(
     http_client: &Client,
     url: &str,
     headers: Option<&HashMap<String, String>>,
-) -> Result<Response, reqwest::Error> {
-    apply_headers(http_client.delete(url), headers).send().await
+) -> Result<Response, CustomError> {
+    apply_headers(http_client.delete(url), headers)?
+        .send()
+        .await
+        .map_err(|error| CustomError::with_source("远程请求失败", error))
 }
 
 /// 以 Post 方式提交表单数据
@@ -119,10 +131,11 @@ pub async fn post_form(
     url: &str,
     form_items: &HashMap<String, String>,
     headers: Option<&HashMap<String, String>>,
-) -> Result<Response, reqwest::Error> {
-    apply_headers(http_client.post(url).form(form_items), headers)
+) -> Result<Response, CustomError> {
+    apply_headers(http_client.post(url).form(form_items), headers)?
         .send()
         .await
+        .map_err(|error| CustomError::with_source("远程请求失败", error))
 }
 
 /// 以 Post 方式提交文件和表单数据
@@ -131,7 +144,7 @@ pub async fn post_form_data(
     url: &str,
     form_items: Vec<PostFormDataItem>,
     headers: Option<&HashMap<String, String>>,
-) -> Result<Response, reqwest::Error> {
+) -> Result<Response, CustomError> {
     let mut form = Form::new();
 
     for item in form_items {
@@ -151,9 +164,10 @@ pub async fn post_form_data(
         }
     }
 
-    apply_headers(http_client.post(url).multipart(form), headers)
+    apply_headers(http_client.post(url).multipart(form), headers)?
         .send()
         .await
+        .map_err(|error| CustomError::with_source("远程请求失败", error))
 }
 
 /// 构建文件上传 Part
@@ -173,22 +187,21 @@ fn build_file_part(file_name: String, bytes: Vec<u8>, content_type: Option<Strin
 fn apply_headers(
     request: RequestBuilder,
     headers: Option<&HashMap<String, String>>,
-) -> RequestBuilder {
+) -> Result<RequestBuilder, CustomError> {
     let Some(headers) = headers else {
-        return request;
+        return Ok(request);
     };
 
     let mut header_map = HeaderMap::new();
     for (key, value) in headers {
-        if let (Ok(name), Ok(value)) = (
-            HeaderName::from_bytes(key.as_bytes()),
-            HeaderValue::from_str(value),
-        ) {
-            header_map.insert(name, value);
-        }
+        let name = HeaderName::from_bytes(key.as_bytes())
+            .map_err(|error| CustomError::with_source(format!("请求头名称无效: {key}"), error))?;
+        let value = HeaderValue::from_str(value)
+            .map_err(|error| CustomError::with_source(format!("请求头值无效: {key}"), error))?;
+        header_map.insert(name, value);
     }
 
-    request.headers(header_map)
+    Ok(request.headers(header_map))
 }
 
 /// 从 URL 推断文件名
@@ -198,6 +211,33 @@ fn infer_file_name(url: &str) -> Option<String> {
     if name.is_empty() {
         None
     } else {
-        Some(name.to_string())
+        sanitize_file_name(name).ok()
     }
+}
+
+/// 校验并提取纯文件名，避免写出目标目录
+fn sanitize_file_name(file_name: &str) -> Result<String, CustomError> {
+    let trimmed = file_name.trim();
+    if trimmed.is_empty() {
+        return Err(CustomError::new("下载文件名不能为空"));
+    }
+
+    let path = Path::new(trimmed);
+    let mut components = path.components();
+    let Some(Component::Normal(name)) = components.next() else {
+        return Err(CustomError::new("下载文件名无效"));
+    };
+
+    if components.next().is_some() {
+        return Err(CustomError::new("下载文件名不能包含路径"));
+    }
+
+    let name = PathBuf::from(OsString::from(name))
+        .file_name()
+        .and_then(|value| value.to_str())
+        .filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| CustomError::new("下载文件名无效"))?
+        .to_string();
+
+    Ok(name)
 }
