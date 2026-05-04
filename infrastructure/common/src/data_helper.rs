@@ -6,6 +6,9 @@ use std::collections::{HashMap, HashSet};
 
 const EXCEL_MAX_ROWS: usize = 1_048_576;
 const EXCEL_MAX_COLUMNS: usize = 16_384;
+const JS_SAFE_INTEGER_MAX: i64 = 9_007_199_254_740_991;
+const JS_SAFE_INTEGER_MIN: i64 = -9_007_199_254_740_991;
+const JS_SAFE_UNSIGNED_INTEGER_MAX: u64 = 9_007_199_254_740_991;
 
 /// 数据表行
 pub type DataTableRow = HashMap<String, Value>;
@@ -255,6 +258,19 @@ fn write_excel_value(
             .map(|_| ())
             .map_err(|error| error.to_string()),
         Value::Number(value) => {
+            if value
+                .as_i64()
+                .is_some_and(|item| !(JS_SAFE_INTEGER_MIN..=JS_SAFE_INTEGER_MAX).contains(&item))
+                || value
+                    .as_u64()
+                    .is_some_and(|item| item > JS_SAFE_UNSIGNED_INTEGER_MAX)
+            {
+                return worksheet
+                    .write_string(row, col, value.to_string())
+                    .map(|_| ())
+                    .map_err(|error| error.to_string());
+            }
+
             if let Some(number) = value.as_f64() {
                 worksheet
                     .write_number(row, col, number)

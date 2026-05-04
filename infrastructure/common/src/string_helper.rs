@@ -229,11 +229,7 @@ pub fn is_lan_ip_address(ip_address: &str) -> bool {
 /// 检查 IPv4 地址是否是局域网 IP
 pub fn is_lan_ip_address_v4(ip_address: &str) -> bool {
     match ip_address.parse::<Ipv4Addr>() {
-        Ok(ip) => {
-            ip.octets()[0] == 10
-                || (ip.octets()[0] == 172 && (16..=31).contains(&ip.octets()[1]))
-                || (ip.octets()[0] == 192 && ip.octets()[1] == 168)
-        }
+        Ok(ip) => ip.is_private() || ip.is_loopback() || ip.is_link_local() || ip.is_broadcast(),
         Err(_) => false,
     }
 }
@@ -241,7 +237,7 @@ pub fn is_lan_ip_address_v4(ip_address: &str) -> bool {
 /// 检查 IPv6 地址是否是局域网 IP
 pub fn is_lan_ip_address_v6(ip_address: &str) -> bool {
     match ip_address.parse::<Ipv6Addr>() {
-        Ok(ip) => ip.is_unique_local(),
+        Ok(ip) => ip.is_unique_local() || ip.is_loopback() || ip.is_unicast_link_local(),
         Err(_) => false,
     }
 }

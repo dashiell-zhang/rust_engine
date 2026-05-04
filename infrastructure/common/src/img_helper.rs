@@ -25,6 +25,20 @@ pub fn screenshot(
     height: u32,
 ) -> Result<Vec<u8>, image::ImageError> {
     let image = image::open(from_image_path)?;
+    if width == 0 || height == 0 {
+        return Err(invalid_image_input("截图宽高必须大于 0"));
+    }
+
+    let Some(end_x) = offset_x.checked_add(width) else {
+        return Err(invalid_image_input("截图横向范围无效"));
+    };
+    let Some(end_y) = offset_y.checked_add(height) else {
+        return Err(invalid_image_input("截图纵向范围无效"));
+    };
+    if end_x > image.width() || end_y > image.height() {
+        return Err(invalid_image_input("截图范围超出图片尺寸"));
+    }
+
     let cropped = crop_imm(&image, offset_x, offset_y, width, height).to_image();
     encode_png(DynamicImage::ImageRgba8(cropped))
 }
@@ -107,6 +121,14 @@ fn encode_png(image: DynamicImage) -> Result<Vec<u8>, image::ImageError> {
     let mut bytes = Vec::new();
     image.write_to(&mut Cursor::new(&mut bytes), ImageFormat::Png)?;
     Ok(bytes)
+}
+
+/// 构造图片输入错误
+fn invalid_image_input(message: &str) -> image::ImageError {
+    image::ImageError::IoError(std::io::Error::new(
+        std::io::ErrorKind::InvalidInput,
+        message,
+    ))
 }
 
 /// 按目标框计算等比缩放后的尺寸

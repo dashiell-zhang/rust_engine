@@ -83,7 +83,7 @@ pub async fn download_file(
         .map_err(|error| CustomError::with_source("刷新本地文件失败", error))?;
     drop(file);
 
-    if let Err(error) = fs::rename(&temp_file_path, &file_path).await {
+    if let Err(error) = replace_file(&temp_file_path, &file_path).await {
         let _ = fs::remove_file(&temp_file_path).await;
         return Err(CustomError::with_source("保存下载文件失败", error));
     }
@@ -261,4 +261,16 @@ fn temporary_download_path(file_path: &Path) -> PathBuf {
     temp_name.push(format!(".{}.tmp", uuid::Uuid::now_v7()));
 
     file_path.with_file_name(temp_name)
+}
+
+/// 使用临时文件替换目标文件
+async fn replace_file(temp_file_path: &Path, file_path: &Path) -> std::io::Result<()> {
+    match fs::rename(temp_file_path, file_path).await {
+        Ok(()) => Ok(()),
+        Err(_) if file_path.exists() => {
+            fs::remove_file(file_path).await?;
+            fs::rename(temp_file_path, file_path).await
+        }
+        Err(error) => Err(error),
+    }
 }
