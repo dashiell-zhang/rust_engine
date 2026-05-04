@@ -18,6 +18,9 @@ use serde_json::to_string as to_json_string;
 use tracing::warn;
 use url::form_urlencoded;
 
+use crate::body_limit::{
+    DEFAULT_BUFFERED_BODY_LIMIT_BYTES, content_length_exceeds, has_content_length,
+};
 use crate::error::ErrBody;
 use crate::host::state::AppState;
 
@@ -117,6 +120,11 @@ enum CacheAcquireResult {
     Bypass,
 }
 
+enum CacheRequestBuildResult {
+    Cache(Request, String),
+    Bypass(Request),
+}
+
 /// 响应缓存中间件
 pub async fn cache_data_middleware(
     State(cache_state): State<CacheDataState>,
@@ -129,7 +137,8 @@ pub async fn cache_data_middleware(
 
     let (request, cache_key) = match build_cache_request_and_key(request, cache_state.options).await
     {
-        Ok(value) => value,
+        Ok(CacheRequestBuildResult::Cache(request, cache_key)) => (request, cache_key),
+        Ok(CacheRequestBuildResult::Bypass(request)) => return next.run(request).await,
         Err(response) => return response,
     };
 
@@ -145,8 +154,15 @@ pub async fn cache_data_middleware(
         return response;
     }
 
+    if !has_content_length(response.headers())
+        || content_length_exceeds(response.headers(), DEFAULT_BUFFERED_BODY_LIMIT_BYTES)
+    {
+        drop(lock_guard);
+        return response;
+    }
+
     let (parts, body) = response.into_parts();
-    let bytes = match to_bytes(body, usize::MAX).await {
+    let bytes = match to_bytes(body, DEFAULT_BUFFERED_BODY_LIMIT_BYTES).await {
         Ok(bytes) => bytes,
         Err(error) => {
             warn!(target: "webapi.cache_data", cache_key = %cache_key, error = %error, "读取响应体失败，无法继续输出响应");
@@ -193,14 +209,20 @@ pub async fn cache_data_middleware(
 async fn build_cache_request_and_key(
     request: Request,
     options: CacheDataOptions,
-) -> Result<(Request, String), Response> {
+) -> Result<CacheRequestBuildResult, Response> {
     if request.method() == Method::GET || request.method() == Method::HEAD {
         let cache_key = build_cache_key_from_seed(
             serialize_parameters(&collect_query_parameters(request.uri().query())),
             request_authorization(&request),
             options,
         );
-        return Ok((request, cache_key));
+        return Ok(CacheRequestBuildResult::Cache(request, cache_key));
+    }
+
+    if !has_content_length(request.headers())
+        || content_length_exceeds(request.headers(), DEFAULT_BUFFERED_BODY_LIMIT_BYTES)
+    {
+        return Ok(CacheRequestBuildResult::Bypass(request));
     }
 
     let (parts, body) = request.into_parts();
@@ -215,11 +237,11 @@ async fn build_cache_request_and_key(
         .get(axum::http::header::AUTHORIZATION)
         .and_then(|value| value.to_str().ok())
         .map(ToOwned::to_owned);
-    let body_bytes = match to_bytes(body, usize::MAX).await {
+    let body_bytes = match to_bytes(body, DEFAULT_BUFFERED_BODY_LIMIT_BYTES).await {
         Ok(bytes) => bytes,
         Err(error) => {
             warn!(target: "webapi.cache_data", method = %parts.method, path = %parts.uri.path(), error = %error, "读取请求体失败，无法继续处理请求");
-            return Err(invalid_request_body_response());
+            return Err(payload_too_large_response());
         }
     };
 
@@ -228,7 +250,7 @@ async fn build_cache_request_and_key(
     let request = Request::from_parts(parts, Body::from(body_bytes.clone()));
     let cache_key = build_cache_key_from_seed(seed, authorization.as_deref(), options);
 
-    Ok((request, cache_key))
+    Ok(CacheRequestBuildResult::Cache(request, cache_key))
 }
 
 async fn acquire_cache_guard(state: &CacheDataState, cache_key: &str) -> CacheAcquireResult {
@@ -317,11 +339,11 @@ fn request_authorization(request: &Request) -> Option<&str> {
         .and_then(|value| value.to_str().ok())
 }
 
-fn invalid_request_body_response() -> Response {
+fn payload_too_large_response() -> Response {
     (
-        StatusCode::BAD_REQUEST,
+        StatusCode::PAYLOAD_TOO_LARGE,
         Json(ErrBody {
-            err_msg: "请求体读取失败".to_string(),
+            err_msg: "请求体超过允许大小".to_string(),
         }),
     )
         .into_response()

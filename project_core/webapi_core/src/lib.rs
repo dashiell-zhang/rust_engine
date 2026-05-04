@@ -4,6 +4,9 @@ pub mod auth;
 /// 路由构建能力
 pub mod builder;
 
+/// body 缓冲上限能力
+pub mod body_limit;
+
 /// 请求参数提取能力
 pub mod extract;
 

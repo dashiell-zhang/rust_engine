@@ -14,6 +14,7 @@ use sha2::{Digest, Sha256};
 use std::{mem::ManuallyDrop, sync::Arc};
 use tracing::warn;
 
+use crate::body_limit::{DEFAULT_BUFFERED_BODY_LIMIT_BYTES, content_length_exceeds};
 use crate::error::ErrBody;
 
 /// 队列限制配置
@@ -213,9 +214,13 @@ async fn build_queue_limit_request_and_key(
     }
 
     let (parts, body) = request.into_parts();
-    let body_bytes = match to_bytes(body, usize::MAX).await {
+    if content_length_exceeds(&parts.headers, DEFAULT_BUFFERED_BODY_LIMIT_BYTES) {
+        return Err(payload_too_large_response());
+    }
+
+    let body_bytes = match to_bytes(body, DEFAULT_BUFFERED_BODY_LIMIT_BYTES).await {
         Ok(bytes) => bytes,
-        Err(_) => return Err(invalid_request_response()),
+        Err(_) => return Err(payload_too_large_response()),
     };
 
     let key = build_queue_limit_key(
@@ -314,12 +319,12 @@ fn too_many_requests_response() -> Response {
         .into_response()
 }
 
-/// 生成无效请求响应
-fn invalid_request_response() -> Response {
+/// 生成请求体过大响应
+fn payload_too_large_response() -> Response {
     (
-        StatusCode::BAD_REQUEST,
+        StatusCode::PAYLOAD_TOO_LARGE,
         Json(ErrBody {
-            err_msg: "请求参数读取失败".to_string(),
+            err_msg: "请求体超过允许大小".to_string(),
         }),
     )
         .into_response()

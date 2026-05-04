@@ -9,6 +9,10 @@ use axum::{
 use base64::{Engine as _, engine::general_purpose};
 use sha2::{Digest, Sha256};
 
+use crate::body_limit::{
+    DEFAULT_BUFFERED_BODY_LIMIT_BYTES, content_length_exceeds, has_content_length,
+};
+
 /// 为单个路由挂载 ETag 中间件
 pub fn etag_method_router<TState>(route: MethodRouter<TState>) -> MethodRouter<TState>
 where
@@ -30,9 +34,15 @@ pub async fn etag_middleware(request: Request, next: Next) -> Response {
         return response;
     }
 
+    if !has_content_length(response.headers())
+        || content_length_exceeds(response.headers(), DEFAULT_BUFFERED_BODY_LIMIT_BYTES)
+    {
+        return response;
+    }
+
     let (parts, body) = response.into_parts();
 
-    let bytes = match axum::body::to_bytes(body, usize::MAX).await {
+    let bytes = match axum::body::to_bytes(body, DEFAULT_BUFFERED_BODY_LIMIT_BYTES).await {
         Ok(bytes) => bytes,
         Err(_) => return Response::from_parts(parts, Body::empty()),
     };

@@ -15,6 +15,7 @@ use multer::Multipart;
 use sha2::{Digest, Sha256};
 
 use crate::auth::HasJwtCodec;
+use crate::body_limit::DEFAULT_BUFFERED_BODY_LIMIT_BYTES;
 use crate::error::ErrBody;
 
 /// 为单个路由挂载请求签名验证中间件
@@ -89,9 +90,9 @@ where
     };
 
     let (parts, body) = request.into_parts();
-    let body_bytes = match to_bytes(body, usize::MAX).await {
+    let body_bytes = match to_bytes(body, DEFAULT_BUFFERED_BODY_LIMIT_BYTES).await {
         Ok(bytes) => bytes,
-        Err(error) => return unauthorized(&format!("请求体读取失败: {error}")),
+        Err(error) => return payload_too_large(&format!("请求体过大或读取失败: {error}")),
     };
 
     let signature_body = match build_signature_body(
@@ -221,6 +222,17 @@ fn sha256_hex(input: &[u8]) -> String {
 fn unauthorized(message: &str) -> Response {
     (
         StatusCode::UNAUTHORIZED,
+        Json(ErrBody {
+            err_msg: message.to_string(),
+        }),
+    )
+        .into_response()
+}
+
+/// 返回 413 请求体过大响应
+fn payload_too_large(message: &str) -> Response {
+    (
+        StatusCode::PAYLOAD_TOO_LARGE,
         Json(ErrBody {
             err_msg: message.to_string(),
         }),
