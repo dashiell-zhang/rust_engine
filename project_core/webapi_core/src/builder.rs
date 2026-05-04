@@ -185,23 +185,23 @@ fn is_cors_host_match(
         allowed_host_pattern = &allowed_host_pattern["http://".len()..];
     }
 
-    if let Some(allowed_scheme) = allowed_scheme {
-        if !origin_scheme.eq_ignore_ascii_case(allowed_scheme) {
-            return false;
-        }
+    if let Some(allowed_scheme) = allowed_scheme
+        && !origin_scheme.eq_ignore_ascii_case(allowed_scheme)
+    {
+        return false;
     }
 
-    if let Some((host_pattern, port_text)) = allowed_host_pattern.rsplit_once(':') {
-        if let Ok(parsed_port) = port_text.parse::<u16>() {
-            allowed_host_pattern = host_pattern;
-            allowed_port = Some(parsed_port);
-        }
+    if let Some((host_pattern, port_text)) = allowed_host_pattern.rsplit_once(':')
+        && let Ok(parsed_port) = port_text.parse::<u16>()
+    {
+        allowed_host_pattern = host_pattern;
+        allowed_port = Some(parsed_port);
     }
 
-    if let Some(allowed_port) = allowed_port {
-        if origin_port != Some(allowed_port) {
-            return false;
-        }
+    if let Some(allowed_port) = allowed_port
+        && origin_port != Some(allowed_port)
+    {
+        return false;
     }
 
     if let Some(domain_suffix) = allowed_host_pattern.strip_prefix("*.") {

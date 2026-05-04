@@ -220,6 +220,7 @@ impl<'a> AuthorizeService<'a> {
 
         let user_models = user::Entity::find()
             .filter(user::Column::UserName.eq(request.user_name.trim()))
+            .not_deleted(user::Column::DeleteTime)
             .all(self.context.app.db)
             .await
             .map_err(|error| AppError::internal(format!("用户查询失败: {error}")))?;
@@ -1259,6 +1260,7 @@ impl<'a> AuthorizeService<'a> {
         let mut query = function_authorize::Entity::find()
             .find_also_related(repository::function::Entity)
             .not_deleted(function_authorize::Column::DeleteTime)
+            .filter(repository::function::Column::DeleteTime.is_null())
             .filter(authorize_condition);
 
         if let Some(sign) = sign.map(str::trim).filter(|item| !item.is_empty()) {

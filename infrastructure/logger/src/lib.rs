@@ -203,7 +203,7 @@ where
             Err(TrySendError::Full(_)) => {
                 let dropped = self.dropped_logs.fetch_add(1, Ordering::Relaxed) + 1;
 
-                if dropped == 1 || dropped % 100 == 0 {
+                if dropped == 1 || dropped.is_multiple_of(100) {
                     eprintln!("日志队列已满，已丢弃 {dropped} 条日志");
                 }
             }
