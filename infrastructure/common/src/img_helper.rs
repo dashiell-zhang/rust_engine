@@ -31,6 +31,7 @@ pub fn screenshot(
 
 /// 获取图像数字验证码
 pub fn get_verify_code(text: &str) -> Result<Vec<u8>, image::ImageError> {
+    let digits = validate_verify_code_text(text)?;
     let width = 128;
     let height = 45;
     let mut image = RgbaImage::from_pixel(width, height, Rgba([255, 255, 255, 255]));
@@ -49,11 +50,11 @@ pub fn get_verify_code(text: &str) -> Result<Vec<u8>, image::ImageError> {
         );
     }
 
-    for (index, ch) in text.chars().enumerate() {
+    for (x, ch) in [10, 38, 66, 94].into_iter().zip(digits.chars()) {
         draw_digit(
             &mut image,
             ch,
-            10 + index as u32 * 28,
+            x,
             8,
             Rgba([
                 rand::random::<u8>(),
@@ -65,6 +66,18 @@ pub fn get_verify_code(text: &str) -> Result<Vec<u8>, image::ImageError> {
     }
 
     encode_png(DynamicImage::ImageRgba8(image))
+}
+
+/// 校验图片验证码文本
+fn validate_verify_code_text(text: &str) -> Result<&str, image::ImageError> {
+    if text.is_empty() || text.len() > 4 || !text.chars().all(|item| item.is_ascii_digit()) {
+        return Err(image::ImageError::IoError(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "验证码必须是 1 到 4 位数字",
+        )));
+    }
+
+    Ok(text)
 }
 
 /// 将图片字节按指定宽高缩放并保持原始格式

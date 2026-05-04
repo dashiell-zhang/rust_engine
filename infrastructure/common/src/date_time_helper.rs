@@ -111,7 +111,7 @@ pub fn time_erase(date_time: NaiveDateTime) -> NaiveDateTime {
 }
 
 /// 带时区时间抹零并保留偏移量
-pub fn time_erase_with_timezone<Tz>(date_time: DateTime<Tz>) -> DateTime<Tz>
+pub fn time_erase_with_timezone<Tz>(date_time: DateTime<Tz>) -> Option<DateTime<Tz>>
 where
     Tz: TimeZone,
 {
@@ -125,7 +125,6 @@ where
         .from_local_datetime(&naive)
         .single()
         .or_else(|| date_time.timezone().from_local_datetime(&naive).earliest())
-        .expect("保留时区偏移量的抹零时间应始终可解析")
 }
 
 /// 获取 UUIDv7 中的时间信息

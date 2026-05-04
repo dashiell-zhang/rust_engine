@@ -29,17 +29,22 @@ where
     let original = object_to_map(original)?;
     let after = object_to_map(after)?;
     let mut lines = Vec::new();
+    let mut keys = original.keys().cloned().collect::<Vec<_>>();
+    keys.sort();
 
-    for (key, original_value) in original {
+    for key in keys {
+        let Some(original_value) = original.get(&key) else {
+            continue;
+        };
         let Some(after_value) = after.get(&key) else {
             continue;
         };
 
-        if &original_value == after_value {
+        if original_value == after_value {
             continue;
         }
 
-        let left = display_value(&original_value);
+        let left = display_value(original_value);
         let right = display_value(after_value);
         lines.push(format!("{key}:{left} -> {right}； \n"));
     }

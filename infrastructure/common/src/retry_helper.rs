@@ -55,6 +55,10 @@ impl RetryConfig {
         match &self.strategy {
             RetryStrategy::Fixed => self.initial_delay,
             RetryStrategy::Exponential { multiplier } => {
+                if !multiplier.is_finite() || *multiplier < 1.0 {
+                    return self.initial_delay.min(self.max_delay);
+                }
+
                 let factor = multiplier.powi(attempt as i32);
                 let millis = (self.initial_delay.as_millis() as f64 * factor) as u128;
                 Duration::from_millis(millis.min(self.max_delay.as_millis()) as u64)

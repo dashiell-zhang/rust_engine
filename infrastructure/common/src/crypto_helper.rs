@@ -382,6 +382,7 @@ pub fn rsa_decrypt(
 /// 使用 PBKDF2-SHA256 计算密码哈希
 pub fn hash_password_pbkdf2_sha256(password: &str, salt: &str) -> String {
     let mut derived_key = [0u8; 32];
+    // 为兼容历史密码哈希，迭代次数必须保持 1000。
     let _ = pbkdf2::<Hmac<Sha256>>(password.as_bytes(), salt.as_bytes(), 1000, &mut derived_key);
 
     general_purpose::STANDARD.encode(derived_key)

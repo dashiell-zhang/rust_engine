@@ -26,7 +26,7 @@ pub const DEFAULT_PERIOD: u64 = 30;
 
 /// 生成随机 Base32 编码密钥
 pub fn generate_base32_secret(secret_bytes: usize) -> String {
-    let mut bytes = vec![0u8; secret_bytes];
+    let mut bytes = vec![0u8; secret_bytes.max(DEFAULT_SECRET_BYTES)];
     rand::fill(bytes.as_mut_slice());
     base32_encode(&bytes)
 }
@@ -52,6 +52,7 @@ pub fn build_otpauth_url(
         Algo::Sha256 => "SHA256",
         Algo::Sha512 => "SHA512",
     };
+    let _ = decode_secret(base32_secret)?;
 
     Ok(format!(
         "otpauth://totp/{enc_issuer}:{enc_account}?secret={base32_secret}&issuer={enc_issuer}&digits={digits}&period={period}&algorithm={algo_name}"
@@ -71,7 +72,7 @@ pub fn generate_code(
         return Err("时间步长必须大于 0".to_string());
     }
 
-    let key = base32_decode(base32_secret)?;
+    let key = decode_secret(base32_secret)?;
     let counter = unix_seconds / period;
     compute_hotp(&key, counter, digits, algo)
 }
@@ -101,7 +102,7 @@ pub fn verify_code(
         return Ok(false);
     }
 
-    let key = base32_decode(base32_secret)?;
+    let key = decode_secret(base32_secret)?;
     let center = (unix_seconds / period) as i64;
 
     for drift in -allowed_drift..=allowed_drift {
@@ -161,6 +162,16 @@ fn validate_digits(digits: u32) -> Result<(), String> {
     }
 
     Ok(())
+}
+
+/// 解码并校验 TOTP 密钥
+fn decode_secret(base32_secret: &str) -> Result<Vec<u8>, String> {
+    let key = base32_decode(base32_secret)?;
+    if key.len() < DEFAULT_SECRET_BYTES {
+        return Err(format!("密钥长度不能小于 {DEFAULT_SECRET_BYTES} 字节"));
+    }
+
+    Ok(key)
 }
 
 /// 固定时间比较
