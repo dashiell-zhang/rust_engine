@@ -128,6 +128,8 @@ pub struct FileContext<'a> {
     pub app: AppContext<'a>,
     /// 文件存储
     pub file_storage: Option<&'a dyn AppFileStorage>,
+    /// 共享 HTTP 客户端工厂
+    pub http_client_factory: &'a HttpClientFactory,
     /// 文件根目录
     pub root_path: &'a str,
     /// 公共访问基地址

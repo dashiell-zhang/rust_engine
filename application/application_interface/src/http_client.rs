@@ -88,13 +88,24 @@ impl HttpClientFactory {
 
         inner.client.clone()
     }
+
+    /// 使用工厂统一选项创建一次性定制客户端
+    pub fn build_client_with(
+        &self,
+        configure: impl FnOnce(reqwest::ClientBuilder) -> reqwest::ClientBuilder,
+    ) -> Result<Client, reqwest::Error> {
+        configure(build_http_client_builder(self.options)).build()
+    }
 }
 
 fn build_http_client(options: HttpClientFactoryOptions) -> Result<Client, reqwest::Error> {
+    build_http_client_builder(options).build()
+}
+
+fn build_http_client_builder(options: HttpClientFactoryOptions) -> reqwest::ClientBuilder {
     Client::builder()
         .pool_idle_timeout(options.pool_idle_timeout)
         .pool_max_idle_per_host(options.pool_max_idle_per_host)
         .connect_timeout(options.connect_timeout)
         .timeout(options.request_timeout)
-        .build()
 }

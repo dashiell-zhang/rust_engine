@@ -55,6 +55,7 @@ impl AppState {
             file: Some(FileContext {
                 app,
                 file_storage: self.file_storage.as_deref(),
+                http_client_factory: &self.http_client_factory,
                 root_path: &self.settings.file.root_path,
                 public_base_url: &self.settings.file.public_base_url,
             }),
@@ -177,6 +178,7 @@ impl FileContextProvider for AppState {
         FileContext {
             app: self.primary_app_context(),
             file_storage: self.file_storage.as_deref(),
+            http_client_factory: &self.http_client_factory,
             root_path: &self.settings.file.root_path,
             public_base_url: &self.settings.file.public_base_url,
         }

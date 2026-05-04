@@ -12,7 +12,7 @@ use application_interface::{
 use chrono::Utc;
 use common::io_helper::file_length_to_string;
 use repository::file;
-use reqwest::{Client, Url, redirect::Policy};
+use reqwest::{Url, redirect::Policy};
 use sea_orm::{
     ActiveModelTrait, ActiveValue::Set, ColumnTrait, EntityTrait, IntoActiveModel, QueryFilter,
     QueryOrder,
@@ -403,11 +403,9 @@ impl<'a> FileService<'a> {
         validate_remote_upload_file(&dto)?;
 
         let url = parse_remote_upload_url(&dto.url)?;
-        validate_remote_upload_host(&url).await?;
+        let target = validate_remote_upload_target(&url).await?;
 
-        let client = Client::builder()
-            .redirect(Policy::none())
-            .build()
+        let client = build_remote_upload_client(self.context.http_client_factory, &target)
             .map_err(|error| AppError::internal(format!("创建远程下载客户端失败: {error}")))?;
 
         let mut response = common::http_client_helper::get(&client, url.as_str(), None)
@@ -650,8 +648,17 @@ fn parse_remote_upload_url(value: &str) -> Result<Url, AppError> {
     }
 }
 
+/// 远程上传请求目标
+struct RemoteUploadTarget {
+    /// 原始主机名
+    host: String,
+
+    /// 已校验的解析地址
+    resolved_address: Option<SocketAddr>,
+}
+
 /// 校验远程上传地址是否命中高风险主机
-async fn validate_remote_upload_host(url: &Url) -> Result<(), AppError> {
+async fn validate_remote_upload_target(url: &Url) -> Result<RemoteUploadTarget, AppError> {
     let host = url
         .host_str()
         .ok_or_else(|| AppError::bad_request("远程文件地址缺少主机名"))?
@@ -661,11 +668,25 @@ async fn validate_remote_upload_host(url: &Url) -> Result<(), AppError> {
         return Err(AppError::bad_request("不允许访问本地主机地址"));
     }
 
+    if let Ok(ip) = host.parse::<IpAddr>() {
+        if is_private_ip(ip) {
+            return Err(AppError::bad_request(
+                "远程文件地址不允许指向本地或内网地址",
+            ));
+        }
+
+        return Ok(RemoteUploadTarget {
+            host,
+            resolved_address: None,
+        });
+    }
+
     let port = url.port_or_known_default().unwrap_or(80);
+    let lookup_host = host.clone();
 
     let resolved: Vec<SocketAddr> = tokio::task::spawn_blocking(move || {
         use std::net::ToSocketAddrs;
-        (host.as_str(), port)
+        (lookup_host.as_str(), port)
             .to_socket_addrs()
             .map(|iter| iter.collect::<Vec<_>>())
     })
@@ -673,7 +694,11 @@ async fn validate_remote_upload_host(url: &Url) -> Result<(), AppError> {
     .map_err(|_| AppError::bad_request("DNS 解析任务异常"))?
     .map_err(|error| AppError::bad_request(format!("解析远程文件地址失败: {error}")))?;
 
-    for address in resolved {
+    if resolved.is_empty() {
+        return Err(AppError::bad_request("远程文件地址未解析到可用地址"));
+    }
+
+    for address in &resolved {
         if is_private_ip(address.ip()) {
             return Err(AppError::bad_request(
                 "远程文件地址不允许指向本地或内网地址",
@@ -681,7 +706,25 @@ async fn validate_remote_upload_host(url: &Url) -> Result<(), AppError> {
         }
     }
 
-    Ok(())
+    Ok(RemoteUploadTarget {
+        host,
+        resolved_address: resolved.first().copied(),
+    })
+}
+
+/// 构建远程上传下载客户端
+fn build_remote_upload_client(
+    http_client_factory: &application_interface::http_client::HttpClientFactory,
+    target: &RemoteUploadTarget,
+) -> Result<reqwest::Client, reqwest::Error> {
+    http_client_factory.build_client_with(|builder| {
+        let builder = builder.redirect(Policy::none());
+
+        match target.resolved_address {
+            Some(address) => builder.resolve(&target.host, address),
+            None => builder,
+        }
+    })
 }
 
 /// 判断 IP 是否属于本地或内网范围
