@@ -1,10 +1,13 @@
 use aes::{Aes128, Aes192, Aes256};
 use aes_gcm::{
-    Aes128Gcm, Aes256Gcm, AesGcm, KeyInit, Nonce,
+    Aes128Gcm, Aes256Gcm, AesGcm, KeyInit as AesGcmKeyInit, Nonce,
     aead::{Aead, Payload},
+    aes::Aes192 as Aes192GcmCipher,
 };
 use base64::{Engine as _, engine::general_purpose};
-use ecb::cipher::{BlockDecryptMut, BlockEncryptMut, block_padding::Pkcs7};
+use ecb::cipher::{
+    BlockModeDecrypt, BlockModeEncrypt, KeyInit as EcbKeyInit, block_padding::Pkcs7,
+};
 use hmac::{Hmac, Mac};
 use md5::Md5;
 use pbkdf2::pbkdf2;
@@ -17,7 +20,7 @@ use sha1::Sha1;
 use sha2::{Digest, Sha256, Sha384, Sha512};
 use subtle::ConstantTimeEq;
 
-type Aes192Gcm = AesGcm<Aes192, aes_gcm::aead::consts::U12>;
+type Aes192Gcm = AesGcm<Aes192GcmCipher, aes_gcm::aead::consts::U12>;
 type Aes128EcbEnc = ecb::Encryptor<Aes128>;
 type Aes192EcbEnc = ecb::Encryptor<Aes192>;
 type Aes256EcbEnc = ecb::Encryptor<Aes256>;
@@ -415,7 +418,7 @@ fn aes_ecb_decrypt_bytes(cipher: &[u8], key: &[u8]) -> Result<Vec<u8>, String> {
 /// 使用指定 ECB 算法加密
 fn encrypt_ecb_with<C>(plain: &[u8], key: &[u8]) -> Result<Vec<u8>, String>
 where
-    C: ecb::cipher::KeyInit + BlockEncryptMut,
+    C: EcbKeyInit + BlockModeEncrypt,
 {
     let mut buffer = plain.to_vec();
     let msg_len = buffer.len();
@@ -425,7 +428,7 @@ where
 
     let encrypted = C::new_from_slice(key)
         .map_err(|error| error.to_string())?
-        .encrypt_padded_mut::<Pkcs7>(&mut buffer, msg_len)
+        .encrypt_padded::<Pkcs7>(&mut buffer, msg_len)
         .map_err(|error| error.to_string())?;
 
     Ok(encrypted.to_vec())
@@ -434,12 +437,12 @@ where
 /// 使用指定 ECB 算法解密
 fn decrypt_ecb_with<C>(cipher: &[u8], key: &[u8]) -> Result<Vec<u8>, String>
 where
-    C: ecb::cipher::KeyInit + BlockDecryptMut,
+    C: EcbKeyInit + BlockModeDecrypt,
 {
     let mut buffer = cipher.to_vec();
     let decrypted = C::new_from_slice(key)
         .map_err(|error| error.to_string())?
-        .decrypt_padded_mut::<Pkcs7>(&mut buffer)
+        .decrypt_padded::<Pkcs7>(&mut buffer)
         .map_err(|error| error.to_string())?;
 
     Ok(decrypted.to_vec())

@@ -4,8 +4,6 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-application_interface = { path = "../../application/application_interface" }
-common = { path = "../../infrastructure/common" }
 distributed_lock = { path = "../../infrastructure/distributed_lock" }
 hybrid_cache = { path = "../../infrastructure/hybrid_cache" }
 serde = { version = "1.0", features = ["derive"] }

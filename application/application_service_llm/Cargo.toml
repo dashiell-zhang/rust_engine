@@ -9,7 +9,6 @@ application_model = { path = "../application_model" }
 common = { path = "../../infrastructure/common" }
 llm = { path = "../../infrastructure/llm" }
 repository = { path = "../../repository" }
-source_generator_runtime = { path = "../../source_generator/source_generator_runtime" }
 
 chrono = "0.4.44"
 async-stream = "0.3"

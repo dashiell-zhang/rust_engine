@@ -17,26 +17,20 @@ repository = { path = "../../repository" }
 source_generator_runtime = { path = "../../source_generator/source_generator_runtime" }
 
 axum = { version = "0.8.9", features = ["multipart"] }
-async-recursion = "1"
 async-trait = "0.1"
 base64 = "0.22.1"
 chrono = "0.4.44"
 config = "0.15.22"
 dashmap = "6"
 futures-util = "0.3"
-hmac = "0.13.0"
 jsonwebtoken = { version = "10.3.0", features = ["rust_crypto"] }
-mime_guess = "2.0"
 multer = "3"
-pbkdf2 = "0.13.0"
 p256 = { version = "0.13.2", features = ["pkcs8"] }
-reqwest = { version = "0.13.2", default-features = false, features = ["json", "rustls"] }
 sea-orm = { version = "1.1.20", features = [ "sqlx-postgres", "runtime-tokio-rustls", "macros" ] }
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.149"
 sha2 = "0.11.0"
-subtle = "2.6.1"
-tokio = { version = "1.52.1", features = ["full"] }
+tokio = { version = "1.52.2", features = ["full"] }
 tower-http = { version = "0.6", features = ["cors", "fs"] }
 tracing = "0.1.44"
 url = "2"

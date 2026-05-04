@@ -40,7 +40,12 @@ pub fn get_verify_code(text: &str) -> Result<Vec<u8>, image::ImageError> {
         image.put_pixel(
             x,
             y,
-            Rgba([rand::random::<u8>(), rand::random::<u8>(), rand::random::<u8>(), 255]),
+            Rgba([
+                rand::random::<u8>(),
+                rand::random::<u8>(),
+                rand::random::<u8>(),
+                255,
+            ]),
         );
     }
 
@@ -50,7 +55,12 @@ pub fn get_verify_code(text: &str) -> Result<Vec<u8>, image::ImageError> {
             ch,
             10 + index as u32 * 28,
             8,
-            Rgba([rand::random::<u8>(), rand::random::<u8>(), rand::random::<u8>(), 255]),
+            Rgba([
+                rand::random::<u8>(),
+                rand::random::<u8>(),
+                rand::random::<u8>(),
+                255,
+            ]),
         );
     }
 

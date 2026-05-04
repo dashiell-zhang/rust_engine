@@ -9,4 +9,3 @@ application_model = { path = "../application_model" }
 common = { path = "../../infrastructure/common" }
 
 serde_json = "1.0"
-source_generator_runtime = { path = "../../source_generator/source_generator_runtime" }

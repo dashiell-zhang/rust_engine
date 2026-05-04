@@ -5,10 +5,10 @@ edition = "2024"
 
 [features]
 default = []
-debug-demo = ["dep:application_service_llm", "dep:llm_deepseek", "dep:llm_qwen"]
+debug-demo = ["dep:application_service_llm"]
 
 [dependencies]
-tokio = { version = "1.52.1", features = ["full"] }
+tokio = { version = "1.52.2", features = ["full"] }
 tokio-util = { version = "0.7", features = ["io"] }
 webapi_core = { path = "../../project_core/webapi_core" }
 application_service = { path = "../../application/application_service" }
@@ -22,15 +22,12 @@ distributed_lock = { path = "../../infrastructure/distributed_lock" }
 distributed_lock_memory = { path = "../../infrastructure/distributed_lock_memory" }
 distributed_lock_redis = { path = "../../infrastructure/distributed_lock_redis" }
 email_smtp = { path = "../../infrastructure/email_smtp" }
-file_storage = { path = "../../infrastructure/file_storage" }
 file_storage_ali_cloud = { path = "../../infrastructure/file_storage_ali_cloud" }
 file_storage_tencent_cloud = { path = "../../infrastructure/file_storage_tencent_cloud" }
 logger = { path = "../../infrastructure/logger" }
 logger_database = { path = "../../infrastructure/logger_database" }
 logger_local_file = { path = "../../infrastructure/logger_local_file" }
 llm = { path = "../../infrastructure/llm" }
-llm_deepseek = { path = "../../infrastructure/llm_deepseek", optional = true }
-llm_qwen = { path = "../../infrastructure/llm_qwen", optional = true }
 
 common = { path = "../../infrastructure/common" }
 
