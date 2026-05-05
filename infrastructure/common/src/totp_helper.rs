@@ -47,6 +47,7 @@ pub fn build_otpauth_url(
 
     let enc_issuer = urlencoding::encode(issuer);
     let enc_account = urlencoding::encode(account_name);
+    let enc_secret = urlencoding::encode(base32_secret);
     let algo_name = match algo {
         Algo::Sha1 => "SHA1",
         Algo::Sha256 => "SHA256",
@@ -55,7 +56,7 @@ pub fn build_otpauth_url(
     let _ = decode_secret(base32_secret)?;
 
     Ok(format!(
-        "otpauth://totp/{enc_issuer}:{enc_account}?secret={base32_secret}&issuer={enc_issuer}&digits={digits}&period={period}&algorithm={algo_name}"
+        "otpauth://totp/{enc_issuer}:{enc_account}?secret={enc_secret}&issuer={enc_issuer}&digits={digits}&period={period}&algorithm={algo_name}"
     ))
 }
 

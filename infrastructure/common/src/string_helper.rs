@@ -112,39 +112,34 @@ pub fn normalize_optional_str(value: &str) -> Option<String> {
 /// Unicode 转普通字符串，仅转换 \uXXXX 序列，其他反斜杠内容保持原样
 pub fn unicode_to_string(text: &str) -> String {
     let mut output = String::with_capacity(text.len());
-    let mut chars = text.chars().peekable();
+    let chars = text.chars().collect::<Vec<_>>();
+    let mut index = 0;
 
-    while let Some(ch) = chars.next() {
-        if ch != '\\' || chars.peek() != Some(&'u') {
-            output.push(ch);
-            continue;
-        }
-
-        let mut probe = chars.clone();
-        let _ = probe.next();
-        let mut hex = String::with_capacity(4);
-        for _ in 0..4 {
-            let Some(item) = probe.next() else {
-                output.push(ch);
-                break;
-            };
-            hex.push(item);
-        }
-
-        if hex.len() != 4 {
-            continue;
-        }
-
-        let Some(decoded) = decode_unicode_escape(&hex) else {
-            output.push(ch);
+    while index < chars.len() {
+        let Some(value) = parse_unicode_escape(&chars, index) else {
+            output.push(chars[index]);
+            index += 1;
             continue;
         };
 
-        let _ = chars.next();
-        for _ in 0..4 {
-            let _ = chars.next();
+        if is_high_surrogate(value)
+            && let Some(low) = parse_unicode_escape(&chars, index + 6)
+            && is_low_surrogate(low)
+            && let Some(decoded) = decode_surrogate_pair(value, low)
+        {
+            output.push(decoded);
+            index += 12;
+            continue;
         }
+
+        let Some(decoded) = char::from_u32(u32::from(value)) else {
+            output.push(chars[index]);
+            index += 1;
+            continue;
+        };
+
         output.push(decoded);
+        index += 6;
     }
 
     output
@@ -447,8 +442,43 @@ fn html_unescape(value: &str) -> String {
         .replace("&copy;", "\u{00A9}")
 }
 
-/// 解码 4 位 Unicode 转义值
-fn decode_unicode_escape(hex: &str) -> Option<char> {
-    let value = u32::from_str_radix(hex, 16).ok()?;
-    char::from_u32(value)
+/// 解析指定位置的 \uXXXX 转义值
+fn parse_unicode_escape(chars: &[char], index: usize) -> Option<u16> {
+    if chars.get(index) != Some(&'\\') || chars.get(index + 1) != Some(&'u') {
+        return None;
+    }
+
+    let mut value = 0u16;
+    for offset in 2..6 {
+        value = (value << 4) | u16::from(hex_digit_value(*chars.get(index + offset)?)?);
+    }
+
+    Some(value)
+}
+
+/// 单个十六进制字符转数值
+fn hex_digit_value(value: char) -> Option<u8> {
+    match value {
+        '0'..='9' => Some(value as u8 - b'0'),
+        'a'..='f' => Some(value as u8 - b'a' + 10),
+        'A'..='F' => Some(value as u8 - b'A' + 10),
+        _ => None,
+    }
+}
+
+/// 判断是否为 UTF-16 高代理项
+fn is_high_surrogate(value: u16) -> bool {
+    (0xD800..=0xDBFF).contains(&value)
+}
+
+/// 判断是否为 UTF-16 低代理项
+fn is_low_surrogate(value: u16) -> bool {
+    (0xDC00..=0xDFFF).contains(&value)
+}
+
+/// 解码 UTF-16 代理项对
+fn decode_surrogate_pair(high: u16, low: u16) -> Option<char> {
+    let high = u32::from(high) - 0xD800;
+    let low = u32::from(low) - 0xDC00;
+    char::from_u32(0x10000 + ((high << 10) | low))
 }

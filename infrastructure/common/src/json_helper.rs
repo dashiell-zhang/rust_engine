@@ -63,7 +63,7 @@ where
 {
     match I64OrString::deserialize(deserializer)? {
         I64OrString::I64(value) => Ok(value),
-        I64OrString::String(value) => value.parse::<i64>().map_err(D::Error::custom),
+        I64OrString::String(value) => value.trim().parse::<i64>().map_err(D::Error::custom),
     }
 }
 

@@ -11,15 +11,19 @@ use zip::{CompressionMethod, ZipWriter, write::SimpleFileOptions};
 pub fn delete_file(path: impl AsRef<Path>) -> bool {
     let path = path.as_ref();
 
-    if !path.exists() {
+    let Ok(metadata) = fs::symlink_metadata(path) else {
         return true;
+    };
+
+    if metadata.file_type().is_symlink() {
+        return fs::remove_file(path).is_ok();
     }
 
     if clear_readonly_recursively(path).is_err() {
         return false;
     }
 
-    if path.is_dir() {
+    if metadata.is_dir() {
         fs::remove_dir_all(path).is_ok()
     } else {
         fs::remove_file(path).is_ok()
@@ -128,6 +132,13 @@ pub fn compress_directory_zip(
             continue;
         }
 
+        if entry.file_type().is_symlink() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                format!("不支持压缩符号链接: {}", path.display()),
+            ));
+        }
+
         zip.start_file(name, options)?;
         let mut input = File::open(path)?;
         io::copy(&mut input, &mut zip)?;
@@ -142,17 +153,119 @@ pub fn decompress_zip(zip_path: impl AsRef<Path>, folder_path: impl AsRef<Path>)
     let zip_path = zip_path.as_ref();
     let folder_path = folder_path.as_ref();
     fs::create_dir_all(folder_path)?;
+    let folder_path = fs::canonicalize(folder_path)?;
 
     let file = File::open(zip_path)?;
     let mut archive = zip::ZipArchive::new(file)?;
-    archive.extract(folder_path)?;
+
+    for index in 0..archive.len() {
+        let mut entry = archive.by_index(index)?;
+        if entry.is_symlink() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("Zip 文件包含不允许的符号链接: {}", entry.name()),
+            ));
+        }
+
+        let enclosed_name = entry.enclosed_name().ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("Zip 文件路径无效: {}", entry.name()),
+            )
+        })?;
+
+        if entry.is_dir() {
+            let output_path = prepare_zip_output_directory(&folder_path, &enclosed_name)?;
+            fs::create_dir_all(&output_path)?;
+            continue;
+        }
+
+        let output_path = prepare_zip_output_file(&folder_path, &enclosed_name)?;
+
+        let mut output = File::create(&output_path)?;
+        io::copy(&mut entry, &mut output)?;
+    }
 
     Ok(())
 }
 
+/// 准备 Zip 解压目录路径，拒绝目标路径中已有的符号链接
+fn prepare_zip_output_directory(base_path: &Path, relative_path: &Path) -> io::Result<PathBuf> {
+    let output_path = prepare_zip_output_parent(base_path, relative_path)?;
+    reject_existing_symlink(&output_path)?;
+    Ok(output_path)
+}
+
+/// 准备 Zip 解压文件路径，拒绝父目录和目标文件上的符号链接
+fn prepare_zip_output_file(base_path: &Path, relative_path: &Path) -> io::Result<PathBuf> {
+    let output_path = prepare_zip_output_parent(base_path, relative_path)?;
+    reject_existing_symlink(&output_path)?;
+    Ok(output_path)
+}
+
+/// 创建解压目标父目录，并确保沿途不经过符号链接
+fn prepare_zip_output_parent(base_path: &Path, relative_path: &Path) -> io::Result<PathBuf> {
+    let output_path = base_path.join(relative_path);
+    let parent = output_path
+        .parent()
+        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "Zip 输出路径无效"))?;
+    ensure_directory_without_symlink(base_path, parent)?;
+    Ok(output_path)
+}
+
+/// 确保目录存在且不是符号链接
+fn ensure_directory_without_symlink(base_path: &Path, directory: &Path) -> io::Result<()> {
+    let relative = directory
+        .strip_prefix(base_path)
+        .map_err(io::Error::other)?;
+    let mut current = base_path.to_path_buf();
+
+    reject_existing_symlink(&current)?;
+    for component in relative.components() {
+        current.push(component);
+        match fs::symlink_metadata(&current) {
+            Ok(metadata) if metadata.file_type().is_symlink() => {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    format!("Zip 解压路径包含符号链接: {}", current.display()),
+                ));
+            }
+            Ok(metadata) if metadata.is_dir() => {}
+            Ok(_) => {
+                return Err(io::Error::new(
+                    io::ErrorKind::AlreadyExists,
+                    format!("Zip 解压路径不是目录: {}", current.display()),
+                ));
+            }
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                fs::create_dir(&current)?;
+            }
+            Err(error) => return Err(error),
+        }
+    }
+
+    Ok(())
+}
+
+/// 拒绝已存在的符号链接路径
+fn reject_existing_symlink(path: &Path) -> io::Result<()> {
+    match fs::symlink_metadata(path) {
+        Ok(metadata) if metadata.file_type().is_symlink() => Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("路径不能是符号链接: {}", path.display()),
+        )),
+        Ok(_) => Ok(()),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(error),
+    }
+}
+
 /// 创建 Zip 输出文件并确保父目录存在
 fn ensure_zip_parent_and_open(zip_path: &Path) -> io::Result<File> {
-    if let Some(parent) = zip_path.parent() {
+    if let Some(parent) = zip_path
+        .parent()
+        .filter(|value| !value.as_os_str().is_empty())
+    {
         fs::create_dir_all(parent)?;
     }
 

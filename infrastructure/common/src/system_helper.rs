@@ -1,8 +1,4 @@
-use std::{
-    io,
-    net::{IpAddr, ToSocketAddrs},
-    process::Command,
-};
+use std::{collections::HashSet, io, net::IpAddr, process::Command};
 
 /// 获取本机全部 IP
 pub fn get_all_ip_address() -> Vec<String> {
@@ -11,16 +7,12 @@ pub fn get_all_ip_address() -> Vec<String> {
 
 /// 获取本机 IPv4 地址
 pub fn get_ipv4_address() -> Option<String> {
-    resolve_host_ips()
-        .into_iter()
-        .find(|item| item.parse::<IpAddr>().ok().is_some_and(|ip| ip.is_ipv4()))
+    find_preferred_ip(resolve_host_ips(), IpAddr::is_ipv4)
 }
 
 /// 获取本机 IPv6 地址
 pub fn get_ipv6_address() -> Option<String> {
-    resolve_host_ips()
-        .into_iter()
-        .find(|item| item.parse::<IpAddr>().ok().is_some_and(|ip| ip.is_ipv6()))
+    find_preferred_ip(resolve_host_ips(), IpAddr::is_ipv6)
 }
 
 /// Linux 运行 shell 脚本
@@ -55,13 +47,40 @@ fn ensure_command_success(status: std::process::ExitStatus, stderr: &[u8]) -> io
 
 /// 解析本机地址
 fn resolve_host_ips() -> Vec<String> {
-    let Ok(hostname) = hostname::get() else {
+    let Ok(interfaces) = if_addrs::get_if_addrs() else {
         return Vec::new();
     };
-    let hostname = hostname.to_string_lossy().into_owned();
 
-    match (hostname.as_str(), 0).to_socket_addrs() {
-        Ok(iter) => iter.map(|item| item.ip().to_string()).collect(),
-        Err(_) => Vec::new(),
+    let mut seen = HashSet::new();
+    let mut ips = Vec::new();
+    for interface in interfaces {
+        let ip = interface.ip().to_string();
+        if seen.insert(ip.clone()) {
+            ips.push(ip);
+        }
     }
+
+    ips
+}
+
+/// 查找优先使用的本机地址
+fn find_preferred_ip(ips: Vec<String>, matches_family: fn(&IpAddr) -> bool) -> Option<String> {
+    let mut fallback = None;
+    for item in ips {
+        let Ok(ip) = item.parse::<IpAddr>() else {
+            continue;
+        };
+        if !matches_family(&ip) {
+            continue;
+        }
+
+        if fallback.is_none() {
+            fallback = Some(item.clone());
+        }
+        if !ip.is_loopback() {
+            return Some(item);
+        }
+    }
+
+    fallback
 }
