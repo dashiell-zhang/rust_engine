@@ -268,13 +268,23 @@ fn temporary_download_path(file_path: &Path) -> PathBuf {
 async fn replace_file(temp_file_path: &Path, file_path: &Path) -> io::Result<()> {
     match fs::rename(temp_file_path, file_path).await {
         Ok(()) => Ok(()),
-        Err(_) if file_path.exists() => replace_existing_file(temp_file_path, file_path).await,
+        Err(_) if fs::metadata(file_path).await.is_ok() => {
+            replace_existing_file(temp_file_path, file_path).await
+        }
         Err(error) => Err(error),
     }
 }
 
 /// 替换已存在的目标文件，失败时尽量恢复旧文件
 async fn replace_existing_file(temp_file_path: &Path, file_path: &Path) -> io::Result<()> {
+    let metadata = fs::metadata(file_path).await?;
+    if !metadata.is_file() {
+        return Err(io::Error::new(
+            io::ErrorKind::AlreadyExists,
+            "下载目标路径已存在且不是文件",
+        ));
+    }
+
     let backup_path = temporary_replace_backup_path(file_path);
     fs::rename(file_path, &backup_path).await?;
 

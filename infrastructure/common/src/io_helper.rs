@@ -319,7 +319,11 @@ fn clear_readonly_recursively(path: &Path) -> io::Result<()> {
 
 /// 清理单个路径的只读属性
 fn clear_single_readonly(path: &Path) -> io::Result<()> {
-    let metadata = fs::metadata(path)?;
+    let metadata = fs::symlink_metadata(path)?;
+    if metadata.file_type().is_symlink() {
+        return Ok(());
+    }
+
     let mut permissions = metadata.permissions();
     if permissions.readonly() {
         #[allow(clippy::permissions_set_readonly_false)]

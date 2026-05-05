@@ -96,13 +96,12 @@ fn validate_verify_code_text(text: &str) -> Result<&str, image::ImageError> {
 
 /// 将图片字节按指定宽高缩放并保持原始格式
 pub fn resize_image(data: &[u8], width: u32, height: u32) -> Result<Vec<u8>, image::ImageError> {
-    let format = image::guess_format(data)?;
-
     // 未指定缩放尺寸时直接返回原始字节
     if width == 0 && height == 0 {
         return Ok(data.to_vec());
     }
 
+    let format = image::guess_format(data)?;
     let image = image::load_from_memory(data)?;
     let (target_width, target_height) = calculate_resize_dimensions(&image, width, height);
 
