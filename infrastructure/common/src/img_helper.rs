@@ -106,8 +106,8 @@ pub fn resize_image(data: &[u8], width: u32, height: u32) -> Result<Vec<u8>, ima
     let image = image::load_from_memory(data)?;
     let (target_width, target_height) = calculate_resize_dimensions(&image, width, height);
 
-    // 与 NetEngine 对齐：目标尺寸不小于原图时直接返回原图，避免无意义放大。
-    if target_width >= image.width() || target_height >= image.height() {
+    // 与 NetEngine 对齐：目标宽高都不小于原图时直接返回原图，避免无意义放大。
+    if target_width >= image.width() && target_height >= image.height() {
         return Ok(data.to_vec());
     }
 

@@ -157,8 +157,8 @@ fn compute_hotp(key: &[u8], counter: u64, digits: u32, algo: Algo) -> Result<Str
 
 /// 校验位数范围
 fn validate_digits(digits: u32) -> Result<(), String> {
-    if !(6..=10).contains(&digits) {
-        return Err("验证码位数必须在 6 到 10 之间".to_string());
+    if !(6..=8).contains(&digits) {
+        return Err("验证码位数必须在 6 到 8 之间".to_string());
     }
 
     Ok(())

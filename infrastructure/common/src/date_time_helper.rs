@@ -1,6 +1,6 @@
 use chrono::{DateTime, Datelike, Duration, NaiveDate, NaiveDateTime, TimeZone, Utc};
 use std::{
-    net::{ToSocketAddrs, UdpSocket},
+    net::{SocketAddr, ToSocketAddrs, UdpSocket},
     time::{Duration as StdDuration, SystemTime},
 };
 use uuid::Uuid;
@@ -41,12 +41,33 @@ pub fn get_quarterly_first_day(date: NaiveDate) -> NaiveDate {
 
 /// 获取 NTP 网络远程时间
 pub fn get_network_time() -> std::io::Result<DateTime<Utc>> {
-    let server = ("ntp.tencent.com", 123)
+    let servers = ("ntp.tencent.com", 123)
         .to_socket_addrs()?
-        .next()
-        .ok_or_else(|| std::io::Error::other("NTP 地址解析失败"))?;
+        .collect::<Vec<_>>();
+    if servers.is_empty() {
+        return Err(std::io::Error::other("NTP 地址解析失败"));
+    }
 
-    let socket = UdpSocket::bind("0.0.0.0:0")?;
+    let mut last_error = None;
+    for server in servers {
+        match get_network_time_from(server) {
+            Ok(value) => return Ok(value),
+            Err(error) => last_error = Some(error),
+        }
+    }
+
+    Err(last_error.unwrap_or_else(|| std::io::Error::other("NTP 时间获取失败")))
+}
+
+/// 从指定 NTP 地址获取时间
+fn get_network_time_from(server: SocketAddr) -> std::io::Result<DateTime<Utc>> {
+    let bind_addr = if server.is_ipv4() {
+        "0.0.0.0:0"
+    } else {
+        "[::]:0"
+    };
+
+    let socket = UdpSocket::bind(bind_addr)?;
     socket.set_read_timeout(Some(StdDuration::from_secs(3)))?;
     socket.connect(server)?;
 

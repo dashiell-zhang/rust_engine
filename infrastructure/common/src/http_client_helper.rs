@@ -1,6 +1,7 @@
 use std::{
     collections::HashMap,
     ffi::OsString,
+    io,
     path::{Component, Path, PathBuf},
 };
 
@@ -264,13 +265,44 @@ fn temporary_download_path(file_path: &Path) -> PathBuf {
 }
 
 /// 使用临时文件替换目标文件
-async fn replace_file(temp_file_path: &Path, file_path: &Path) -> std::io::Result<()> {
+async fn replace_file(temp_file_path: &Path, file_path: &Path) -> io::Result<()> {
     match fs::rename(temp_file_path, file_path).await {
         Ok(()) => Ok(()),
-        Err(_) if file_path.exists() => {
-            fs::remove_file(file_path).await?;
-            fs::rename(temp_file_path, file_path).await
-        }
+        Err(_) if file_path.exists() => replace_existing_file(temp_file_path, file_path).await,
         Err(error) => Err(error),
     }
+}
+
+/// 替换已存在的目标文件，失败时尽量恢复旧文件
+async fn replace_existing_file(temp_file_path: &Path, file_path: &Path) -> io::Result<()> {
+    let backup_path = temporary_replace_backup_path(file_path);
+    fs::rename(file_path, &backup_path).await?;
+
+    match fs::rename(temp_file_path, file_path).await {
+        Ok(()) => {
+            let _ = fs::remove_file(&backup_path).await;
+            Ok(())
+        }
+        Err(error) => {
+            if let Err(restore_error) = fs::rename(&backup_path, file_path).await {
+                return Err(io::Error::new(
+                    error.kind(),
+                    format!("替换文件失败: {error}; 恢复原文件失败: {restore_error}"),
+                ));
+            }
+
+            Err(error)
+        }
+    }
+}
+
+/// 生成替换备份文件路径
+fn temporary_replace_backup_path(file_path: &Path) -> PathBuf {
+    let mut temp_name = file_path
+        .file_name()
+        .map(|value| value.to_os_string())
+        .unwrap_or_else(|| "download.bin".into());
+    temp_name.push(format!(".{}.bak", uuid::Uuid::now_v7()));
+
+    file_path.with_file_name(temp_name)
 }

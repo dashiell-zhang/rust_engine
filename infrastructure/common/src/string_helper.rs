@@ -39,9 +39,9 @@ pub fn remove_html(html_text: &str) -> String {
     let tag_regex = Regex::new(r"(?is)<[^>]+>").expect("HTML 标签正则应有效");
     let space_regex = Regex::new(r"\s+").expect("空白正则应有效");
 
-    let text = script_regex.replace_all(html_text, "");
+    let text = html_unescape(html_text);
+    let text = script_regex.replace_all(&text, "");
     let text = tag_regex.replace_all(&text, "");
-    let text = html_unescape(text.as_ref());
 
     space_regex.replace_all(text.trim(), " ").into_owned()
 }
@@ -309,6 +309,10 @@ pub fn replace_placeholders(
     placeholder_prefix: &str,
     placeholder_suffix: &str,
 ) -> Result<String, String> {
+    if placeholder_prefix.is_empty() || placeholder_suffix.is_empty() {
+        return Err("占位符前缀和后缀不能为空".to_string());
+    }
+
     let pattern = format!(
         "{}(.*?){}",
         regex::escape(placeholder_prefix),

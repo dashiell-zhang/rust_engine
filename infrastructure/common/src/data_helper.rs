@@ -88,6 +88,14 @@ pub fn excel_to_data_table(
         return Ok(None);
     };
 
+    let mut data_rows = if is_have_column_name {
+        rows.collect::<Vec<_>>()
+    } else {
+        let mut all_rows = vec![first_row];
+        all_rows.extend(rows);
+        all_rows
+    };
+
     let headers = if is_have_column_name {
         first_row
             .iter()
@@ -102,22 +110,15 @@ pub fn excel_to_data_table(
             })
             .collect::<Vec<_>>()
     } else {
-        (0..first_row.len())
+        let max_column_count = data_rows.iter().map(|row| row.len()).max().unwrap_or(0);
+        (0..max_column_count)
             .map(|index| format!("column{}", index + 1))
             .collect::<Vec<_>>()
     };
     validate_unique_headers(&headers)?;
 
-    let data_rows = if is_have_column_name {
-        rows.collect::<Vec<_>>()
-    } else {
-        let mut all_rows = vec![first_row];
-        all_rows.extend(rows);
-        all_rows
-    };
-
     let mut table = Vec::new();
-    for row in data_rows {
+    for row in data_rows.drain(..) {
         let mut item = HashMap::new();
         for (index, header) in headers.iter().enumerate() {
             let value = row.get(index).map(cell_to_json).unwrap_or(Value::Null);

@@ -106,6 +106,8 @@ pub fn compress_directory_zip(
 ) -> io::Result<()> {
     let folder_path = folder_path.as_ref();
     let zip_path = zip_path.as_ref();
+    ensure_zip_not_inside_source(folder_path, zip_path)?;
+
     let zip_file = ensure_zip_parent_and_open(zip_path)?;
     let mut zip = ZipWriter::new(zip_file);
     let options = default_zip_options();
@@ -160,6 +162,31 @@ fn ensure_zip_parent_and_open(zip_path: &Path) -> io::Result<File> {
 /// 获取默认 Zip 选项
 fn default_zip_options() -> SimpleFileOptions {
     SimpleFileOptions::default().compression_method(CompressionMethod::Deflated)
+}
+
+/// 确保目录压缩输出文件不在源目录内部
+fn ensure_zip_not_inside_source(folder_path: &Path, zip_path: &Path) -> io::Result<()> {
+    let source = fs::canonicalize(folder_path)?;
+    let zip_parent = zip_path
+        .parent()
+        .filter(|value| !value.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."));
+    fs::create_dir_all(zip_parent)?;
+
+    let zip_parent = fs::canonicalize(zip_parent)?;
+    let zip_name = zip_path
+        .file_name()
+        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "Zip 文件名无效"))?;
+    let zip_full_path = zip_parent.join(zip_name);
+
+    if zip_full_path.starts_with(&source) {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "Zip 输出文件不能位于被压缩目录内部",
+        ));
+    }
+
+    Ok(())
 }
 
 /// 递归清理只读属性
