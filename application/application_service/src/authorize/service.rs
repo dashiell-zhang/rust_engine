@@ -1167,69 +1167,69 @@ impl<'a> AuthorizeService<'a> {
             .build_route_authorize_cache_key(current_user.user_id, module, route, allow_unbound)
             .await?;
 
-        let function_id = function_route::Entity::find()
+        let route_record = function_route::Entity::find()
             .filter(function_route::Column::Module.eq(module))
             .filter(function_route::Column::Route.eq(route))
             .not_deleted(function_route::Column::DeleteTime)
             .one(self.context.app.db)
             .await
-            .map_err(|error| AppError::internal(format!("路由权限信息查询失败: {error}")))?
-            .and_then(|item| item.function_id);
+            .map_err(|error| AppError::internal(format!("路由权限信息查询失败: {error}")))?;
 
-        let result = if let Some(function_id) = function_id {
-            let function_is_active = function::Entity::find_by_id(function_id)
-                .not_deleted(function::Column::DeleteTime)
-                .one(self.context.app.db)
-                .await
-                .map_err(|error| AppError::internal(format!("功能信息查询失败: {error}")))?
-                .is_some();
+        let result = match route_record {
+            // 路由存在且已绑定功能 需要校验权限
+            Some(route) if route.function_id.is_some() => {
+                let function_id = route.function_id.unwrap();
 
-            if !function_is_active {
-                self.try_cache_bool(&cache_key, false).await;
-                return Ok(false);
-            }
+                let function_is_active = function::Entity::find_by_id(function_id)
+                    .not_deleted(function::Column::DeleteTime)
+                    .one(self.context.app.db)
+                    .await
+                    .map_err(|error| AppError::internal(format!("功能信息查询失败: {error}")))?
+                    .is_some();
 
-            if let Some(cache) = self.context.cache {
-                if let Some(cached_value) = cache.get_string(&cache_key).await? {
-                    return parse_cached_bool(&cached_value);
+                if !function_is_active {
+                    self.try_cache_bool(&cache_key, false).await;
+                    return Ok(false);
                 }
-            }
 
-            // 已绑定功能时 同时检查用户直授和角色继承的权限
-            let role_ids = user_role::Entity::find()
-                .filter(user_role::Column::UserId.eq(current_user.user_id))
-                .not_deleted(user_role::Column::DeleteTime)
-                .all(self.context.app.db)
-                .await
-                .map_err(|error| AppError::internal(format!("用户角色查询失败: {error}")))?
-                .into_iter()
-                .map(|item| item.role_id)
-                .collect::<Vec<_>>();
-
-            let mut authorize_condition =
-                Condition::any().add(function_authorize::Column::UserId.eq(current_user.user_id));
-
-            if !role_ids.is_empty() {
-                authorize_condition =
-                    authorize_condition.add(function_authorize::Column::RoleId.is_in(role_ids));
-            }
-
-            function_authorize::Entity::find()
-                .filter(function_authorize::Column::FunctionId.eq(function_id))
-                .not_deleted(function_authorize::Column::DeleteTime)
-                .filter(authorize_condition)
-                .one(self.context.app.db)
-                .await
-                .map_err(|error| AppError::internal(format!("权限数据查询失败: {error}")))?
-                .is_some()
-        } else {
-            if let Some(cache) = self.context.cache {
-                if let Some(cached_value) = cache.get_string(&cache_key).await? {
-                    return parse_cached_bool(&cached_value);
+                if let Some(cache) = self.context.cache {
+                    if let Some(cached_value) = cache.get_string(&cache_key).await? {
+                        return parse_cached_bool(&cached_value);
+                    }
                 }
-            }
 
-            allow_unbound
+                // 已绑定功能时 同时检查用户直授和角色继承的权限
+                let role_ids = user_role::Entity::find()
+                    .filter(user_role::Column::UserId.eq(current_user.user_id))
+                    .not_deleted(user_role::Column::DeleteTime)
+                    .all(self.context.app.db)
+                    .await
+                    .map_err(|error| AppError::internal(format!("用户角色查询失败: {error}")))?
+                    .into_iter()
+                    .map(|item| item.role_id)
+                    .collect::<Vec<_>>();
+
+                let mut authorize_condition = Condition::any()
+                    .add(function_authorize::Column::UserId.eq(current_user.user_id));
+
+                if !role_ids.is_empty() {
+                    authorize_condition =
+                        authorize_condition.add(function_authorize::Column::RoleId.is_in(role_ids));
+                }
+
+                function_authorize::Entity::find()
+                    .filter(function_authorize::Column::FunctionId.eq(function_id))
+                    .not_deleted(function_authorize::Column::DeleteTime)
+                    .filter(authorize_condition)
+                    .one(self.context.app.db)
+                    .await
+                    .map_err(|error| AppError::internal(format!("权限数据查询失败: {error}")))?
+                    .is_some()
+            }
+            // 路由存在但未绑定功能 视为公开接口 直接放行 故意这样设计的
+            Some(_) => true,
+            // 路由不存在 视为公开接口 直接放行 故意这样设计的
+            None => true,
         };
 
         self.try_cache_bool(&cache_key, result).await;
