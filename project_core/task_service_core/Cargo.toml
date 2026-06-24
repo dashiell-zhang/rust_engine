@@ -18,7 +18,7 @@ source_generator_runtime = { path = "../../source_generator/source_generator_run
 async-trait = "0.1"
 chrono = "0.4.45"
 config = "0.15.24"
-cron = "0.16.0"
+cron = "0.17.0"
 sea-orm = { version = "1.1.20", features = [ "sqlx-postgres", "runtime-tokio-rustls" ] }
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0"
