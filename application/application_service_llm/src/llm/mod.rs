@@ -4,6 +4,9 @@ pub use application_model::llm::models;
 /// LLM 应用配置服务
 pub mod app_service;
 
+/// LLM 模型配置服务
+pub mod model_service;
+
 /// 应用层 LLM 客户端适配器
 pub mod client_adapter;
 

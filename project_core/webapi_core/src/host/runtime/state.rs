@@ -18,7 +18,6 @@ use common::app_error::AppError as ApplicationError;
 use distributed_cache::{CacheEntryOptions, DistributedCache, DistributedCacheExt};
 use distributed_lock::DistributedLock;
 use identifier_generator::IdentifierGenerator;
-use llm::LlmClientFactory;
 use repository::{database_health, extensions::SoftDeleteQueryExt, user_token};
 use sea_orm::DatabaseConnection;
 use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
@@ -44,9 +43,6 @@ pub struct AppState {
 
     /// 邮件发送器
     pub email_sender: Arc<dyn AppEmailSender>,
-
-    /// LLM 客户端工厂
-    pub llm_client_factory: LlmClientFactory,
 
     /// 共享 HTTP 客户端工厂
     pub http_client_factory: HttpClientFactory,

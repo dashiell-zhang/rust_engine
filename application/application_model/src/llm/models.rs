@@ -3,6 +3,118 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use utoipa::{IntoParams, ToSchema};
 
+/// LLM 模型配置分页请求
+#[derive(Deserialize, IntoParams)]
+#[serde(rename_all = "camelCase")]
+pub struct LlmModelPageRequest {
+    /// 页码
+    #[param(minimum = 1)]
+    #[serde(default = "default_page")]
+    pub page: u64,
+
+    /// 每页条数
+    #[param(minimum = 1, maximum = 100)]
+    #[serde(default = "default_page_size", rename = "pageSize")]
+    pub page_size: u64,
+
+    /// 关键词，匹配名称、模型标识或备注
+    pub keyword: Option<String>,
+
+    /// 是否启用
+    #[serde(rename = "isEnable")]
+    pub is_enable: Option<bool>,
+}
+
+impl crate::shared::models::PageRequest for LlmModelPageRequest {
+    fn page(&self) -> u64 {
+        self.page
+    }
+
+    fn page_size(&self) -> u64 {
+        self.page_size
+    }
+}
+
+/// LLM 模型配置 ID 参数
+#[derive(Deserialize, IntoParams)]
+#[serde(rename_all = "camelCase")]
+pub struct LlmModelIdQuery {
+    /// LLM 模型配置 ID
+    pub id: i64,
+}
+
+/// LLM 模型配置返回模型
+#[derive(Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct LlmModelDto {
+    /// ID
+    pub id: String,
+
+    /// 模型显示名称
+    pub name: String,
+
+    /// 模型标识
+    pub model_id: String,
+
+    /// API 端点地址
+    pub endpoint: String,
+
+    /// 协议类型（0=Chat, 1=Responses, 2=Anthropic）
+    pub protocol_type: i32,
+
+    /// 是否启用
+    pub is_enable: bool,
+
+    /// 备注
+    pub remark: Option<String>,
+
+    /// 创建时间
+    pub create_time: String,
+
+    /// 更新时间
+    pub update_time: Option<String>,
+}
+
+/// 创建或更新 LLM 模型配置请求体
+#[derive(Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct EditLlmModelDto {
+    /// 模型显示名称
+    pub name: String,
+
+    /// 模型标识
+    pub model_id: String,
+
+    /// API 端点地址
+    pub endpoint: String,
+
+    /// 接口密钥，更新时为空则不修改
+    pub api_key: Option<String>,
+
+    /// 协议类型（0=Chat, 1=Responses, 2=Anthropic）
+    pub protocol_type: i32,
+
+    /// 是否启用
+    pub is_enable: bool,
+
+    /// 备注
+    pub remark: Option<String>,
+}
+
+/// LLM 模型下拉选项
+#[derive(Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct LlmModelSelectDto {
+    /// 模型 ID
+    pub id: String,
+
+    /// 模型显示名称
+    pub name: String,
+}
+
+/// LLM 模型配置分页返回模型
+pub type LlmModelPageListDto = PageListDto<LlmModelDto>;
+
 /// LLM 应用配置分页请求
 #[derive(Deserialize, IntoParams)]
 #[serde(rename_all = "camelCase")]
@@ -17,11 +129,8 @@ pub struct LlmAppPageRequest {
     #[serde(default = "default_page_size", rename = "pageSize")]
     pub page_size: u64,
 
-    /// 关键词，匹配 Code、名称、Provider、模型名称或备注
+    /// 关键词，匹配 Code、名称或备注
     pub keyword: Option<String>,
-
-    /// Provider 精确匹配
-    pub provider: Option<String>,
 
     /// 是否启用
     #[serde(rename = "isEnable")]
@@ -60,23 +169,17 @@ pub struct LlmAppDto {
     /// 应用名称
     pub name: String,
 
-    /// Provider 标识
-    pub provider: String,
+    /// 关联的 LLM 模型 ID
+    pub llm_model_id: String,
 
-    /// 模型名称
-    pub model: String,
+    /// 关联的 LLM 模型名称
+    pub llm_model_name: String,
 
     /// System 提示词模板
     pub system_prompt_template: Option<String>,
 
     /// User 提示词模板
     pub prompt_template: String,
-
-    /// 最大生成 token 数
-    pub max_tokens: Option<i32>,
-
-    /// 温度参数
-    pub temperature: Option<f64>,
 
     /// 额外请求参数 JSON 字符串
     pub extra_body_json: Option<String>,
@@ -104,23 +207,14 @@ pub struct EditLlmAppDto {
     /// 应用名称
     pub name: String,
 
-    /// Provider 标识，如 deepseek、qwen、openai
-    pub provider: String,
-
-    /// 模型名称，如 deepseek-chat、qwen-plus
-    pub model: String,
+    /// 关联的 LLM 模型 ID
+    pub llm_model_id: i64,
 
     /// System 提示词模板
     pub system_prompt_template: Option<String>,
 
     /// User 提示词模板
     pub prompt_template: String,
-
-    /// 最大生成 token 数
-    pub max_tokens: Option<i32>,
-
-    /// 温度参数（通常 0~2）
-    pub temperature: Option<f64>,
 
     /// 额外请求参数 JSON 字符串
     pub extra_body_json: Option<String>,
@@ -139,23 +233,14 @@ pub type LlmAppPageListDto = PageListDto<LlmAppDto>;
 #[derive(Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct TestLlmAppRequest {
-    /// Provider 标识
-    pub provider: String,
-
-    /// 模型名称
-    pub model: String,
+    /// 关联的 LLM 模型 ID
+    pub llm_model_id: i64,
 
     /// System 提示词模板
     pub system_prompt_template: Option<String>,
 
     /// User 提示词模板
     pub prompt_template: String,
-
-    /// 最大生成 token 数
-    pub max_tokens: Option<i32>,
-
-    /// 温度参数
-    pub temperature: Option<f64>,
 
     /// 额外请求参数
     pub extra_body: Option<Value>,

@@ -2,4 +2,5 @@
 dist/
 /.idea
 /logs/
-/presentation/admin_webapi/storage/
+/presentation/*/storage/
+/data/files/

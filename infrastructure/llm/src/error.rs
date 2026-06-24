@@ -24,9 +24,13 @@ pub enum LlmError {
     #[error("流式响应解析失败: {0}")]
     StreamParse(String),
 
-    /// 指定 Provider 未注册
-    #[error("Provider '{0}' 未注册")]
-    ProviderNotFound(String),
+    /// 不支持的协议类型
+    #[error("不支持的 LLM 协议类型: {0}")]
+    UnsupportedProtocol(i32),
+
+    /// 请求参数无效
+    #[error("LLM 请求参数无效: {0}")]
+    InvalidRequest(String),
 }
 
 impl From<reqwest::Error> for LlmError {

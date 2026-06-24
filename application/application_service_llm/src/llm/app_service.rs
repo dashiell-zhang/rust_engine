@@ -6,9 +6,10 @@ use common::json_helper::{
     JsonObjectStringError, parse_optional_json_object_string, parse_optional_json_object_value,
     validate_optional_json_object_string,
 };
+use llm::LlmModelConfig;
 use regex::Regex;
 use repository::extensions::SoftDeleteQueryExt;
-use repository::llm_app;
+use repository::{llm_app, llm_model};
 use sea_orm::{
     ActiveModelTrait, ColumnTrait, EntityTrait, IntoActiveModel, PaginatorTrait, QueryFilter,
     QueryOrder, QuerySelect, Set,
@@ -18,11 +19,12 @@ use serde_json::{Map, Value};
 use application_interface::{
     context::{CurrentUser, LlmContext},
     error::AppError,
-    llm::{AppLlmChatRequest, AppLlmMessage, AppLlmRole, AppLlmUsage},
+    llm::{AppLlmChatRequest, AppLlmClient, AppLlmMessage, AppLlmRole, AppLlmUsage},
 };
 use application_model::shared::models::{normalize_page, validate_page_request};
 use application_model::user::models::PageListDto;
 
+use super::client_adapter::ModelConfigAppLlmClient;
 use super::models::{
     EditLlmAppDto, LlmAppDto, LlmAppPageListDto, LlmAppPageRequest, TestLlmAppRequest,
     TestLlmAppResult, TestLlmAppUsage,
@@ -61,17 +63,8 @@ impl<'a> LlmAppService<'a> {
                     llm_app::Column::Code
                         .like(pattern.clone())
                         .or(llm_app::Column::Name.like(pattern.clone()))
-                        .or(llm_app::Column::Provider.like(pattern.clone()))
-                        .or(llm_app::Column::Model.like(pattern.clone()))
                         .or(llm_app::Column::Remark.like(pattern)),
                 );
-            }
-        }
-
-        if let Some(provider) = &params.provider {
-            let provider = provider.trim();
-            if !provider.is_empty() {
-                query = query.filter(llm_app::Column::Provider.eq(provider));
             }
         }
 
@@ -94,15 +87,23 @@ impl<'a> LlmAppService<'a> {
 
         let page = normalize_page(params.page);
         let skip = (page - 1) * params.page_size;
-        let list = query
+        let apps = query
             .order_by_desc(llm_app::Column::Id)
             .offset(skip)
             .limit(params.page_size)
             .all(self.context.app.db)
             .await
-            .map_err(to_app_error)?
+            .map_err(to_app_error)?;
+
+        let model_names = load_model_names(
+            self.context.app.db,
+            apps.iter().map(|item| item.llm_model_id).collect(),
+        )
+        .await?;
+
+        let list = apps
             .into_iter()
-            .map(to_llm_app_dto)
+            .map(|app| to_llm_app_dto(app, &model_names))
             .collect();
 
         Ok(PageListDto { total, list })
@@ -121,7 +122,13 @@ impl<'a> LlmAppService<'a> {
             .await
             .map_err(to_app_error)?;
 
-        Ok(model.map(to_llm_app_dto))
+        let Some(model) = model else {
+            return Ok(None);
+        };
+
+        let model_names = load_model_names(self.context.app.db, vec![model.llm_model_id]).await?;
+
+        Ok(Some(to_llm_app_dto(model, &model_names)))
     }
 
     /// 创建 LLM 应用配置，返回新配置 ID
@@ -133,6 +140,8 @@ impl<'a> LlmAppService<'a> {
         validate_edit_llm_app(&dto)?;
 
         let code = dto.code.trim().to_string();
+        ensure_llm_model_exists(self.context.app.db, dto.llm_model_id).await?;
+
         let exists = llm_app::Entity::find()
             .filter(llm_app::Column::Code.eq(code.clone()))
             .not_deleted(llm_app::Column::DeleteTime)
@@ -155,14 +164,11 @@ impl<'a> LlmAppService<'a> {
             id: Set(id),
             code: Set(code),
             name: Set(dto.name.trim().to_string()),
-            provider: Set(dto.provider.trim().to_string()),
-            model: Set(dto.model.trim().to_string()),
+            llm_model_id: Set(dto.llm_model_id),
             system_prompt_template: Set(normalize_optional_string(
                 dto.system_prompt_template.as_deref(),
             )),
             prompt_template: Set(dto.prompt_template.trim().to_string()),
-            max_tokens: Set(dto.max_tokens),
-            temperature: Set(dto.temperature),
             extra_body_json: Set(normalize_optional_string(dto.extra_body_json.as_deref())),
             is_enable: Set(dto.is_enable),
             remark: Set(normalize_optional_string(dto.remark.as_deref())),
@@ -196,6 +202,8 @@ impl<'a> LlmAppService<'a> {
         validate_edit_llm_app(&dto)?;
 
         let code = dto.code.trim().to_string();
+        ensure_llm_model_exists(self.context.app.db, dto.llm_model_id).await?;
+
         let duplicate_count = llm_app::Entity::find()
             .filter(llm_app::Column::Id.ne(llm_app_id))
             .filter(llm_app::Column::Code.eq(code.clone()))
@@ -222,14 +230,11 @@ impl<'a> LlmAppService<'a> {
         let mut active = model.into_active_model();
         active.code = Set(code);
         active.name = Set(dto.name.trim().to_string());
-        active.provider = Set(dto.provider.trim().to_string());
-        active.model = Set(dto.model.trim().to_string());
+        active.llm_model_id = Set(dto.llm_model_id);
         active.system_prompt_template = Set(normalize_optional_string(
             dto.system_prompt_template.as_deref(),
         ));
         active.prompt_template = Set(dto.prompt_template.trim().to_string());
-        active.max_tokens = Set(dto.max_tokens);
-        active.temperature = Set(dto.temperature);
         active.extra_body_json = Set(normalize_optional_string(dto.extra_body_json.as_deref()));
         active.is_enable = Set(dto.is_enable);
         active.remark = Set(normalize_optional_string(dto.remark.as_deref()));
@@ -286,10 +291,10 @@ impl<'a> LlmAppService<'a> {
     ) -> Result<TestLlmAppResult, AppError> {
         validate_test_llm_app_request(&request)?;
 
-        let client = self
-            .context
-            .llm_client_factory
-            .require_client(request.provider.trim())?;
+        let model_config = load_enabled_model_config(self.context.app.db, request.llm_model_id)
+            .await?
+            .ok_or_else(|| AppError::bad_request("无效的 LlmModelId 或模型已禁用"))?;
+        let client = ModelConfigAppLlmClient::new(model_config.clone())?;
 
         let parameters = request.parameters.unwrap_or_default();
         validate_required_parameters(
@@ -320,10 +325,10 @@ impl<'a> LlmAppService<'a> {
         });
 
         let chat_request = AppLlmChatRequest {
-            model: request.model.trim().to_string(),
+            model: model_config.model_id,
             messages,
-            temperature: request.temperature.map(|item| item as f32),
-            max_tokens: request.max_tokens.and_then(|item| u32::try_from(item).ok()),
+            temperature: None,
+            max_tokens: None,
             extra_body: parse_extra_body_value(request.extra_body)?,
         };
 
@@ -351,12 +356,8 @@ fn validate_edit_llm_app(dto: &EditLlmAppDto) -> Result<(), AppError> {
         return Err(AppError::bad_request("应用名称不可以为空"));
     }
 
-    if dto.provider.trim().is_empty() {
-        return Err(AppError::bad_request("Provider 标识不可以为空"));
-    }
-
-    if dto.model.trim().is_empty() {
-        return Err(AppError::bad_request("模型名称不可以为空"));
+    if dto.llm_model_id <= 0 {
+        return Err(AppError::bad_request("模型不可以为空"));
     }
 
     if dto.prompt_template.trim().is_empty() {
@@ -368,12 +369,8 @@ fn validate_edit_llm_app(dto: &EditLlmAppDto) -> Result<(), AppError> {
 
 /// 校验测试调用请求
 fn validate_test_llm_app_request(request: &TestLlmAppRequest) -> Result<(), AppError> {
-    if request.provider.trim().is_empty() {
-        return Err(AppError::bad_request("Provider 不可以为空"));
-    }
-
-    if request.model.trim().is_empty() {
-        return Err(AppError::bad_request("模型名称不可以为空"));
+    if request.llm_model_id <= 0 {
+        return Err(AppError::bad_request("模型不可以为空"));
     }
 
     if request.prompt_template.trim().is_empty() {
@@ -446,8 +443,7 @@ pub(crate) fn validate_required_parameters(
     let missing = required_keys
         .into_iter()
         .filter(|key| {
-            !parameters
-                .get(key)
+            find_parameter_value(parameters, key)
                 .map(|value| !value.trim().is_empty())
                 .unwrap_or(false)
         })
@@ -496,16 +492,28 @@ pub(crate) fn render_template(
                     .map(|item| item.as_str())
                     .unwrap_or_default();
 
-                parameters.get(key).cloned().unwrap_or_else(|| {
-                    captures
-                        .get(0)
-                        .map(|item| item.as_str())
-                        .unwrap_or_default()
-                        .to_string()
-                })
+                find_parameter_value(parameters, key)
+                    .map(str::to_string)
+                    .unwrap_or_else(|| {
+                        captures
+                            .get(0)
+                            .map(|item| item.as_str())
+                            .unwrap_or_default()
+                            .to_string()
+                    })
             })
             .to_string(),
     )
+}
+
+/// 查找模板参数，优先精确匹配，其次按大小写不敏感匹配
+fn find_parameter_value<'a>(parameters: &'a HashMap<String, String>, key: &str) -> Option<&'a str> {
+    parameters.get(key).map(String::as_str).or_else(|| {
+        parameters
+            .iter()
+            .find(|(name, _)| name.eq_ignore_ascii_case(key))
+            .map(|(_, value)| value.as_str())
+    })
 }
 
 /// 获取占位符正则
@@ -513,7 +521,7 @@ fn placeholder_regex() -> &'static Regex {
     static PLACEHOLDER_REGEX: OnceLock<Regex> = OnceLock::new();
 
     PLACEHOLDER_REGEX.get_or_init(|| {
-        Regex::new(r"\{\{\s*(?P<required>\*)?\s*(?P<key>[^{}\s]+)\s*\}\}")
+        Regex::new(r"\{\{\s*(?P<required>\*)?\s*(?P<key>[^{}|\s]+)\s*(?:\|\s*(?P<comment>[^{}]*?))?\s*\}\}")
             .expect("placeholder regex must be valid")
     })
 }
@@ -540,23 +548,88 @@ fn to_test_usage(usage: AppLlmUsage) -> TestLlmAppUsage {
 }
 
 /// 将实体模型转换为返回模型
-fn to_llm_app_dto(model: llm_app::Model) -> LlmAppDto {
+fn to_llm_app_dto(
+    model: llm_app::Model,
+    model_names: &std::collections::HashMap<i64, String>,
+) -> LlmAppDto {
     LlmAppDto {
         id: model.id.to_string(),
         code: model.code,
         name: model.name,
-        provider: model.provider,
-        model: model.model,
+        llm_model_id: model.llm_model_id.to_string(),
+        llm_model_name: model_names
+            .get(&model.llm_model_id)
+            .cloned()
+            .unwrap_or_default(),
         system_prompt_template: model.system_prompt_template,
         prompt_template: model.prompt_template,
-        max_tokens: model.max_tokens,
-        temperature: model.temperature,
         extra_body_json: model.extra_body_json,
         is_enable: model.is_enable,
         remark: model.remark,
         create_time: model.create_time.to_rfc3339(),
         update_time: model.update_time.map(|item| item.to_rfc3339()),
     }
+}
+
+/// 加载模型名称映射
+async fn load_model_names(
+    db: &sea_orm::DatabaseConnection,
+    model_ids: Vec<i64>,
+) -> Result<std::collections::HashMap<i64, String>, AppError> {
+    if model_ids.is_empty() {
+        return Ok(std::collections::HashMap::new());
+    }
+
+    let models = llm_model::Entity::find()
+        .filter(llm_model::Column::Id.is_in(model_ids))
+        .all(db)
+        .await
+        .map_err(to_app_error)?;
+
+    Ok(models
+        .into_iter()
+        .map(|model| (model.id, model.name))
+        .collect())
+}
+
+/// 确认模型存在
+async fn ensure_llm_model_exists(
+    db: &sea_orm::DatabaseConnection,
+    model_id: i64,
+) -> Result<(), AppError> {
+    let exists = llm_model::Entity::find()
+        .filter(llm_model::Column::Id.eq(model_id))
+        .not_deleted(llm_model::Column::DeleteTime)
+        .count(db)
+        .await
+        .map_err(to_app_error)?;
+
+    if exists == 0 {
+        return Err(AppError::bad_request("无效的 LlmModelId"));
+    }
+
+    Ok(())
+}
+
+/// 加载启用模型配置
+pub(crate) async fn load_enabled_model_config(
+    db: &sea_orm::DatabaseConnection,
+    model_id: i64,
+) -> Result<Option<LlmModelConfig>, AppError> {
+    let model = llm_model::Entity::find()
+        .filter(llm_model::Column::Id.eq(model_id))
+        .filter(llm_model::Column::IsEnable.eq(true))
+        .not_deleted(llm_model::Column::DeleteTime)
+        .one(db)
+        .await
+        .map_err(to_app_error)?;
+
+    Ok(model.map(|model| LlmModelConfig {
+        endpoint: model.endpoint,
+        api_key: model.api_key,
+        model_id: model.model_id,
+        protocol_type: model.protocol_type,
+    }))
 }
 
 /// 将数据库错误转换为应用层错误

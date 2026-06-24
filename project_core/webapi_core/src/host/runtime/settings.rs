@@ -3,7 +3,6 @@ use config::{Config, Environment, File};
 use identifier_generator::IdentifierGeneratorSettings;
 use logger::LoggerSettings;
 use serde::Deserialize;
-use std::collections::HashMap;
 
 use crate::WebApiHostProfile;
 
@@ -253,26 +252,6 @@ pub struct SmtpSettings {
     pub password: String,
 }
 
-/// LLM Provider 配置
-#[derive(Deserialize, Clone, Default)]
-pub struct LlmProviderSettings {
-    /// 接口基址
-    #[serde(default)]
-    pub base_url: String,
-
-    /// 访问密钥
-    #[serde(default)]
-    pub api_key: String,
-}
-
-/// LLM 配置
-#[derive(Deserialize, Clone, Default)]
-pub struct LlmSettings {
-    /// Provider 配置集合
-    #[serde(default)]
-    pub providers: HashMap<String, LlmProviderSettings>,
-}
-
 /// 全局应用配置
 #[derive(Deserialize, Clone)]
 pub struct Settings {
@@ -310,9 +289,6 @@ pub struct Settings {
     /// 邮件消息配置
     #[serde(default)]
     pub message: MessageSettings,
-    /// LLM 配置
-    #[serde(default)]
-    pub llm: LlmSettings,
     /// 限流配置
     #[serde(default)]
     pub rate_limit: RateLimitSettings,
@@ -356,9 +332,6 @@ struct RawSettings {
     /// 邮件消息配置
     #[serde(default)]
     pub message: MessageSettings,
-    /// LLM 配置
-    #[serde(default)]
-    pub llm: LlmSettings,
     /// 限流配置
     #[serde(default)]
     pub rate_limit: RateLimitSettings,
@@ -522,7 +495,6 @@ impl Settings {
             identifier_generator: raw_settings.identifier_generator,
             sms_verify: raw_settings.sms_verify,
             message: raw_settings.message,
-            llm: raw_settings.llm,
             rate_limit: raw_settings.rate_limit,
         };
 

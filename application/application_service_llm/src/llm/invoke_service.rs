@@ -9,14 +9,23 @@ use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, QueryFilter, Set};
 use application_interface::{
     context::LlmContext,
     error::AppError,
-    llm::{AppLlmChatRequest, AppLlmChatResponse, AppLlmMessage, AppLlmRole, AppLlmStreamChunk},
+    llm::{
+        AppLlmChatRequest, AppLlmChatResponse, AppLlmClient, AppLlmMessage, AppLlmRole,
+        AppLlmStreamChunk,
+    },
 };
 
-use super::app_service::{parse_extra_body_json, render_template, validate_required_parameters};
+use super::{
+    app_service::{
+        load_enabled_model_config, parse_extra_body_json, render_template,
+        validate_required_parameters,
+    },
+    client_adapter::ModelConfigAppLlmClient,
+};
 
 /// LLM 运行时调用服务
 ///
-/// 按应用 Code 调用已注册 Provider
+/// 按应用 Code 调用已配置模型
 pub struct LlmInvokeService<'a> {
     /// 应用层上下文
     context: LlmContext<'a>,
@@ -40,10 +49,7 @@ impl<'a> LlmInvokeService<'a> {
         create_user_id: Option<i64>,
     ) -> Result<AppLlmChatResponse, AppError> {
         let prepared = self.prepare_chat(code, parameters).await?;
-        let client = self
-            .context
-            .llm_client_factory
-            .require_client(&prepared.provider)?;
+        let client = ModelConfigAppLlmClient::new(prepared.model_config.clone())?;
         let response = client.chat(prepared.request).await?;
 
         let assistant_content = response
@@ -89,10 +95,7 @@ impl<'a> LlmInvokeService<'a> {
         create_user_id: Option<i64>,
     ) -> Result<BoxStream<'a, Result<AppLlmStreamChunk, AppError>>, AppError> {
         let prepared = self.prepare_chat(code, parameters).await?;
-        let client = self
-            .context
-            .llm_client_factory
-            .require_client(&prepared.provider)?;
+        let client = ModelConfigAppLlmClient::new(prepared.model_config.clone())?;
 
         // 复制轻量上下文用于流结束后异步保存会话记录
         let service = Self {
@@ -178,15 +181,9 @@ impl<'a> LlmInvokeService<'a> {
             .map_err(|e| AppError::internal(format!("读取 LLM 应用配置失败: {e}")))?
             .ok_or_else(|| AppError::bad_request("LLM 应用配置不存在或已禁用"))?;
 
-        if app.provider.trim().is_empty() {
-            return Err(AppError::internal(format!(
-                "LLM 应用 Provider 未配置: {code}"
-            )));
-        }
-
-        if app.model.trim().is_empty() {
-            return Err(AppError::internal(format!("LLM 应用模型未配置: {code}")));
-        }
+        let model_config = load_enabled_model_config(self.context.app.db, app.llm_model_id)
+            .await?
+            .ok_or_else(|| AppError::internal(format!("LLM 模型不存在或已禁用: {code}")))?;
 
         let prompt_template = app.prompt_template.trim();
         if prompt_template.is_empty() {
@@ -221,17 +218,17 @@ impl<'a> LlmInvokeService<'a> {
         });
 
         let request = AppLlmChatRequest {
-            model: app.model.clone(),
+            model: model_config.model_id.clone(),
             messages,
-            temperature: app.temperature.map(|item| item as f32),
-            max_tokens: app.max_tokens.and_then(|item| u32::try_from(item).ok()),
-            // 透传 Provider 特有参数 以兼容 Thinking 开关等扩展能力
+            temperature: None,
+            max_tokens: None,
+            // 透传模型协议扩展参数 以兼容 Thinking 开关等能力
             extra_body: parse_extra_body_json(app.extra_body_json.as_deref())?,
         };
 
         Ok(PreparedChat {
             llm_app_id: app.id,
-            provider: app.provider,
+            model_config,
             request,
             system_prompt,
             user_prompt,
@@ -244,8 +241,8 @@ struct PreparedChat {
     /// LLM 应用 ID
     llm_app_id: i64,
 
-    /// Provider 标识
-    provider: String,
+    /// 模型运行时配置
+    model_config: llm::LlmModelConfig,
 
     /// 对话请求
     request: AppLlmChatRequest,

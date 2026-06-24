@@ -15,8 +15,9 @@ use serde::Deserialize;
 use serde_json::{Map, Number, Value};
 use tokio::task::JoinHandle as TokioJoinHandle;
 use tracing::{
-    Event, Subscriber,
+    Event, Id, Subscriber,
     field::{Field, Visit},
+    span::{Attributes, Record},
 };
 use tracing_subscriber::{
     Layer,
@@ -183,11 +184,52 @@ impl<S> Layer<S> for LoggerLayer
 where
     S: Subscriber + for<'span> LookupSpan<'span>,
 {
+    /// 记录 span 创建时的字段，后续事件日志会把当前 span 链作为 scope 输出
+    fn on_new_span(&self, attrs: &Attributes<'_>, id: &Id, ctx: Context<'_, S>) {
+        let Some(span) = ctx.span(id) else {
+            return;
+        };
+
+        let mut visitor = JsonVisitor::default();
+        attrs.record(&mut visitor);
+
+        span.extensions_mut().insert(SpanLogFields {
+            name: span.name().to_string(),
+            fields: visitor.into_fields(),
+        });
+    }
+
+    /// 更新 span 字段
+    fn on_record(&self, id: &Id, values: &Record<'_>, ctx: Context<'_, S>) {
+        let Some(span) = ctx.span(id) else {
+            return;
+        };
+
+        let mut visitor = JsonVisitor::default();
+        values.record(&mut visitor);
+        let updated_fields = visitor.into_fields();
+
+        if updated_fields.is_empty() {
+            return;
+        }
+
+        let mut extensions = span.extensions_mut();
+        if let Some(fields) = extensions.get_mut::<SpanLogFields>() {
+            fields.fields.extend(updated_fields);
+        } else {
+            extensions.insert(SpanLogFields {
+                name: span.name().to_string(),
+                fields: updated_fields,
+            });
+        }
+    }
+
     /// 采集 tracing 日志事件
-    fn on_event(&self, event: &Event<'_>, _ctx: Context<'_, S>) {
+    fn on_event(&self, event: &Event<'_>, ctx: Context<'_, S>) {
         let metadata = event.metadata();
         let mut visitor = JsonVisitor::default();
         event.record(&mut visitor);
+        visitor.insert_scopes(collect_event_scopes(event, ctx));
 
         let pending_log = PendingLog {
             create_time: Utc::now(),
@@ -214,6 +256,42 @@ where
     }
 }
 
+/// span scope 中保存的日志字段
+#[derive(Debug, Clone)]
+struct SpanLogFields {
+    /// span 名称
+    name: String,
+
+    /// span 字段集合
+    fields: Map<String, Value>,
+}
+
+/// 收集当前事件所在的 span 链
+fn collect_event_scopes<S>(event: &Event<'_>, ctx: Context<'_, S>) -> Vec<Value>
+where
+    S: Subscriber + for<'span> LookupSpan<'span>,
+{
+    let Some(scope) = ctx.event_scope(event) else {
+        return Vec::new();
+    };
+
+    scope
+        .from_root()
+        .filter_map(|span| {
+            let extensions = span.extensions();
+            let fields = extensions.get::<SpanLogFields>()?;
+
+            let mut scope = Map::new();
+            scope.insert("name".to_string(), Value::String(fields.name.clone()));
+            if !fields.fields.is_empty() {
+                scope.insert("fields".to_string(), Value::Object(fields.fields.clone()));
+            }
+
+            Some(Value::Object(scope))
+        })
+        .collect()
+}
+
 /// tracing 字段访问器
 #[derive(Default)]
 pub struct JsonVisitor {
@@ -222,6 +300,19 @@ pub struct JsonVisitor {
 }
 
 impl JsonVisitor {
+    /// 取出已采集字段
+    pub fn into_fields(self) -> Map<String, Value> {
+        self.fields
+    }
+
+    /// 插入当前 scope 信息
+    pub fn insert_scopes(&mut self, scopes: Vec<Value>) {
+        if !scopes.is_empty() {
+            self.fields
+                .insert("scopes".to_string(), Value::Array(scopes));
+        }
+    }
+
     /// 转换为最终日志内容
     pub fn into_content(mut self) -> String {
         if let Some(message) = self.fields.remove("message") {

@@ -1,6 +1,6 @@
 use application_interface::error::AppError;
-use serde::Serialize;
-use utoipa::ToSchema;
+use serde::{Deserialize, Serialize};
+use utoipa::{IntoParams, ToSchema};
 
 /// 最小页码
 pub const PAGE_MIN: u64 = 1;
@@ -20,6 +20,21 @@ pub struct PageListDto<T: Serialize + ToSchema> {
 
     /// 当前页数据列表
     pub list: Vec<T>,
+}
+
+/// 通用分页请求参数
+#[derive(Deserialize, IntoParams)]
+#[serde(rename_all = "camelCase")]
+pub struct PageRequestDto {
+    /// 页码
+    #[param(minimum = 1)]
+    #[serde(default = "default_page")]
+    pub page: u64,
+
+    /// 每页条数
+    #[param(minimum = 1, maximum = 100)]
+    #[serde(default = "default_page_size", rename = "pageSize")]
+    pub page_size: u64,
 }
 
 /// 默认页码
@@ -63,4 +78,14 @@ pub trait PageRequest {
 
     /// 获取每页条数
     fn page_size(&self) -> u64;
+}
+
+impl PageRequest for PageRequestDto {
+    fn page(&self) -> u64 {
+        self.page
+    }
+
+    fn page_size(&self) -> u64 {
+        self.page_size
+    }
 }

@@ -114,38 +114,6 @@ pub struct EditCategoryDto {
 /// 栏目分页列表返回模型
 pub type CategoryPageListDto = PageListDto<CategoryDto>;
 
-/// 文章分页请求参数
-#[derive(Deserialize, IntoParams)]
-#[serde(rename_all = "camelCase")]
-pub struct ArticlePageRequest {
-    /// 页码
-    #[param(minimum = 1)]
-    #[serde(default = "default_page")]
-    pub page: u64,
-
-    /// 每页条数
-    #[param(minimum = 1, maximum = 100)]
-    #[serde(default = "default_page_size", rename = "pageSize")]
-    pub page_size: u64,
-
-    /// 按栏目筛选
-    #[serde(rename = "categoryId")]
-    pub category_id: Option<i64>,
-
-    /// 关键词搜索
-    pub keyword: Option<String>,
-}
-
-impl crate::shared::models::PageRequest for ArticlePageRequest {
-    fn page(&self) -> u64 {
-        self.page
-    }
-
-    fn page_size(&self) -> u64 {
-        self.page_size
-    }
-}
-
 /// 文章 ID 查询参数
 #[derive(Deserialize, IntoParams)]
 #[serde(rename_all = "camelCase")]

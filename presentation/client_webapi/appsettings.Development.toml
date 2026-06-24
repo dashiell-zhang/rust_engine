@@ -74,14 +74,6 @@ queue_task_name = "System.Queue.SendSms"
 sign_name = ""
 template_code = ""
 
-[llm.providers.deepseek]
-base_url = "https://api.deepseek.com/v1"
-api_key = ""
-
-[llm.providers.qwen]
-base_url = "https://dashscope.aliyuncs.com/compatible-mode/v1"
-api_key = ""
-
 [rate_limit]
 enabled = false
 max_requests = 100

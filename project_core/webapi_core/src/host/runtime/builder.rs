@@ -27,7 +27,6 @@ use application_service::permission_route::service::{
 use axum::Router;
 use identifier_generator::IdentifierGenerator;
 use identifier_generator::refresh::RefreshSignTask;
-use llm::LlmClientFactory;
 use logger::LoggerRuntime;
 use sea_orm::Database;
 use utoipa::OpenApi;
@@ -36,9 +35,6 @@ use utoipa::OpenApi;
 pub struct WebApiHostBuilder {
     /// 宿主配置
     settings: Settings,
-
-    /// LLM 客户端工厂
-    llm_client_factory: LlmClientFactory,
 
     /// 文件存储
     file_storage: Option<Arc<dyn AppFileStorage>>,
@@ -75,7 +71,6 @@ impl WebApiHostBuilder {
     /// 创建 WebAPI 宿主构建器
     pub fn new(
         settings: Settings,
-        llm_client_factory: LlmClientFactory,
         file_storage: Option<Arc<dyn AppFileStorage>>,
         email_sender: Arc<dyn AppEmailSender>,
         build_distributed_lock: BuildWebApiLock,
@@ -84,7 +79,6 @@ impl WebApiHostBuilder {
     ) -> Self {
         Self {
             settings,
-            llm_client_factory,
             file_storage,
             email_sender,
             build_distributed_lock,
@@ -209,7 +203,6 @@ impl WebApiHostBuilder {
             file_storage: self.file_storage,
             cache,
             email_sender: self.email_sender,
-            llm_client_factory: self.llm_client_factory,
             http_client_factory: HttpClientFactory::new()
                 .map_err(|error| format!("HTTP 客户端工厂初始化失败: {error}"))?,
             settings: self.settings,

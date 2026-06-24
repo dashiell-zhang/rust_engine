@@ -20,7 +20,7 @@ pub struct OpenAiCompatibleClient {
     /// 底层 HTTP 客户端，复用连接池以减少握手开销
     http_client: reqwest::Client,
 
-    /// Provider 连接配置，包含基址与密钥
+    /// 协议连接配置，包含端点与密钥
     settings: OpenAiCompatibleSettings,
 }
 
@@ -42,6 +42,10 @@ impl OpenAiCompatibleClient {
 
     /// 拼接 chat completions 接口完整地址
     fn chat_url(&self) -> String {
+        if let Some(endpoint) = &self.settings.endpoint {
+            return endpoint.trim().to_string();
+        }
+
         format!(
             "{}/chat/completions",
             self.settings.base_url.trim_end_matches('/')
@@ -166,6 +170,11 @@ struct WireRequestBody {
 impl WireRequestBody {
     /// 从公开请求模型构建 wire 请求体
     fn from_request(request: &ChatRequest, stream: bool) -> Self {
+        let mut extra_body = request.extra_body.clone().unwrap_or_default();
+        for reserved in ["model", "messages", "temperature", "max_tokens", "stream"] {
+            extra_body.remove(reserved);
+        }
+
         Self {
             model: request.model.clone(),
             messages: request
@@ -176,7 +185,7 @@ impl WireRequestBody {
             temperature: request.temperature,
             max_tokens: request.max_tokens,
             stream,
-            extra_body: request.extra_body.clone().unwrap_or_default(),
+            extra_body,
         }
     }
 }

@@ -17,7 +17,6 @@ use application_interface::storage::AppFileStorage;
 use common::identifier_generator::IdentifierGenerator;
 use distributed_cache::DistributedCache;
 use distributed_lock::DistributedLock;
-use llm::LlmClientFactory;
 use logger::LoggerRuntime;
 use sea_orm::DatabaseConnection;
 use std::future::Future;
@@ -71,9 +70,6 @@ pub struct WebApiHostProfile {
     /// 默认文件根目录
     pub default_file_root: &'static str,
 
-    /// LLM 客户端工厂构建方法
-    pub build_llm_client_factory: fn(&Settings) -> Result<LlmClientFactory, String>,
-
     /// 分布式锁构建方法
     pub build_distributed_lock: BuildWebApiLock,
 
@@ -96,12 +92,10 @@ pub async fn run_webapi_host(
     features: Vec<Box<dyn WebApiFeature>>,
 ) -> Result<(), String> {
     let settings = Settings::load(profile);
-    let llm_client_factory = (profile.build_llm_client_factory)(&settings)?;
     let file_storage = (profile.build_file_storage)(&settings)?;
     let email_sender = (profile.build_email_sender)(&settings)?;
     let host = WebApiHostBuilder::new(
         settings,
-        llm_client_factory,
         file_storage,
         email_sender,
         profile.build_distributed_lock,

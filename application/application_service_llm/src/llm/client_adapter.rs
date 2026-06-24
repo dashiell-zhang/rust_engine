@@ -1,6 +1,6 @@
 use async_trait::async_trait;
 use futures_util::{StreamExt, stream::BoxStream};
-use llm::{ChatMessage, ChatRequest, ChatRole, ChatStreamChunk, LlmClientFactory};
+use llm::{ChatMessage, ChatRequest, ChatRole, ChatStreamChunk, LlmModelConfig, create_client};
 
 use application_interface::{
     error::AppError,
@@ -10,41 +10,28 @@ use application_interface::{
     },
 };
 
-/// 应用层 LLM 客户端适配器
-///
-/// 负责把应用层抽象请求转换为基础设施层请求
-/// 并绑定固定 Provider 调用底层客户端
-pub struct FactoryAppLlmClient<'a> {
-    /// LLM 客户端工厂
-    llm_client_factory: &'a LlmClientFactory,
-
-    /// 绑定的 Provider 标识
-    provider: String,
+/// 基于单个模型配置的应用层 LLM 客户端适配器
+pub struct ModelConfigAppLlmClient {
+    /// 模型配置创建出的基础设施客户端
+    client: std::sync::Arc<dyn llm::LlmClient>,
 }
 
-impl<'a> FactoryAppLlmClient<'a> {
-    /// 创建应用层 LLM 客户端适配器
-    ///
-    /// 通过固定 Provider 把应用层抽象调用路由到底层客户端工厂
-    pub fn new(llm_client_factory: &'a LlmClientFactory, provider: impl Into<String>) -> Self {
-        Self {
-            llm_client_factory,
-            provider: provider.into(),
-        }
-    }
+impl ModelConfigAppLlmClient {
+    /// 创建模型配置客户端
+    pub fn new(config: LlmModelConfig) -> Result<Self, AppError> {
+        let client = create_client(config)
+            .map_err(|error| AppError::internal(format!("初始化 LLM 客户端失败: {error}")))?;
 
-    /// 获取当前绑定的 Provider 标识
-    pub fn provider(&self) -> &str {
-        &self.provider
+        Ok(Self { client })
     }
 }
 
 #[async_trait]
-impl AppLlmClient for FactoryAppLlmClient<'_> {
+impl AppLlmClient for ModelConfigAppLlmClient {
     /// 执行非流式对话
     async fn chat(&self, request: AppLlmChatRequest) -> Result<AppLlmChatResponse, AppError> {
-        let client = self.require_client()?;
-        let response = client
+        let response = self
+            .client
             .chat(to_chat_request(request))
             .await
             .map_err(|error| AppError::internal(format!("LLM 调用失败: {error}")))?;
@@ -62,26 +49,13 @@ impl AppLlmClient for FactoryAppLlmClient<'_> {
         &self,
         request: AppLlmChatRequest,
     ) -> BoxStream<'_, Result<AppLlmStreamChunk, AppError>> {
-        match self.require_client() {
-            Ok(client) => Box::pin(async_stream::stream! {
-                // 保持客户端引用存活到流消费结束
-                let mut stream = client.chat_stream(to_chat_request(request));
+        Box::pin(async_stream::stream! {
+            let mut stream = self.client.chat_stream(to_chat_request(request));
 
-                while let Some(item) = stream.next().await {
-                    yield item.map(to_app_stream_chunk).map_err(to_stream_app_error);
-                }
-            }),
-            Err(error) => Box::pin(futures_util::stream::once(async move { Err(error) })),
-        }
-    }
-}
-
-impl FactoryAppLlmClient<'_> {
-    /// 获取当前 Provider 对应的基础设施客户端
-    fn require_client(&self) -> Result<std::sync::Arc<dyn llm::LlmClient>, AppError> {
-        self.llm_client_factory
-            .require_client(&self.provider)
-            .map_err(|error| AppError::internal(format!("获取 LLM 客户端失败: {error}")))
+            while let Some(item) = stream.next().await {
+                yield item.map(to_app_stream_chunk).map_err(to_stream_app_error);
+            }
+        })
     }
 }
 
@@ -104,7 +78,7 @@ fn to_chat_request(request: AppLlmChatRequest) -> ChatRequest {
     }
 
     if let Some(extra_body) = request.extra_body {
-        // 透传应用层附带的 Provider 扩展参数
+        // 透传应用层附带的模型协议扩展参数
         chat_request = chat_request.with_extra_body(extra_body);
     }
 

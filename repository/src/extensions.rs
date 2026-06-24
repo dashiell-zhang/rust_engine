@@ -67,6 +67,7 @@ impl_soft_delete!(function_authorize);
 impl_soft_delete!(function_route);
 impl_soft_delete!(link);
 impl_soft_delete!(llm_app);
+impl_soft_delete!(llm_model);
 impl_soft_delete!(llm_conversation);
 impl_soft_delete!(log);
 impl_soft_delete!(order);

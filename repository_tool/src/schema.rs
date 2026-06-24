@@ -5,8 +5,8 @@ use sea_orm::{
 
 use repository::{
     app_setting, article, category, data_update_log, file, function, function_authorize,
-    function_route, link, llm_app, llm_conversation, log, order, order_detail, product, queue_task,
-    region_area, region_city, region_province, region_town, role, task_setting, user,
+    function_route, link, llm_app, llm_conversation, llm_model, log, order, order_detail, product,
+    queue_task, region_area, region_city, region_province, region_town, role, task_setting, user,
     user_bind_external, user_info, user_role, user_token,
 };
 
@@ -42,6 +42,7 @@ pub fn initial_schema_statements(backend: DbBackend) -> Vec<String> {
     append_entity_table(&mut statements, backend, &schema, link::Entity);
     append_entity_table(&mut statements, backend, &schema, data_update_log::Entity);
     append_entity_table(&mut statements, backend, &schema, app_setting::Entity);
+    append_entity_table(&mut statements, backend, &schema, llm_model::Entity);
     append_entity_table(&mut statements, backend, &schema, llm_app::Entity);
     append_entity_table(&mut statements, backend, &schema, llm_conversation::Entity);
     append_entity_table(&mut statements, backend, &schema, order::Entity);
@@ -66,9 +67,21 @@ pub fn legacy_alignment_statements(backend: DbBackend) -> Vec<String> {
     append_missing_entity_table(&mut statements, backend, product::Entity);
     append_missing_entity_table(&mut statements, backend, order::Entity);
     append_missing_entity_table(&mut statements, backend, order_detail::Entity);
+    append_missing_entity_table(&mut statements, backend, llm_model::Entity);
     append_missing_entity_table(&mut statements, backend, llm_conversation::Entity);
     append_missing_entity_table(&mut statements, backend, user_bind_external::Entity);
 
+    statements.extend(schema_index_statements(backend));
+    statements.extend(schema_patch_statements(backend));
+
+    statements
+}
+
+/// 获取 LLM 模型配置结构迁移语句
+pub fn llm_model_alignment_statements(backend: DbBackend) -> Vec<String> {
+    let mut statements = vec![];
+
+    append_missing_entity_table(&mut statements, backend, llm_model::Entity);
     statements.extend(schema_index_statements(backend));
     statements.extend(schema_patch_statements(backend));
 
@@ -482,9 +495,9 @@ fn schema_index_statements(backend: DbBackend) -> Vec<String> {
             backend,
             Index::create()
                 .if_not_exists()
-                .name("IX_LlmApp_Provider_NotDeleted")
+                .name("IX_LlmApp_IsEnable_NotDeleted")
                 .table(llm_app::Entity)
-                .col(llm_app::Column::Provider)
+                .col(llm_app::Column::IsEnable)
                 .and_where(Expr::col((llm_app::Entity, llm_app::Column::DeleteTime)).is_null())
                 .to_owned(),
         ),
@@ -492,10 +505,20 @@ fn schema_index_statements(backend: DbBackend) -> Vec<String> {
             backend,
             Index::create()
                 .if_not_exists()
-                .name("IX_LlmApp_IsEnable_NotDeleted")
+                .name("IX_LlmApp_LlmModelId_NotDeleted")
                 .table(llm_app::Entity)
-                .col(llm_app::Column::IsEnable)
+                .col(llm_app::Column::LlmModelId)
                 .and_where(Expr::col((llm_app::Entity, llm_app::Column::DeleteTime)).is_null())
+                .to_owned(),
+        ),
+        build_index(
+            backend,
+            Index::create()
+                .if_not_exists()
+                .name("IX_LlmModel_IsEnable_NotDeleted")
+                .table(llm_model::Entity)
+                .col(llm_model::Column::IsEnable)
+                .and_where(Expr::col((llm_model::Entity, llm_model::Column::DeleteTime)).is_null())
                 .to_owned(),
         ),
         build_index(
@@ -713,6 +736,17 @@ fn schema_patch_statements(backend: DbBackend) -> Vec<String> {
             backend,
             Table::alter()
                 .table(llm_app::Entity)
+                .add_column_if_not_exists(
+                    ColumnDef::new(llm_app::Column::LlmModelId)
+                        .big_integer()
+                        .not_null(),
+                )
+                .to_owned(),
+        ),
+        build_alter(
+            backend,
+            Table::alter()
+                .table(llm_app::Entity)
                 .add_column_if_not_exists(ColumnDef::new(llm_app::Column::Code).text())
                 .to_owned(),
         ),
@@ -749,20 +783,6 @@ fn schema_patch_statements(backend: DbBackend) -> Vec<String> {
                         .not_null()
                         .default(true),
                 )
-                .to_owned(),
-        ),
-        build_alter(
-            backend,
-            Table::alter()
-                .table(llm_app::Entity)
-                .add_column_if_not_exists(ColumnDef::new(llm_app::Column::Temperature).double())
-                .to_owned(),
-        ),
-        build_alter(
-            backend,
-            Table::alter()
-                .table(llm_app::Entity)
-                .add_column_if_not_exists(ColumnDef::new(llm_app::Column::MaxTokens).integer())
                 .to_owned(),
         ),
         build_alter(

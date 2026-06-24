@@ -29,7 +29,6 @@ pub const CLIENT_WEBAPI_PROFILE: WebApiHostProfile = WebApiHostProfile {
     build_distributed_lock: host_support::build_distributed_lock,
     build_cache: host_support::build_cache,
     build_logger_runtime: host_support::build_logger_runtime,
-    build_llm_client_factory: llm_support::build_llm_client_factory,
     build_file_storage: host_support::build_file_storage,
     build_email_sender: host_support::build_email_sender,
 };

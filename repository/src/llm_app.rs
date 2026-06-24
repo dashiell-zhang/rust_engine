@@ -4,7 +4,7 @@ use sea_orm::entity::prelude::*;
 
 /// LLM 应用配置实体
 ///
-/// 存储各 LLM Provider 的业务配置与模型参数
+/// 存储 LLM 应用业务配置
 #[derive(Clone, Debug, PartialEq, DeriveEntityModel)]
 #[sea_orm(table_name = "LlmApp")]
 pub struct Model {
@@ -20,13 +20,9 @@ pub struct Model {
     #[sea_orm(column_name = "Name", column_type = "Text")]
     pub name: String,
 
-    /// Provider 标识，如 deepseek、qwen、openai
-    #[sea_orm(column_name = "Provider", column_type = "Text")]
-    pub provider: String,
-
-    /// 模型名称，如 deepseek-chat、qwen-plus
-    #[sea_orm(column_name = "Model", column_type = "Text")]
-    pub model: String,
+    /// 关联的 LLM 模型 ID
+    #[sea_orm(column_name = "LlmModelId")]
+    pub llm_model_id: i64,
 
     /// System 提示词模板
     #[sea_orm(column_name = "SystemPromptTemplate", column_type = "Text", nullable)]
@@ -35,14 +31,6 @@ pub struct Model {
     /// User 提示词模板
     #[sea_orm(column_name = "PromptTemplate", column_type = "Text")]
     pub prompt_template: String,
-
-    /// 最大生成 token 数
-    #[sea_orm(column_name = "MaxTokens", nullable)]
-    pub max_tokens: Option<i32>,
-
-    /// 温度参数
-    #[sea_orm(column_name = "Temperature", nullable)]
-    pub temperature: Option<f64>,
 
     /// 额外请求参数 JSON 字符串
     #[sea_orm(column_name = "ExtraBodyJson", column_type = "Text", nullable)]
@@ -113,6 +101,16 @@ pub enum Relation {
         on_delete = "Restrict"
     )]
     DeleteUser,
+
+    /// 关联 LLM 模型配置
+    #[sea_orm(
+        belongs_to = "super::llm_model::Entity",
+        from = "Column::LlmModelId",
+        to = "super::llm_model::Column::Id",
+        on_update = "NoAction",
+        on_delete = "Restrict"
+    )]
+    LlmModel,
 }
 
 /// 默认实体行为

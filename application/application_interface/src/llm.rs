@@ -98,11 +98,3 @@ pub trait AppLlmClient: Send + Sync {
         request: AppLlmChatRequest,
     ) -> BoxStream<'_, Result<AppLlmStreamChunk, AppError>>;
 }
-
-/// 应用层 LLM 客户端工厂抽象
-pub trait AppLlmClientFactory: Send + Sync {
-    /// 按 Provider 获取应用层 LLM 客户端
-    ///
-    /// 由宿主负责把 Provider 标识解析为可直接调用的应用层客户端
-    fn require_client(&self, provider: &str) -> Result<Box<dyn AppLlmClient + '_>, AppError>;
-}

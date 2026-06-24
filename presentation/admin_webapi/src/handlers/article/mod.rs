@@ -1,8 +1,9 @@
 use application_model::article::models::{
-    ArticleDto, ArticleIdQuery, ArticlePageListDto, ArticlePageRequest, CategoryDto,
-    CategoryIdQuery, CategoryPageListDto, CategoryPageRequest, CategorySelectDto,
-    CreateArticleQuery, DeleteArticleQuery, DeleteCategoryQuery, EditArticleDto, EditCategoryDto,
+    ArticleDto, ArticleIdQuery, ArticlePageListDto, CategoryDto, CategoryIdQuery,
+    CategoryPageListDto, CategoryPageRequest, CategorySelectDto, CreateArticleQuery,
+    DeleteArticleQuery, DeleteCategoryQuery, EditArticleDto, EditCategoryDto,
 };
+use application_model::shared::models::PageRequestDto;
 use axum::{
     extract::State,
     http::StatusCode,
@@ -184,7 +185,7 @@ pub async fn delete_category(
 #[utoipa::path(
     get,
     path = "/Article/GetArticleList",
-    params(ArticlePageRequest),
+    params(PageRequestDto),
     responses(
         (status = 200, description = "查询成功", body = ArticlePageListDto),
         (status = 400, description = "请求参数无效"),
@@ -197,7 +198,7 @@ pub async fn delete_category(
 pub async fn get_article_list(
     State(app_state): State<Arc<AppState>>,
     _user_ctx: UserContext,
-    PageQuery(params): PageQuery<ArticlePageRequest>,
+    PageQuery(params): PageQuery<PageRequestDto>,
 ) -> Result<Response, AppError> {
     let service = app_state.article_webapi();
 

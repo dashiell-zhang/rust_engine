@@ -27,6 +27,11 @@ fn all_migrations() -> &'static [Migration] {
             name: "align_legacy_schema_to_code_first",
             build_statements: schema::legacy_alignment_statements,
         },
+        Migration {
+            version: 202606240001,
+            name: "align_llm_model_protocol_schema",
+            build_statements: schema::llm_model_alignment_statements,
+        },
     ]
 }
 

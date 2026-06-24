@@ -143,7 +143,7 @@ rust_engine/
 - jwt 相关密钥
 - file 存储配置
 - cache / lock 的 component 与 connection
-- 邮件、短信、LLM 等 provider 配置
+- 邮件、短信 provider 配置，以及 LLM 模型/协议配置
 
 仓库中的默认值以本地开发为主。准备公开仓库前，建议替换示例连接串、密钥与第三方服务配置。
 

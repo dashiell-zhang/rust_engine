@@ -41,6 +41,9 @@ pub mod link;
 /// LLM 应用配置实体
 pub mod llm_app;
 
+/// LLM 模型配置实体
+pub mod llm_model;
+
 /// LLM 对话记录实体
 pub mod llm_conversation;
 

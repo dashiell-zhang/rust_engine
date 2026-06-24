@@ -15,6 +15,7 @@ use application_interface::{
     context::{AppContext, CurrentUser},
     error::AppError,
 };
+use application_model::shared::models::PageRequestDto;
 
 use crate::user::models::PageListDto;
 use crate::write_support::{
@@ -23,8 +24,8 @@ use crate::write_support::{
 };
 
 use super::models::{
-    ArticleClickDto, ArticleDto, ArticlePageListDto, ArticlePageRequest, CategoryDto,
-    CategoryPageListDto, CategoryPageRequest, CategorySelectDto, EditArticleDto, EditCategoryDto,
+    ArticleClickDto, ArticleDto, ArticlePageListDto, CategoryDto, CategoryPageListDto,
+    CategoryPageRequest, CategorySelectDto, EditArticleDto, EditCategoryDto,
     PublicAdjacentArticleDto, PublicArticleDetailDto, PublicArticleListItemDto,
     PublicArticleNavigationDto, PublicArticlePageListDto, PublicArticlePageRequest,
     PublicCategoryDto, PublicRecommendArticleRequest,
@@ -364,24 +365,11 @@ impl<'a> ArticleService<'a> {
     /// 获取文章分页列表
     pub async fn get_article_list(
         &self,
-        params: ArticlePageRequest,
+        params: PageRequestDto,
     ) -> Result<ArticlePageListDto, AppError> {
         validate_page_request(params.page, params.page_size)?;
 
-        let mut query = article::Entity::find().not_deleted(article::Column::DeleteTime);
-
-        if let Some(category_id) = params.category_id {
-            query = query.filter(article::Column::CategoryId.eq(category_id));
-        }
-
-        if let Some(keyword) = params
-            .keyword
-            .as_deref()
-            .map(str::trim)
-            .filter(|s| !s.is_empty())
-        {
-            query = query.filter(article::Column::Title.contains(keyword));
-        }
+        let query = article::Entity::find().not_deleted(article::Column::DeleteTime);
 
         let total = query
             .clone()
@@ -1093,12 +1081,13 @@ mod webapi_impl {
         error::AppError,
     };
     use application_model::article::models::{
-        ArticleClickDto, ArticleDto, ArticlePageListDto, ArticlePageRequest, CategoryDto,
-        CategoryPageListDto, CategoryPageRequest, CategorySelectDto, EditArticleDto,
-        EditCategoryDto, PublicArticleDetailDto, PublicArticleListItemDto,
-        PublicArticleNavigationDto, PublicArticlePageListDto, PublicArticlePageRequest,
-        PublicCategoryDto, PublicRecommendArticleRequest,
+        ArticleClickDto, ArticleDto, ArticlePageListDto, CategoryDto, CategoryPageListDto,
+        CategoryPageRequest, CategorySelectDto, EditArticleDto, EditCategoryDto,
+        PublicArticleDetailDto, PublicArticleListItemDto, PublicArticleNavigationDto,
+        PublicArticlePageListDto, PublicArticlePageRequest, PublicCategoryDto,
+        PublicRecommendArticleRequest,
     };
+    use application_model::shared::models::PageRequestDto;
     use distributed_cache::{CacheEntryOptions, DistributedCacheExt};
     use repository::article;
     use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
@@ -1244,7 +1233,7 @@ mod webapi_impl {
         /// 获取文章分页列表
         pub async fn get_article_list(
             &self,
-            params: ArticlePageRequest,
+            params: PageRequestDto,
         ) -> Result<ArticlePageListDto, AppError> {
             let mut result = ArticleService::new(self.context.app)
                 .get_article_list(params)

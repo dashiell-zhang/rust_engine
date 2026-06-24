@@ -1,8 +1,9 @@
 use crate::{
     features::protect_method_router,
     handlers::llm::{
-        create_llm_app, delete_llm_app, get_llm_app_list, get_llm_conversation_list, test_llm_app,
-        update_llm_app,
+        create_llm_app, create_llm_model, delete_llm_app, delete_llm_model, get_llm_app_list,
+        get_llm_conversation_list, get_llm_model_list, get_llm_model_select, test_llm_app,
+        update_llm_app, update_llm_model,
     },
     openapi::llm::LlmApiDoc,
     state::AppState,
@@ -26,6 +27,56 @@ impl WebApiFeature for LlmFeature {
         let permission_module = app_state.settings.permission_module.clone();
 
         router
+            .route(
+                "/LlmModel/GetLlmModelList",
+                protect_method_router(
+                    axum::routing::get(get_llm_model_list),
+                    app_state.clone(),
+                    permission_module.clone(),
+                    "/LlmModel/GetLlmModelList",
+                    false,
+                ),
+            )
+            .route(
+                "/LlmModel/GetLlmModelSelect",
+                protect_method_router(
+                    axum::routing::get(get_llm_model_select),
+                    app_state.clone(),
+                    permission_module.clone(),
+                    "/LlmModel/GetLlmModelSelect",
+                    false,
+                ),
+            )
+            .route(
+                "/LlmModel/CreateLlmModel",
+                protect_method_router(
+                    axum::routing::post(create_llm_model),
+                    app_state.clone(),
+                    permission_module.clone(),
+                    "/LlmModel/CreateLlmModel",
+                    false,
+                ),
+            )
+            .route(
+                "/LlmModel/UpdateLlmModel",
+                protect_method_router(
+                    axum::routing::post(update_llm_model),
+                    app_state.clone(),
+                    permission_module.clone(),
+                    "/LlmModel/UpdateLlmModel",
+                    false,
+                ),
+            )
+            .route(
+                "/LlmModel/DeleteLlmModel",
+                protect_method_router(
+                    axum::routing::delete(delete_llm_model),
+                    app_state.clone(),
+                    permission_module.clone(),
+                    "/LlmModel/DeleteLlmModel",
+                    false,
+                ),
+            )
             .route(
                 "/Operations/GetLlmAppList",
                 protect_method_router(
@@ -96,6 +147,26 @@ impl WebApiFeature for LlmFeature {
     /// 获取 LLM 模块权限路由列表
     fn permission_routes(&self) -> Vec<WebApiRoutePermission> {
         vec![
+            WebApiRoutePermission {
+                route: "/LlmModel/GetLlmModelList",
+                remark: "获取 LLM 模型配置列表",
+            },
+            WebApiRoutePermission {
+                route: "/LlmModel/GetLlmModelSelect",
+                remark: "获取 LLM 模型下拉列表",
+            },
+            WebApiRoutePermission {
+                route: "/LlmModel/CreateLlmModel",
+                remark: "创建 LLM 模型配置",
+            },
+            WebApiRoutePermission {
+                route: "/LlmModel/UpdateLlmModel",
+                remark: "更新 LLM 模型配置",
+            },
+            WebApiRoutePermission {
+                route: "/LlmModel/DeleteLlmModel",
+                remark: "删除 LLM 模型配置",
+            },
             WebApiRoutePermission {
                 route: "/Operations/GetLlmAppList",
                 remark: "获取 LLM 应用配置列表",

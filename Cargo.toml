@@ -36,7 +36,5 @@ members = [
   "infrastructure/file_storage",
   "infrastructure/file_storage_ali_cloud",
   "infrastructure/file_storage_tencent_cloud",
-  "infrastructure/llm",
-  "infrastructure/llm_deepseek",
-  "infrastructure/llm_qwen"
+  "infrastructure/llm"
 ]

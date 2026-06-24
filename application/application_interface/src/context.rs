@@ -6,7 +6,6 @@ use sea_orm::DatabaseConnection;
 use crate::auth::EcJwtCodec;
 use crate::email::AppEmailSender;
 use crate::http_client::HttpClientFactory;
-use crate::llm::AppLlmClientFactory;
 use crate::sms::AppSmsSender;
 use crate::storage::AppFileStorage;
 
@@ -171,7 +170,4 @@ pub struct MessageContext<'a> {
 pub struct LlmContext<'a> {
     /// 通用上下文
     pub app: AppContext<'a>,
-
-    /// LLM 客户端工厂
-    pub llm_client_factory: &'a dyn AppLlmClientFactory,
 }

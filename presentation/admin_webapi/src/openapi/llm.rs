@@ -1,5 +1,6 @@
 use application_model::llm::models::{
-    EditLlmAppDto, LlmAppDto, LlmAppPageListDto, LlmConversationDto, LlmConversationPageListDto,
+    EditLlmAppDto, EditLlmModelDto, LlmAppDto, LlmAppPageListDto, LlmConversationDto,
+    LlmConversationPageListDto, LlmModelDto, LlmModelPageListDto, LlmModelSelectDto,
     TestLlmAppRequest, TestLlmAppResult, TestLlmAppUsage,
 };
 use utoipa::OpenApi;
@@ -10,6 +11,11 @@ use crate::handlers::llm;
 #[derive(OpenApi)]
 #[openapi(
     paths(
+        llm::get_llm_model_list,
+        llm::get_llm_model_select,
+        llm::create_llm_model,
+        llm::update_llm_model,
+        llm::delete_llm_model,
         llm::get_llm_app_list,
         llm::create_llm_app,
         llm::update_llm_app,
@@ -22,6 +28,10 @@ use crate::handlers::llm;
             LlmAppPageListDto,
             LlmAppDto,
             EditLlmAppDto,
+            LlmModelPageListDto,
+            LlmModelDto,
+            LlmModelSelectDto,
+            EditLlmModelDto,
             TestLlmAppRequest,
             TestLlmAppResult,
             TestLlmAppUsage,

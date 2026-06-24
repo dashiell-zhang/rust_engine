@@ -3,13 +3,11 @@
 use application_interface::{
     context::{AppContext, LlmContext},
     email::AppEmailSender,
-    error::AppError,
-    llm::{AppLlmClient, AppLlmClientFactory},
     storage::AppFileStorage,
 };
 use application_service_llm::llm::{
-    app_service::LlmAppService, client_adapter::FactoryAppLlmClient,
-    conversation_manage_service::LlmConversationManageService,
+    app_service::LlmAppService, conversation_manage_service::LlmConversationManageService,
+    model_service::LlmModelService,
 };
 use distributed_cache::DistributedCache;
 use distributed_cache_memory::InMemoryCache;
@@ -20,7 +18,6 @@ use distributed_lock_redis::RedisLock;
 use email_smtp::{SmtpEmailSender, SmtpEmailSettings};
 use file_storage_ali_cloud::{AliyunOssFileStorage, AliyunOssFileStorageSettings};
 use file_storage_tencent_cloud::{TencentCosFileStorage, TencentCosFileStorageSettings};
-use llm::{LlmClientFactory, OpenAiCompatibleClient, OpenAiCompatibleSettings};
 use logger::{LoggerComponent, LoggerRuntime};
 use logger_database::init_database_logger;
 use logger_local_file::init_local_file_logger;
@@ -32,30 +29,6 @@ use webapi_core::{
 };
 
 use crate::state::AppState;
-
-/// 构建管理端 LLM 客户端工厂
-pub fn build_llm_client_factory(settings: &Settings) -> Result<LlmClientFactory, String> {
-    let mut factory = LlmClientFactory::new();
-
-    for (provider_key, provider_settings) in &settings.llm.providers {
-        let provider = provider_key.trim();
-        if provider.is_empty() {
-            continue;
-        }
-
-        let client = OpenAiCompatibleClient::new(OpenAiCompatibleSettings::new(
-            &provider_settings.base_url,
-            &provider_settings.api_key,
-        ))
-        .map_err(|error| {
-            format!("LLM Provider 初始化失败: provider={provider_key}, error={error}")
-        })?;
-
-        factory.register(provider, Arc::new(client));
-    }
-
-    Ok(factory)
-}
 
 /// 构建管理端分布式锁
 pub fn build_distributed_lock(
@@ -164,7 +137,6 @@ impl<'a> AdminLlmApplicationAdapter<'a> {
     fn llm_context(&self) -> LlmContext<'_> {
         LlmContext {
             app: self.app_context(),
-            llm_client_factory: self,
         }
     }
 
@@ -182,25 +154,13 @@ impl<'a> AdminLlmApplicationAdapter<'a> {
         LlmAppService::new(self.llm_context())
     }
 
+    /// 创建 LLM 模型配置服务
+    pub fn llm_model(&self) -> LlmModelService<'_> {
+        LlmModelService::new(self.llm_context())
+    }
+
     /// 创建 LLM 对话记录管理服务
     pub fn llm_conversation_manage(&self) -> LlmConversationManageService<'_> {
         LlmConversationManageService::new(self.llm_context())
-    }
-}
-
-impl AppLlmClientFactory for AdminLlmApplicationAdapter<'_> {
-    /// 按 Provider 获取应用层 LLM 客户端
-    fn require_client(&self, provider: &str) -> Result<Box<dyn AppLlmClient + '_>, AppError> {
-        self.state
-            .llm_client_factory
-            .get_client(provider)
-            .ok_or_else(|| {
-                AppError::internal(format!("获取 LLM 客户端失败: 未注册 provider {provider}"))
-            })?;
-
-        Ok(Box::new(FactoryAppLlmClient::new(
-            &self.state.llm_client_factory,
-            provider.to_string(),
-        )))
     }
 }
