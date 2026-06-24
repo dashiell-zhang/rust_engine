@@ -1,9 +1,15 @@
-use application_model::authorize::models::{GetFunctionListRequest, GetTokenRequest};
+use application_model::authorize::models::{
+    EcdsaKeyPairDto, GetFunctionListRequest, GetTokenRequest,
+};
 use axum::{
     extract::State,
     http::StatusCode,
     response::{IntoResponse, Response},
 };
+use base64::{Engine as _, engine::general_purpose};
+use common::app_error::AppError as ApplicationError;
+use p256::{SecretKey, pkcs8::EncodePublicKey};
+use rand_core::OsRng;
 use std::sync::Arc;
 use webapi_core::extract::{Json, Query};
 use webapi_core::{auth::UserContext, error::AppError};
@@ -79,4 +85,53 @@ pub async fn update_route(State(app_state): State<Arc<AppState>>) -> Result<Resp
         Ok(result) => Ok((StatusCode::OK, Json(result)).into_response()),
         Err(error) => Err(error.into()),
     }
+}
+
+/// 生成 ECDSA 公私钥
+#[utoipa::path(
+    get,
+    path = "/Authorize/GenerateEcdsaKeyPair",
+    responses(
+        (status = 200, description = "生成成功", body = EcdsaKeyPairDto),
+        (status = 400, description = "非 Development 环境不允许调用"),
+        (status = 500, description = "服务器内部错误"),
+    ),
+    tag = "授权"
+)]
+pub async fn generate_ecdsa_key_pair() -> Result<Response, AppError> {
+    if !is_development_environment() {
+        return Err(ApplicationError::bad_request(
+            "GenerateEcdsaKeyPair 仅允许在 Development 环境执行",
+        )
+        .into());
+    }
+
+    let secret_key = SecretKey::random(&mut OsRng);
+    let private_key = secret_key.to_sec1_der().map_err(|error| {
+        AppError::from(ApplicationError::internal(format!(
+            "ECDSA 私钥编码失败: {error}"
+        )))
+    })?;
+    let public_key = secret_key
+        .public_key()
+        .to_public_key_der()
+        .map_err(|error| {
+            AppError::from(ApplicationError::internal(format!(
+                "ECDSA 公钥编码失败: {error}"
+            )))
+        })?;
+
+    let result = EcdsaKeyPairDto {
+        private_key: general_purpose::STANDARD.encode(private_key.as_slice()),
+        public_key: general_purpose::STANDARD.encode(public_key.as_bytes()),
+    };
+
+    Ok((StatusCode::OK, Json(result)).into_response())
+}
+
+fn is_development_environment() -> bool {
+    std::env::var("APP_ENVIRONMENT")
+        .or_else(|_| std::env::var("ASPNETCORE_ENVIRONMENT"))
+        .map(|value| value.eq_ignore_ascii_case("Development"))
+        .unwrap_or(false)
 }

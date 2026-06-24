@@ -15,9 +15,6 @@ pub struct LinkPageRequest {
     #[param(minimum = 1, maximum = 100)]
     #[serde(default = "default_page_size", rename = "pageSize")]
     pub page_size: u64,
-
-    /// 关键词
-    pub keyword: Option<String>,
 }
 
 impl crate::shared::models::PageRequest for LinkPageRequest {
@@ -63,9 +60,6 @@ pub struct LinkDto {
     /// 排序值
     pub sort: i32,
 
-    /// 备注
-    pub remark: Option<String>,
-
     /// 创建时间
     pub create_time: String,
 }
@@ -83,9 +77,6 @@ pub struct EditLinkDto {
     /// 排序值
     #[serde(default)]
     pub sort: i32,
-
-    /// 备注
-    pub remark: Option<String>,
 }
 
 /// 友情链接分页返回模型
@@ -106,7 +97,4 @@ pub struct PublicLinkDto {
 
     /// 排序值
     pub sort: i32,
-
-    /// 备注
-    pub remark: Option<String>,
 }

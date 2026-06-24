@@ -217,7 +217,6 @@ impl<'a> FileService<'a> {
                 path: model.path,
                 sign: model.sign,
                 url,
-                is_public_read: model.is_public_read,
             });
         }
 

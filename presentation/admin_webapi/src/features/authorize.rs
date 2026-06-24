@@ -1,6 +1,6 @@
 use crate::{
     features::protect_method_router,
-    handlers::authorize::{get_function_list, get_token, update_route},
+    handlers::authorize::{generate_ecdsa_key_pair, get_function_list, get_token, update_route},
     openapi::authorize::AuthorizeApiDoc,
     state::AppState,
 };
@@ -35,6 +35,10 @@ impl WebApiFeature for AuthorizeFeature {
                 ),
             )
             .route("/Authorize/UpdateRoute", axum::routing::get(update_route))
+            .route(
+                "/Authorize/GenerateEcdsaKeyPair",
+                axum::routing::get(generate_ecdsa_key_pair),
+            )
     }
 
     /// 获取当前特性的 OpenAPI 子文档

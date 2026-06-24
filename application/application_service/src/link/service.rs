@@ -121,7 +121,6 @@ impl<'a> LinkService<'a> {
             "name": dto.name,
             "url": dto.url,
             "sort": dto.sort,
-            "remark": dto.remark,
         });
         let audit_fields = build_create_audit_fields(current_user);
         let model = link::ActiveModel {
@@ -129,7 +128,7 @@ impl<'a> LinkService<'a> {
             name: Set(dto.name),
             url: Set(dto.url),
             sort: Set(dto.sort),
-            remark: Set(dto.remark),
+            remark: Set(None),
             create_time: Set(audit_fields.create_time),
             delete_time: Set(audit_fields.delete_time),
             create_user_id: Set(audit_fields.create_user_id),
@@ -184,13 +183,11 @@ impl<'a> LinkService<'a> {
             "name": model.name,
             "url": model.url,
             "sort": model.sort,
-            "remark": model.remark,
         });
         let mut active = model.into_active_model();
         active.name = Set(dto.name);
         active.url = Set(dto.url);
         active.sort = Set(dto.sort);
-        active.remark = Set(dto.remark);
 
         let updated_model = active
             .update(self.context.db)
@@ -208,7 +205,6 @@ impl<'a> LinkService<'a> {
                 "name": updated_model.name,
                 "url": updated_model.url,
                 "sort": updated_model.sort,
-                "remark": updated_model.remark,
             })),
             Some(current_user),
         )
@@ -243,7 +239,6 @@ impl<'a> LinkService<'a> {
             "name": model.name,
             "url": model.url,
             "sort": model.sort,
-            "remark": model.remark,
         });
         let mut active = model.into_active_model();
         apply_soft_delete_audit_fields(
@@ -295,7 +290,6 @@ fn to_link_dto(model: link::Model) -> LinkDto {
         name: model.name,
         url: model.url,
         sort: model.sort,
-        remark: model.remark,
         create_time: model.create_time.to_rfc3339(),
     }
 }
@@ -307,7 +301,6 @@ fn to_public_link_dto(model: link::Model) -> PublicLinkDto {
         name: model.name,
         url: model.url,
         sort: model.sort,
-        remark: model.remark,
     }
 }
 

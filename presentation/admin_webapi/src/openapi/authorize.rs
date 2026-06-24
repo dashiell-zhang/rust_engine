@@ -1,4 +1,6 @@
-use application_model::authorize::models::{GetFunctionListRequest, GetTokenRequest};
+use application_model::authorize::models::{
+    EcdsaKeyPairDto, GetFunctionListRequest, GetTokenRequest,
+};
 use utoipa::OpenApi;
 
 use crate::handlers::authorize;
@@ -10,11 +12,13 @@ use crate::handlers::authorize;
         authorize::get_token,
         authorize::get_function_list,
         authorize::update_route,
+        authorize::generate_ecdsa_key_pair,
     ),
     components(
         schemas(
             GetTokenRequest,
             GetFunctionListRequest,
+            EcdsaKeyPairDto,
         )
     ),
     tags(

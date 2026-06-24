@@ -7,6 +7,17 @@ use utoipa::{IntoParams, ToSchema};
 /// 授权模块对外请求与响应模型
 ///
 /// 这些结构同时用于接口反序列化与 OpenAPI 文档生成
+/// ECDSA JWT 密钥对返回模型
+#[derive(Serialize, ToSchema)]
+#[serde(rename_all = "PascalCase")]
+pub struct EcdsaKeyPairDto {
+    /// SEC1 DER 私钥的 Base64 文本
+    pub private_key: String,
+
+    /// SPKI DER 公钥的 Base64 文本
+    pub public_key: String,
+}
+
 /// JWT Claims 结构
 #[derive(Serialize, Deserialize, Clone)]
 pub struct JwtClaims {

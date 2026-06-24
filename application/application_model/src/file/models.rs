@@ -78,9 +78,6 @@ pub struct FileInfoDto {
 
     /// 文件访问地址
     pub url: Option<String>,
-
-    /// 是否允许公开访问
-    pub is_public_read: bool,
 }
 
 /// 文件下载内容

@@ -23,10 +23,10 @@ use super::models::{EditSiteDto, SiteDto};
 const SITE_MODULE: &str = "Site";
 
 /// SEO 关键字配置键，保持与 NetEngine 一致
-const SITE_SEO_KEYWORDS_KEY: &str = "SeoKeyWords";
+const SITE_SEO_KEYWORDS_KEY: &str = "SeoKeywords";
 
-/// 早期 Rust 版本误写的 SEO 关键字配置键
-const SITE_SEO_KEYWORDS_LEGACY_KEY: &str = "SeoKeywords";
+/// 旧版 NetEngine 误写的 SEO 关键字配置键
+const SITE_SEO_KEYWORDS_LEGACY_KEY: &str = "SeoKeyWords";
 
 /// 站点信息应用服务
 pub struct SiteService<'a> {
