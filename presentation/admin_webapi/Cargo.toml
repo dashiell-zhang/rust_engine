@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-tokio = { version = "1.52.2", features = ["full"] }
+tokio = { version = "1.52.3", features = ["full"] }
 tokio-util = { version = "0.7", features = ["io"] }
 webapi_core = { path = "../../project_core/webapi_core" }
 application_service = { path = "../../application/application_service" }

@@ -13,13 +13,13 @@ repository = { path = "../../repository" }
 source_generator_runtime = { path = "../../source_generator/source_generator_runtime" }
 
 base64 = "0.22.1"
-chrono = "0.4.44"
+chrono = "0.4.45"
 indexmap = { version = "2", features = ["serde"] }
 async-recursion = "1"
 rsa = { version = "0.9.10", features = ["pem", "sha2"] }
 rand = "0.10"
 pem = "3.0"
-reqwest = { version = "0.13.3", default-features = false, features = ["json", "rustls"] }
+reqwest = { version = "0.13.4", default-features = false, features = ["json", "rustls"] }
 tokio = { version = "1", features = ["rt", "fs", "io-util"] }
 sea-orm = { version = "1.1.20", features = ["sqlx-postgres", "runtime-tokio-rustls", "macros"] }
 serde = { version = "1.0.228", features = ["derive"] }

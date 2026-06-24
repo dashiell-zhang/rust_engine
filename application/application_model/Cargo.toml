@@ -5,7 +5,7 @@ edition = "2024"
 
 [dependencies]
 application_interface = { path = "../application_interface" }
-chrono = "0.4.44"
+chrono = "0.4.45"
 common = { path = "../../infrastructure/common" }
 indexmap = { version = "2", features = ["serde"] }
 serde = { version = "1.0.228", features = ["derive"] }

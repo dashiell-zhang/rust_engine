@@ -10,7 +10,7 @@ common = { path = "../../infrastructure/common" }
 llm = { path = "../../infrastructure/llm" }
 repository = { path = "../../repository" }
 
-chrono = "0.4.44"
+chrono = "0.4.45"
 async-stream = "0.3"
 async-trait = "0.1"
 futures-util = "0.3"
