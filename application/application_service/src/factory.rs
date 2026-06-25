@@ -1,5 +1,5 @@
 use application_interface::context::{
-    AppContext, FileContext, MessageContext, PayContext, RoleContext,
+    AppContext, AppSettingContext, FileContext, MessageContext, PayContext, RoleContext,
 };
 use source_generator_runtime::generate_service_factory;
 
@@ -33,6 +33,12 @@ pub trait PayContextProvider: AppContextProvider {
     fn pay_context(&self) -> PayContext<'_>;
 }
 
+/// 应用配置模块上下文提供器
+pub trait AppSettingContextProvider: AppContextProvider {
+    /// 获取应用配置模块上下文
+    fn app_setting_context(&self) -> AppSettingContext<'_>;
+}
+
 /// 应用服务工厂
 pub struct ApplicationServiceFactory<'a, TState> {
     /// 宿主状态引用
@@ -60,8 +66,11 @@ generate_service_factory! {
         product: crate::product::service::ProductService<'a>,
         order: crate::order::service::OrderService<'a>,
         region: crate::region::service::RegionService<'a>,
-        app_setting: crate::app_setting::service::AppSettingService<'a>,
         permission_route: crate::permission_route::service::PermissionRouteService<'a>
+    }
+
+    AppSettingContextProvider => (self.state.app_setting_context()) {
+        app_setting: crate::app_setting::service::AppSettingService<'a>
     }
 
     PayContextProvider => (self.state.pay_context()) {

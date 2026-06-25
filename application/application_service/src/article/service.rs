@@ -7,7 +7,7 @@ use async_recursion::async_recursion;
 use repository::{article, category};
 use sea_orm::{
     ActiveModelTrait, ColumnTrait, EntityTrait, IntoActiveModel, PaginatorTrait, QueryFilter,
-    QueryOrder, QuerySelect, Set,
+    QueryOrder, QuerySelect, Set, sea_query::Expr,
 };
 use serde_json::json;
 
@@ -196,6 +196,8 @@ impl<'a> ArticleService<'a> {
             return Err(AppError::bad_request("栏目名称不可以为空"));
         }
 
+        validate_category_parent(self.context.db, dto.parent_id, None).await?;
+
         let id = self
             .context
             .id_generator
@@ -255,6 +257,8 @@ impl<'a> ArticleService<'a> {
         if dto.name.trim().is_empty() {
             return Err(AppError::bad_request("栏目名称不可以为空"));
         }
+
+        validate_category_parent(self.context.db, dto.parent_id, Some(category_id)).await?;
 
         let model = category::Entity::find()
             .filter(category::Column::Id.eq(category_id))
@@ -690,18 +694,34 @@ impl<'a> ArticleService<'a> {
             .await
             .map_err(to_app_error)?;
 
-        let Some(model) = model else {
+        if model.is_none() {
             return Ok(None);
-        };
+        }
 
-        let mut active = model.into_active_model();
-        let next_click_count = active.click_count.as_ref().to_owned() + 1;
-        active.click_count = Set(next_click_count);
-
-        let updated = active
-            .update(self.context.db)
+        let update_result = article::Entity::update_many()
+            .col_expr(
+                article::Column::ClickCount,
+                Expr::col(article::Column::ClickCount).add(1),
+            )
+            .filter(article::Column::Id.eq(article_id))
+            .not_deleted(article::Column::DeleteTime)
+            .filter(article::Column::IsDisplay.eq(true))
+            .exec(self.context.db)
             .await
             .map_err(|error| AppError::internal(format!("更新文章点击量失败: {error}")))?;
+
+        if update_result.rows_affected == 0 {
+            return Ok(None);
+        }
+
+        let updated = article::Entity::find()
+            .filter(article::Column::Id.eq(article_id))
+            .not_deleted(article::Column::DeleteTime)
+            .filter(article::Column::IsDisplay.eq(true))
+            .one(self.context.db)
+            .await
+            .map_err(to_app_error)?
+            .ok_or_else(|| AppError::internal("读取文章点击量失败"))?;
 
         Ok(Some(ArticleClickDto {
             id: updated.id.to_string(),
@@ -780,6 +800,8 @@ impl<'a> ArticleService<'a> {
             return Err(AppError::bad_request("无效的 categoryId"));
         }
 
+        ensure_category_exists(self.context.db, dto.category_id).await?;
+
         let digest = resolve_digest(dto.digest.as_deref(), dto.content.as_deref());
         let id = self
             .context
@@ -852,6 +874,8 @@ impl<'a> ArticleService<'a> {
         if dto.category_id <= 0 {
             return Err(AppError::bad_request("无效的 categoryId"));
         }
+
+        ensure_category_exists(self.context.db, dto.category_id).await?;
 
         let model = article::Entity::find()
             .filter(article::Column::Id.eq(article_id))
@@ -1026,6 +1050,74 @@ async fn load_category_map(
         .all(db)
         .await
         .map_err(to_app_error)
+}
+
+/// 确认栏目存在且未删除
+async fn ensure_category_exists(
+    db: &sea_orm::DatabaseConnection,
+    category_id: i64,
+) -> Result<(), AppError> {
+    let exists = category::Entity::find()
+        .filter(category::Column::Id.eq(category_id))
+        .not_deleted(category::Column::DeleteTime)
+        .one(db)
+        .await
+        .map_err(to_app_error)?
+        .is_some();
+
+    if exists {
+        Ok(())
+    } else {
+        Err(AppError::bad_request("指定的栏目不存在或已删除"))
+    }
+}
+
+/// 校验栏目父级，避免指向不存在、已删除、自身或后代节点
+async fn validate_category_parent(
+    db: &sea_orm::DatabaseConnection,
+    parent_id: Option<i64>,
+    current_category_id: Option<i64>,
+) -> Result<(), AppError> {
+    let Some(parent_id) = parent_id else {
+        return Ok(());
+    };
+
+    if parent_id <= 0 {
+        return Err(AppError::bad_request("无效的 parentId"));
+    }
+
+    if current_category_id == Some(parent_id) {
+        return Err(AppError::bad_request("父级栏目不可以指向自身"));
+    }
+
+    let mut cursor = Some(parent_id);
+    let mut visited = Vec::new();
+
+    while let Some(category_id) = cursor {
+        if visited.contains(&category_id) {
+            return Err(AppError::bad_request("栏目层级存在循环引用"));
+        }
+        visited.push(category_id);
+
+        if current_category_id == Some(category_id) {
+            return Err(AppError::bad_request("父级栏目不可以指向子栏目"));
+        }
+
+        let parent = category::Entity::find()
+            .filter(category::Column::Id.eq(category_id))
+            .not_deleted(category::Column::DeleteTime)
+            .one(db)
+            .await
+            .map_err(to_app_error)?;
+
+        let Some(parent) = parent else {
+            return Err(AppError::bad_request("指定的父级栏目不存在或已删除"));
+        };
+
+        cursor = parent.parent_id;
+    }
+
+    Ok(())
 }
 
 /// 递归加载指定栏目下的全部子栏目 ID

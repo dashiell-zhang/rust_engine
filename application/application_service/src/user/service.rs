@@ -1257,7 +1257,6 @@ async fn load_region_detail(
     }))
 }
 
-/// 用户服务核心读写路径测试
 /// 组装用户资料详情返回模型
 fn build_user_profile_dto(
     target_id: i64,

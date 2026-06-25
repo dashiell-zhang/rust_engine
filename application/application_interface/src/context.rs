@@ -23,6 +23,16 @@ pub struct AppContext<'a> {
     pub current_user: Option<CurrentUser>,
 }
 
+/// 应用配置模块上下文
+#[derive(Clone, Copy)]
+pub struct AppSettingContext<'a> {
+    /// 通用上下文
+    pub app: AppContext<'a>,
+
+    /// 配置写入锁
+    pub setting_lock: &'a dyn DistributedLock,
+}
+
 /// WebAPI 宿主特化上下文
 #[derive(Clone, Copy)]
 pub struct WebApiContext<'a> {

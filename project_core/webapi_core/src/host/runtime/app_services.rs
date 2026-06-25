@@ -2,8 +2,8 @@ use crate::auth::PermissionState;
 use crate::host::state::AppState;
 use application_interface::{
     context::{
-        AppContext, AuthorizeContext, CurrentUser, FileContext, MessageContext, PayContext,
-        RoleContext,
+        AppContext, AppSettingContext, AuthorizeContext, CurrentUser, FileContext, MessageContext,
+        PayContext, RoleContext,
     },
     error::AppError,
 };
@@ -12,8 +12,8 @@ use application_service::{
     article::service::{ArticleService, ArticleWebApiService},
     authorize::service::{AuthorizeService, invalidate_route_authorize_cache},
     factory::{
-        AppContextProvider, ApplicationServiceFactory, FileContextProvider, MessageContextProvider,
-        PayContextProvider, RoleContextProvider,
+        AppContextProvider, AppSettingContextProvider, ApplicationServiceFactory,
+        FileContextProvider, MessageContextProvider, PayContextProvider, RoleContextProvider,
     },
     file::service::FileService,
     link::service::{LinkService, LinkWebApiService},
@@ -109,8 +109,11 @@ generate_direct_service_factory! {
         product: ProductService<'_>,
         order: OrderService<'_>,
         region: RegionService<'_>,
-        app_setting: AppSettingService<'_>,
         permission_route: PermissionRouteService<'_>
+    }
+
+    (self.app_setting_context()) {
+        app_setting: AppSettingService<'_>
     }
 
     (self.pay_context()) {
@@ -142,6 +145,16 @@ impl AppContextProvider for AppState {
     /// 获取应用层通用上下文
     fn app_context(&self) -> AppContext<'_> {
         self.primary_app_context()
+    }
+}
+
+impl AppSettingContextProvider for AppState {
+    /// 获取应用配置模块上下文
+    fn app_setting_context(&self) -> AppSettingContext<'_> {
+        AppSettingContext {
+            app: self.primary_app_context(),
+            setting_lock: self.role_code_lock.as_ref(),
+        }
     }
 }
 
