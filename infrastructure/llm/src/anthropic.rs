@@ -150,7 +150,9 @@ impl LlmClient for AnthropicMessagesClient {
                             }
                         }
                         "content_block_delta" => {
-                            if let Some(text) = wire.delta.and_then(|delta| delta.text)
+                            if let Some(delta) = wire.delta
+                                && delta.delta_type.as_deref() == Some("text_delta")
+                                && let Some(text) = delta.text
                                 && !text.is_empty()
                             {
                                 yield ChatStreamChunk {
@@ -193,6 +195,9 @@ impl LlmClient for AnthropicMessagesClient {
                                 usage,
                             };
                         }
+                        "message_stop" => {
+                            return;
+                        }
                         "error" => {
                             let message = wire
                                 .error
@@ -218,6 +223,16 @@ fn build_payload(request: &ChatRequest, stream: bool) -> Result<Map<String, Valu
     let system_prompt = build_system_prompt(&request.messages);
     if !system_prompt.trim().is_empty() {
         payload.insert("system".to_string(), Value::String(system_prompt));
+    }
+
+    if let Some(temperature) = request.temperature
+        && let Some(value) = serde_json::Number::from_f64(temperature)
+    {
+        payload.insert("temperature".to_string(), Value::Number(value));
+    }
+
+    if let Some(max_tokens) = request.max_tokens {
+        payload.insert("max_tokens".to_string(), Value::Number(max_tokens.into()));
     }
 
     if let Some(extra_body) = &request.extra_body {
@@ -370,6 +385,8 @@ struct AnthropicStreamEventDto {
 /// Anthropic 流式增量
 #[derive(Deserialize)]
 struct AnthropicDeltaDto {
+    #[serde(rename = "type")]
+    delta_type: Option<String>,
     text: Option<String>,
     #[serde(rename = "stop_reason")]
     stop_reason: Option<String>,

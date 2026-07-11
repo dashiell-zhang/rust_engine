@@ -444,8 +444,8 @@ pub(crate) fn validate_required_parameters(
         .into_iter()
         .filter(|key| {
             find_parameter_value(parameters, key)
-                .map(|value| !value.trim().is_empty())
-                .unwrap_or(false)
+                .map(|value| value.trim().is_empty())
+                .unwrap_or(true)
         })
         .collect::<Vec<_>>();
 

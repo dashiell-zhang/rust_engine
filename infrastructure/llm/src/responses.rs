@@ -163,6 +163,19 @@ fn build_payload(request: &ChatRequest, stream: bool) -> Result<Map<String, Valu
     );
     payload.insert("stream".to_string(), Value::Bool(stream));
 
+    if let Some(temperature) = request.temperature
+        && let Some(value) = serde_json::Number::from_f64(temperature)
+    {
+        payload.insert("temperature".to_string(), Value::Number(value));
+    }
+
+    if let Some(max_tokens) = request.max_tokens {
+        payload.insert(
+            "max_output_tokens".to_string(),
+            Value::Number(max_tokens.into()),
+        );
+    }
+
     if let Some(extra_body) = &request.extra_body {
         merge_extra_body(&mut payload, extra_body)?;
     }
