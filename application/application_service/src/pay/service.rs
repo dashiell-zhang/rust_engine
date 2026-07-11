@@ -1936,8 +1936,8 @@ fn verify_wx_pay_response_sign(
     let cert = Certificate::from_der(cert_der.contents())
         .map_err(|error| format!("解析平台证书 DER 失败: {error}"))?;
     let spki_der = cert
-        .tbs_certificate
-        .subject_public_key_info
+        .tbs_certificate()
+        .subject_public_key_info()
         .to_der()
         .map_err(|error| format!("导出公钥 DER 失败: {error}"))?;
     let public_key = RsaPublicKey::from_public_key_der(&spki_der)

@@ -20,7 +20,7 @@ axum = { version = "0.8.9", features = ["multipart"] }
 async-trait = "0.1"
 base64 = "0.22.1"
 chrono = "0.4.45"
-config = "0.15.24"
+config = "0.15.25"
 dashmap = "6"
 futures-util = "0.3"
 jsonwebtoken = { version = "10.4.0", features = ["rust_crypto"] }

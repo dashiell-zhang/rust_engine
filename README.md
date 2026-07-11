@@ -1,12 +1,12 @@
 # rust_engine
 
-基于 Rust 的分层后端工程，主要参考 [NetEngine](https://github.com/dashiell-zhang/NetEngine.git) 的职责划分与运行语义进行重构。
+基于 Rust 的分层后端工程，参考 [NetEngine](https://github.com/dashiell-zhang/NetEngine.git) 的职责划分与运行语义进行重构。
 
-项目使用 Cargo workspace 组织，当前聚焦后端运行时能力，包含两个 WebAPI 宿主、一个 TaskService 宿主、数据库迁移工具，以及应用层、仓储层、基础设施层和源码生成运行时。
+项目使用 Cargo workspace 组织，当前聚焦后端运行时能力，包含两个 WebAPI 宿主、一个 TaskService 宿主、数据库迁移工具，以及应用层、仓储层、基础设施层和源码生成能力。
 
 ## 项目定位
 
-- 以 Rust async 生态重构一套接近 NetEngine 的后端分层方案
+- 基于 Rust async 生态实现接近 NetEngine 的后端分层方案
 - 保持宿主装配、业务编排、持久化、基础设施切换之间的边界清晰
 - 对齐 NetEngine 的核心职责与运行语义，但不机械复制 .NET 的项目形态
 - 让各类基础设施实现、数据库迁移和宿主注册可以独立演进
@@ -15,7 +15,7 @@
 
 ## 当前范围
 
-当前可直接运行的入口包括：
+当前仓库提供的运行入口包括：
 
 - admin_webapi：管理端 WebAPI
 - client_webapi：客户端 WebAPI
@@ -58,7 +58,7 @@ rust_engine/
     └── source_generator_runtime
 ```
 
-带 `*` 的目录表示同类能力下还包含抽象 crate 与多个实现 crate，例如 Redis / InMemory、Aliyun / Tencent Cloud 等。
+带 `*` 的目录表示同类能力下包含抽象 crate 与多个实现 crate，例如 Redis / InMemory、Aliyun / Tencent Cloud 等。
 
 ## 分层职责
 
@@ -71,18 +71,18 @@ rust_engine/
 
 ## 依赖边界
 
-整体依赖关系保持在下面这条主线上：
+整体依赖关系保持在以下主线上：
 
 - presentation 调用 application
 - application 依赖 repository 与 infrastructure
 - project_core 依赖 application_interface、repository 与部分基础设施抽象
 - repository_tool 直接依赖 repository，用于数据库迁移
 
-这套边界的重点是：
+这套边界用于约束依赖扩散：
 
-- application_interface 用于承载跨宿主共享抽象，而不是把所有服务都强制接口化
-- 宿主是否启用某类能力，取决于是否引用对应 crate 以及是否在宿主装配中注册
-- 宿主特化服务拆成独立 crate 后，可以自然收敛依赖面与注册范围
+- application_interface 承载跨宿主共享抽象，不要求所有服务都接口化
+- 宿主是否启用某类能力，由 crate 引用、配置和宿主装配共同决定
+- 宿主特化服务拆成独立 crate 后，可以收敛依赖面与注册范围
 
 ## 与 NetEngine 的对应关系
 
@@ -105,7 +105,7 @@ rust_engine/
 | SourceGenerator.Core | source_generator/source_generator_core |
 | SourceGenerator.Runtime | source_generator/source_generator_runtime |
 
-对应关系强调的是职责与运行方式，而不是目录命名或语言特性的逐项一比一复制。
+对应关系强调职责与运行方式，不代表目录命名或语言特性的逐项复制。
 
 ## 核心能力
 
@@ -124,7 +124,7 @@ rust_engine/
 
 ### 1. 环境准备
 
-- Rust 稳定版工具链
+- 支持 edition 2024 的 Rust 稳定版工具链
 - PostgreSQL
 - Redis，仅在缓存或锁切到 Redis 实现时需要
 
@@ -136,7 +136,7 @@ rust_engine/
 - [presentation/client_webapi/appsettings.toml](presentation/client_webapi/appsettings.toml)
 - [presentation/task_service/appsettings.toml](presentation/task_service/appsettings.toml)
 
-至少建议先确认这些配置项：
+首次运行前建议确认这些配置项：
 
 - database.connection
 - cors.allowed_origin_list
@@ -145,7 +145,7 @@ rust_engine/
 - cache / lock 的 component 与 connection
 - 邮件、短信 provider 配置，以及 LLM 模型/协议配置
 
-仓库中的默认值以本地开发为主。准备公开仓库前，建议替换示例连接串、密钥与第三方服务配置。
+仓库中的默认值面向本地开发。部署或公开仓库前，应替换示例连接串、密钥与第三方服务配置。
 
 ### 3. 初始化数据库
 
@@ -161,11 +161,11 @@ cargo run -p client_webapi
 cargo run -p task_service
 ```
 
-如果按本地开发配置运行，也可以直接使用 [.vscode/tasks.json](.vscode/tasks.json) 中已有的 VS Code 任务。
+按本地开发配置运行时，也可以使用 [.vscode/tasks.json](.vscode/tasks.json) 中已有的 VS Code 任务。
 
 ### 5. 访问入口
 
-默认情况下：
+默认开发配置下：
 
 - admin_webapi：`http://127.0.0.1:3000/swagger-ui`
 - client_webapi：`http://127.0.0.1:3001/swagger-ui`
@@ -214,7 +214,7 @@ $env:APP_CONFIG_PATH = "presentation/client_webapi/appsettings"
 - `localhost:5173`
 - `https://admin.example.com`
 
-仓库默认配置偏向本地开发，生产环境建议改成明确白名单，不要继续保留全量放通。
+仓库默认配置偏向本地开发，生产环境应改成明确白名单，避免继续保留全量放通。
 
 ## 常用命令
 
@@ -227,7 +227,7 @@ cargo fmt --all
 cargo clippy --workspace --all-targets -- -D warnings
 ```
 
-如果需要构建容器镜像，三个宿主都提供独立的 Dockerfile：
+三个宿主都提供独立的 Dockerfile：
 
 - [presentation/admin_webapi/Dockerfile](presentation/admin_webapi/Dockerfile)
 - [presentation/client_webapi/Dockerfile](presentation/client_webapi/Dockerfile)
@@ -251,11 +251,11 @@ cargo clippy --workspace --all-targets -- -D warnings
 
 ## 示例用法
 
-下面这些示例优先选自当前仓库中已经存在的真实能力和真实语法，方便新同学快速建立对框架使用方式的直觉。
+下面的示例优先选自当前仓库已有能力和语法，用于说明常见扩展点的使用方式。
 
 ### 1. 给应用服务方法挂日志
 
-最简单的用法就是在 `async fn` 上直接标注 `#[logging]`。当前仓库中的真实例子可以参考 [application/application_service/src/user/service.rs#L159](application/application_service/src/user/service.rs#L159)。
+最简单的用法是在 `async fn` 上直接标注 `#[logging]`。当前仓库中的真实例子可以参考 [application/application_service/src/user/service.rs#L159](application/application_service/src/user/service.rs#L159)。
 
 ```rust
 use source_generator_runtime::logging;
@@ -272,7 +272,7 @@ impl<'a> UserService<'a> {
 
 ### 2. 为外部调用加自动重试
 
-如果方法返回 `Result<T, E>`，并且参数适合跨重试复用，可以直接标注 `#[retry]`。当前仓库中的真实例子可参考 [application/application_service/src/authorize/service.rs#L621](application/application_service/src/authorize/service.rs#L621) 和 [application/application_service/src/pay/service.rs#L1586](application/application_service/src/pay/service.rs#L1586)。
+如果方法返回 `Result<T, E>`，并且参数适合跨重试复用，可以标注 `#[retry]`。当前仓库中的真实例子可参考 [application/application_service/src/authorize/service.rs#L621](application/application_service/src/authorize/service.rs#L621) 和 [application/application_service/src/pay/service.rs#L1586](application/application_service/src/pay/service.rs#L1586)。
 
 ```rust
 use source_generator_runtime::retry;
@@ -293,7 +293,7 @@ impl<'a> AuthorizeService<'a> {
 
 ### 3. 给查询方法加缓存或并发限制
 
-`#[cacheable]` 和 `#[concurrency_limit]` 适合放在有明确读写边界的应用服务方法上。当前仓库已经实现了这两个宏，但业务代码里还没有大面积使用，下面是符合当前实现的最小示例语法：
+`#[cacheable]` 和 `#[concurrency_limit]` 适合放在有明确读写边界的应用服务方法上。当前仓库已经实现了这两个宏，下面是符合当前实现的最小示例语法：
 
 ```rust
 use source_generator_runtime::{cacheable, concurrency_limit};
@@ -315,7 +315,7 @@ impl<'a> DemoService<'a> {
 
 ### 4. 批量注册队列任务和定时任务
 
-TaskService 侧没有走属性式任务声明，而是通过注册表统一声明任务定义和处理器。真实例子可参考 [presentation/task_service/src/tasks.rs#L170](presentation/task_service/src/tasks.rs#L170)。
+TaskService 侧通过注册表统一声明任务定义和处理器。真实例子可参考 [presentation/task_service/src/tasks.rs#L170](presentation/task_service/src/tasks.rs#L170)。
 
 ```rust
 register_task_registry! {
@@ -341,7 +341,7 @@ register_task_registry! {
 
 ### 5. 通过服务工厂收口宿主调用入口
 
-WebAPI 宿主里不需要手写大量 `Service::new(...)`，而是通过源码生成的工厂方法统一取服务。真实例子可参考 [project_core/webapi_core/src/host/runtime/app_services.rs#L88](project_core/webapi_core/src/host/runtime/app_services.rs#L88)。
+WebAPI 宿主通过源码生成的工厂方法统一创建应用服务，避免在 handler 中重复拼装上下文。真实例子可参考 [project_core/webapi_core/src/host/runtime/app_services.rs#L88](project_core/webapi_core/src/host/runtime/app_services.rs#L88)。
 
 ```rust
 generate_direct_service_factory! {
@@ -364,14 +364,3 @@ let result = service.get_task_setting_list(params).await?;
 ```
 
 对应的真实 handler 可参考 [presentation/admin_webapi/src/handlers/task/mod.rs#L21](presentation/admin_webapi/src/handlers/task/mod.rs#L21)。
-
-## 适合继续拆分的文档
-
-根 README 主要保留长期稳定信息：项目定位、结构、运行方式与配置约定。
-
-如果后续继续推进开源整理，建议把下面这些内容拆到子目录 README 或独立设计文档中：
-
-- 模块级设计说明
-- 数据库迁移策略
-- 宿主装配细节
-- 某个业务域的接口进度或对齐记录
