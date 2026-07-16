@@ -135,9 +135,22 @@ pub struct DeleteArticleQuery {
 #[derive(Deserialize, IntoParams)]
 #[serde(rename_all = "camelCase")]
 pub struct CreateArticleQuery {
-    /// 上传文件临时关联键
-    #[serde(rename = "fileKey")]
-    pub file_key: Option<i64>,
+    /// 本次文章编辑上传批次标识
+    #[serde(rename = "uploadKey")]
+    pub upload_key: i64,
+}
+
+/// 更新文章查询参数
+#[derive(Deserialize, IntoParams)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateArticleQuery {
+    /// 文章 ID
+    #[serde(rename = "articleId")]
+    pub article_id: i64,
+
+    /// 本次文章编辑上传批次标识
+    #[serde(rename = "uploadKey")]
+    pub upload_key: i64,
 }
 
 /// 文章信息返回模型
@@ -194,6 +207,10 @@ pub struct EditArticleDto {
 
     /// 正文内容
     pub content: Option<String>,
+
+    /// 正文当前引用的统一文件 ID 列表
+    #[serde(default)]
+    pub content_file_id_list: Vec<i64>,
 
     /// 摘要，留空时由正文自动生成
     pub digest: Option<String>,

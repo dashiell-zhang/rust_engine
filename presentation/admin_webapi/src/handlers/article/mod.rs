@@ -1,7 +1,7 @@
 use application_model::article::models::{
     ArticleDto, ArticleIdQuery, ArticlePageListDto, CategoryDto, CategoryIdQuery,
     CategoryPageListDto, CategoryPageRequest, CategorySelectDto, CreateArticleQuery,
-    DeleteArticleQuery, DeleteCategoryQuery, EditArticleDto, EditCategoryDto,
+    DeleteArticleQuery, DeleteCategoryQuery, EditArticleDto, EditCategoryDto, UpdateArticleQuery,
 };
 use application_model::shared::models::PageRequestDto;
 use axum::{
@@ -259,7 +259,7 @@ pub async fn create_article(
     let current_user = user_ctx.current_user();
 
     match service
-        .create_article(dto, query.file_key, &current_user)
+        .create_article(dto, query.upload_key, &current_user)
         .await
     {
         Ok(id) => Ok((StatusCode::OK, id).into_response()),
@@ -271,7 +271,7 @@ pub async fn create_article(
 #[utoipa::path(
     post,
     path = "/Article/UpdateArticle",
-    params(ArticleIdQuery),
+    params(UpdateArticleQuery),
     request_body = EditArticleDto,
     responses(
         (status = 200, description = "更新成功", body = bool),
@@ -285,14 +285,14 @@ pub async fn create_article(
 pub async fn update_article(
     State(app_state): State<Arc<AppState>>,
     user_ctx: UserContext,
-    Query(query): Query<ArticleIdQuery>,
+    Query(query): Query<UpdateArticleQuery>,
     Json(dto): Json<EditArticleDto>,
 ) -> Result<Response, AppError> {
     let service = app_state.article_webapi();
     let current_user = user_ctx.current_user();
 
     match service
-        .update_article(query.article_id, dto, &current_user)
+        .update_article(query.article_id, dto, query.upload_key, &current_user)
         .await
     {
         Ok(result) => Ok((StatusCode::OK, Json(result)).into_response()),

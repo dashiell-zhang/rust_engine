@@ -6,8 +6,8 @@ use std::pin::Pin;
 use async_recursion::async_recursion;
 use repository::{article, category};
 use sea_orm::{
-    ActiveModelTrait, ColumnTrait, EntityTrait, IntoActiveModel, PaginatorTrait, QueryFilter,
-    QueryOrder, QuerySelect, Set, sea_query::Expr,
+    ActiveModelTrait, ColumnTrait, ConnectionTrait, EntityTrait, IntoActiveModel, PaginatorTrait,
+    QueryFilter, QueryOrder, QuerySelect, Set, sea_query::Expr,
 };
 use serde_json::json;
 
@@ -20,7 +20,7 @@ use application_model::shared::models::PageRequestDto;
 use crate::user::models::PageListDto;
 use crate::write_support::{
     apply_soft_delete_audit_fields, build_create_audit_fields, normalize_page,
-    validate_page_request, write_data_update_log,
+    validate_page_request, write_data_update_log, write_data_update_log_with_connection,
 };
 
 use super::models::{
@@ -792,6 +792,20 @@ impl<'a> ArticleService<'a> {
         dto: EditArticleDto,
         current_user: &CurrentUser,
     ) -> Result<String, AppError> {
+        self.create_article_with_connection(self.context.db, dto, current_user)
+            .await
+    }
+
+    /// 使用指定连接创建文章并返回新文章 ID
+    async fn create_article_with_connection<C>(
+        &self,
+        db: &C,
+        dto: EditArticleDto,
+        current_user: &CurrentUser,
+    ) -> Result<String, AppError>
+    where
+        C: ConnectionTrait,
+    {
         if dto.title.trim().is_empty() {
             return Err(AppError::bad_request("文章标题不可以为空"));
         }
@@ -800,7 +814,7 @@ impl<'a> ArticleService<'a> {
             return Err(AppError::bad_request("无效的 categoryId"));
         }
 
-        ensure_category_exists(self.context.db, dto.category_id).await?;
+        ensure_category_exists(db, dto.category_id).await?;
 
         let digest = resolve_digest(dto.digest.as_deref(), dto.content.as_deref());
         let id = self
@@ -838,12 +852,13 @@ impl<'a> ArticleService<'a> {
         };
 
         model
-            .insert(self.context.db)
+            .insert(db)
             .await
             .map_err(|e| AppError::internal(format!("创建文章失败: {e}")))?;
 
-        write_data_update_log(
-            self.context,
+        write_data_update_log_with_connection(
+            db,
+            self.context.id_generator,
             "Article",
             id,
             "create",
@@ -863,6 +878,21 @@ impl<'a> ArticleService<'a> {
         dto: EditArticleDto,
         current_user: &CurrentUser,
     ) -> Result<bool, AppError> {
+        self.update_article_with_connection(self.context.db, article_id, dto, current_user)
+            .await
+    }
+
+    /// 使用指定连接更新文章信息
+    async fn update_article_with_connection<C>(
+        &self,
+        db: &C,
+        article_id: i64,
+        dto: EditArticleDto,
+        current_user: &CurrentUser,
+    ) -> Result<bool, AppError>
+    where
+        C: ConnectionTrait,
+    {
         if article_id <= 0 {
             return Err(AppError::bad_request("无效的 articleId"));
         }
@@ -875,12 +905,12 @@ impl<'a> ArticleService<'a> {
             return Err(AppError::bad_request("无效的 categoryId"));
         }
 
-        ensure_category_exists(self.context.db, dto.category_id).await?;
+        ensure_category_exists(db, dto.category_id).await?;
 
         let model = article::Entity::find()
             .filter(article::Column::Id.eq(article_id))
             .not_deleted(article::Column::DeleteTime)
-            .one(self.context.db)
+            .one(db)
             .await
             .map_err(to_app_error)?;
 
@@ -911,12 +941,13 @@ impl<'a> ArticleService<'a> {
         active.click_count = Set(dto.click_count);
 
         let updated_model = active
-            .update(self.context.db)
+            .update(db)
             .await
             .map_err(|e| AppError::internal(format!("更新文章失败: {e}")))?;
 
-        write_data_update_log(
-            self.context,
+        write_data_update_log_with_connection(
+            db,
+            self.context.id_generator,
             "Article",
             article_id,
             "update",
@@ -944,6 +975,21 @@ impl<'a> ArticleService<'a> {
         article_id: i64,
         current_user: &CurrentUser,
     ) -> Result<bool, AppError> {
+        self.delete_article_with_connection(self.context.db, article_id, current_user)
+            .await?;
+        Ok(true)
+    }
+
+    /// 使用指定连接软删除文章
+    async fn delete_article_with_connection<C>(
+        &self,
+        db: &C,
+        article_id: i64,
+        current_user: &CurrentUser,
+    ) -> Result<bool, AppError>
+    where
+        C: ConnectionTrait,
+    {
         if article_id <= 0 {
             return Err(AppError::bad_request("无效的 articleId"));
         }
@@ -951,12 +997,12 @@ impl<'a> ArticleService<'a> {
         let model = article::Entity::find()
             .filter(article::Column::Id.eq(article_id))
             .not_deleted(article::Column::DeleteTime)
-            .one(self.context.db)
+            .one(db)
             .await
             .map_err(to_app_error)?;
 
         let Some(model) = model else {
-            return Ok(true);
+            return Ok(false);
         };
 
         let before_log = json!({
@@ -977,12 +1023,13 @@ impl<'a> ArticleService<'a> {
         );
 
         active
-            .update(self.context.db)
+            .update(db)
             .await
             .map_err(|e| AppError::internal(format!("删除文章失败: {e}")))?;
 
-        write_data_update_log(
-            self.context,
+        write_data_update_log_with_connection(
+            db,
+            self.context.id_generator,
             "Article",
             article_id,
             "delete",
@@ -1053,10 +1100,10 @@ async fn load_category_map(
 }
 
 /// 确认栏目存在且未删除
-async fn ensure_category_exists(
-    db: &sea_orm::DatabaseConnection,
-    category_id: i64,
-) -> Result<(), AppError> {
+async fn ensure_category_exists<C>(db: &C, category_id: i64) -> Result<(), AppError>
+where
+    C: ConnectionTrait,
+{
     let exists = category::Entity::find()
         .filter(category::Column::Id.eq(category_id))
         .not_deleted(category::Column::DeleteTime)
@@ -1167,7 +1214,7 @@ mod webapi_impl {
     use std::future::Future;
     use std::pin::Pin;
 
-    use crate::file::service::FileService;
+    use crate::{file::service::FileService, write_support::begin_transaction};
     use application_interface::{
         context::{CurrentUser, WebApiContext},
         error::AppError,
@@ -1351,29 +1398,45 @@ mod webapi_impl {
         pub async fn create_article(
             &self,
             dto: EditArticleDto,
-            file_key: Option<i64>,
+            upload_key: i64,
             current_user: &CurrentUser,
         ) -> Result<String, AppError> {
+            validate_upload_key(upload_key)?;
+            let file_service = self
+                .file_service()
+                .ok_or_else(|| AppError::internal("文件服务未配置"))?;
+            let content_file_id_list = dto.content_file_id_list.clone();
+            let tx = begin_transaction(self.context.app.db).await?;
             let result = ArticleService::new(self.context.app)
-                .create_article(dto, current_user)
+                .create_article_with_connection(&tx, dto, current_user)
                 .await?;
+            let article_id = result
+                .parse::<i64>()
+                .map_err(|error| AppError::internal(format!("文章 ID 解析失败: {error}")))?;
 
-            if let Some(file_key) = file_key {
-                if let Some(file_service) = self.file_service() {
-                    let article_id = result.parse::<i64>().map_err(|error| {
-                        AppError::internal(format!("文章 ID 解析失败: {error}"))
-                    })?;
-
-                    file_service
-                        .rebind_file_key(
-                            "Article".to_string(),
-                            Some("cover".to_string()),
-                            file_key,
-                            article_id,
-                        )
-                        .await?;
-                }
-            }
+            file_service
+                .sync_content_files_with_connection(
+                    &tx,
+                    "Article",
+                    upload_key,
+                    article_id,
+                    &content_file_id_list,
+                    current_user,
+                )
+                .await?;
+            file_service
+                .bind_files_with_connection(
+                    &tx,
+                    "Article",
+                    "cover",
+                    upload_key,
+                    article_id,
+                    current_user,
+                )
+                .await?;
+            tx.commit()
+                .await
+                .map_err(|error| AppError::internal(format!("提交事务失败: {error}")))?;
 
             self.invalidate_public_article_cache().await;
             Ok(result)
@@ -1384,11 +1447,41 @@ mod webapi_impl {
             &self,
             article_id: i64,
             dto: EditArticleDto,
+            upload_key: i64,
             current_user: &CurrentUser,
         ) -> Result<bool, AppError> {
+            validate_upload_key(upload_key)?;
+            let file_service = self
+                .file_service()
+                .ok_or_else(|| AppError::internal("文件服务未配置"))?;
+            let content_file_id_list = dto.content_file_id_list.clone();
+            let tx = begin_transaction(self.context.app.db).await?;
             let result = ArticleService::new(self.context.app)
-                .update_article(article_id, dto, current_user)
+                .update_article_with_connection(&tx, article_id, dto, current_user)
                 .await?;
+            file_service
+                .sync_content_files_with_connection(
+                    &tx,
+                    "Article",
+                    upload_key,
+                    article_id,
+                    &content_file_id_list,
+                    current_user,
+                )
+                .await?;
+            file_service
+                .bind_files_with_connection(
+                    &tx,
+                    "Article",
+                    "cover",
+                    upload_key,
+                    article_id,
+                    current_user,
+                )
+                .await?;
+            tx.commit()
+                .await
+                .map_err(|error| AppError::internal(format!("提交事务失败: {error}")))?;
             self.invalidate_public_article_cache().await;
             Ok(result)
         }
@@ -1399,11 +1492,30 @@ mod webapi_impl {
             article_id: i64,
             current_user: &CurrentUser,
         ) -> Result<bool, AppError> {
-            let result = ArticleService::new(self.context.app)
-                .delete_article(article_id, current_user)
+            let file_service = self
+                .file_service()
+                .ok_or_else(|| AppError::internal("文件服务未配置"))?;
+            let tx = begin_transaction(self.context.app.db).await?;
+            let article_exists = ArticleService::new(self.context.app)
+                .delete_article_with_connection(&tx, article_id, current_user)
                 .await?;
+
+            if article_exists {
+                file_service
+                    .soft_delete_business_files_with_connection(
+                        &tx,
+                        "Article",
+                        article_id,
+                        current_user,
+                    )
+                    .await?;
+            }
+
+            tx.commit()
+                .await
+                .map_err(|error| AppError::internal(format!("提交事务失败: {error}")))?;
             self.invalidate_public_article_cache().await;
-            Ok(result)
+            Ok(true)
         }
 
         /// 获取公开文章分页列表
@@ -1588,6 +1700,15 @@ mod webapi_impl {
                 }
             }
         }
+    }
+
+    /// 校验文章编辑上传批次标识
+    fn validate_upload_key(upload_key: i64) -> Result<(), AppError> {
+        if upload_key <= 0 {
+            return Err(AppError::bad_request("无效的 uploadKey"));
+        }
+
+        Ok(())
     }
 }
 

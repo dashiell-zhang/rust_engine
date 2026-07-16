@@ -1,6 +1,7 @@
 use common::img_helper;
 use common::io_helper;
 use repository::extensions::SoftDeleteQueryExt;
+use std::collections::HashSet;
 use std::net::{IpAddr, SocketAddr};
 use std::path::Path;
 use std::time::Duration;
@@ -14,8 +15,8 @@ use common::io_helper::file_length_to_string;
 use repository::file;
 use reqwest::{Url, redirect::Policy};
 use sea_orm::{
-    ActiveModelTrait, ActiveValue::Set, ColumnTrait, EntityTrait, IntoActiveModel, QueryFilter,
-    QueryOrder,
+    ActiveModelTrait, ActiveValue::Set, ColumnTrait, Condition, ConnectionTrait, EntityTrait,
+    IntoActiveModel, QueryFilter, QueryOrder,
 };
 use serde_json::json;
 use tokio::fs;
@@ -229,57 +230,240 @@ impl<'a> FileService<'a> {
         Ok(format!("/{}", model.path.trim_start_matches('/')))
     }
 
-    /// 批量更新文件关联业务主键
-    pub async fn rebind_file_key(
+    /// 将上传批次文件绑定到正式业务记录
+    pub async fn bind_files(
         &self,
-        business: String,
-        sign: Option<String>,
-        from_key: i64,
-        to_key: i64,
+        business: &str,
+        sign: &str,
+        upload_key: i64,
+        business_id: i64,
+        current_user: &CurrentUser,
     ) -> Result<u64, AppError> {
-        validate_business(&business)?;
+        self.bind_files_with_connection(
+            self.context.app.db,
+            business,
+            sign,
+            upload_key,
+            business_id,
+            current_user,
+        )
+        .await
+    }
 
-        if from_key <= 0 {
-            return Err(AppError::bad_request("无效的 fromKey"));
+    /// 使用指定连接将上传批次文件绑定到正式业务记录
+    pub(crate) async fn bind_files_with_connection<C>(
+        &self,
+        db: &C,
+        business: &str,
+        sign: &str,
+        upload_key: i64,
+        business_id: i64,
+        current_user: &CurrentUser,
+    ) -> Result<u64, AppError>
+    where
+        C: ConnectionTrait,
+    {
+        validate_business(business)?;
+
+        if sign.trim().is_empty() {
+            return Err(AppError::bad_request("sign 不可以空"));
         }
 
-        if to_key <= 0 {
-            return Err(AppError::bad_request("无效的 toKey"));
+        if upload_key <= 0 {
+            return Err(AppError::bad_request("无效的 uploadKey"));
         }
 
-        if from_key == to_key {
+        if business_id <= 0 {
+            return Err(AppError::bad_request("无效的 businessId"));
+        }
+
+        if upload_key == business_id {
             return Ok(0);
         }
 
-        let mut db_query = file::Entity::find()
+        let models = file::Entity::find()
             .not_deleted(file::Column::DeleteTime)
             .filter(file::Column::Table.eq(business.trim()))
-            .filter(file::Column::TableId.eq(from_key))
-            .order_by_asc(file::Column::Id);
-
-        if let Some(sign) = sign
-            .as_deref()
-            .map(str::trim)
-            .filter(|item| !item.is_empty())
-        {
-            db_query = db_query.filter(file::Column::Sign.eq(sign));
-        }
-
-        let models = db_query
-            .all(self.context.app.db)
+            .filter(file::Column::Sign.eq(sign.trim()))
+            .filter(file::Column::TableId.eq(upload_key))
+            .filter(file::Column::CreateUserId.eq(current_user.user_id))
+            .order_by_asc(file::Column::Id)
+            .all(db)
             .await
-            .map_err(|error| AppError::internal(format!("查询待改绑文件失败: {error}")))?;
+            .map_err(|error| AppError::internal(format!("查询待绑定文件失败: {error}")))?;
 
         let mut affected = 0;
 
         for model in models {
             let mut active = model.into_active_model();
-            active.table_id = Set(Some(to_key));
+            active.table_id = Set(Some(business_id));
             active
-                .update(self.context.app.db)
+                .update(db)
                 .await
-                .map_err(|error| AppError::internal(format!("更新文件关联主键失败: {error}")))?;
+                .map_err(|error| AppError::internal(format!("绑定文件失败: {error}")))?;
             affected += 1;
+        }
+
+        Ok(affected)
+    }
+
+    /// 根据正文实际引用同步文章正文文件
+    pub async fn sync_content_files(
+        &self,
+        business: &str,
+        upload_key: i64,
+        business_id: i64,
+        referenced_file_ids: &[i64],
+        current_user: &CurrentUser,
+    ) -> Result<u64, AppError> {
+        self.sync_content_files_with_connection(
+            self.context.app.db,
+            business,
+            upload_key,
+            business_id,
+            referenced_file_ids,
+            current_user,
+        )
+        .await
+    }
+
+    /// 使用指定连接根据正文实际引用同步文章正文文件
+    pub(crate) async fn sync_content_files_with_connection<C>(
+        &self,
+        db: &C,
+        business: &str,
+        upload_key: i64,
+        business_id: i64,
+        referenced_file_ids: &[i64],
+        current_user: &CurrentUser,
+    ) -> Result<u64, AppError>
+    where
+        C: ConnectionTrait,
+    {
+        validate_business(business)?;
+
+        if upload_key <= 0 {
+            return Err(AppError::bad_request("无效的 uploadKey"));
+        }
+
+        if business_id <= 0 {
+            return Err(AppError::bad_request("无效的 businessId"));
+        }
+
+        let distinct_file_ids = referenced_file_ids.iter().copied().collect::<HashSet<_>>();
+
+        if distinct_file_ids.iter().any(|file_id| *file_id <= 0) {
+            return Err(AppError::bad_request("正文包含无效或不属于当前文章的文件"));
+        }
+
+        let models = file::Entity::find()
+            .not_deleted(file::Column::DeleteTime)
+            .filter(file::Column::Table.eq(business.trim()))
+            .filter(file::Column::Sign.starts_with("content-"))
+            .filter(
+                Condition::any()
+                    .add(file::Column::TableId.eq(business_id))
+                    .add(
+                        Condition::all()
+                            .add(file::Column::TableId.eq(upload_key))
+                            .add(file::Column::CreateUserId.eq(current_user.user_id)),
+                    ),
+            )
+            .order_by_asc(file::Column::Id)
+            .all(db)
+            .await
+            .map_err(|error| AppError::internal(format!("查询正文文件失败: {error}")))?;
+
+        let available_file_ids = models.iter().map(|model| model.id).collect::<HashSet<_>>();
+
+        if !distinct_file_ids.is_subset(&available_file_ids) {
+            return Err(AppError::bad_request("正文包含无效或不属于当前文章的文件"));
+        }
+
+        for model in models {
+            let file_id = model.id;
+            let table_id = model.table_id;
+
+            if distinct_file_ids.contains(&file_id) {
+                if table_id == Some(upload_key) {
+                    let mut active = model.into_active_model();
+                    active.table_id = Set(Some(business_id));
+                    active.update(db).await.map_err(|error| {
+                        AppError::internal(format!("同步正文文件失败: {error}"))
+                    })?;
+                }
+            } else {
+                let mut active = model.into_active_model();
+                apply_soft_delete_audit_fields(
+                    &mut active.delete_time,
+                    &mut active.delete_user_id,
+                    current_user,
+                );
+                active
+                    .update(db)
+                    .await
+                    .map_err(|error| AppError::internal(format!("同步正文文件失败: {error}")))?;
+            }
+        }
+
+        Ok(distinct_file_ids.len() as u64)
+    }
+
+    /// 软删除正式业务记录关联的全部文件
+    pub async fn soft_delete_business_files(
+        &self,
+        business: &str,
+        business_id: i64,
+        current_user: &CurrentUser,
+    ) -> Result<u64, AppError> {
+        self.soft_delete_business_files_with_connection(
+            self.context.app.db,
+            business,
+            business_id,
+            current_user,
+        )
+        .await
+    }
+
+    /// 使用指定连接软删除正式业务记录关联的全部文件
+    pub(crate) async fn soft_delete_business_files_with_connection<C>(
+        &self,
+        db: &C,
+        business: &str,
+        business_id: i64,
+        current_user: &CurrentUser,
+    ) -> Result<u64, AppError>
+    where
+        C: ConnectionTrait,
+    {
+        validate_business(business)?;
+
+        if business_id <= 0 {
+            return Err(AppError::bad_request("无效的 businessId"));
+        }
+
+        let models = file::Entity::find()
+            .not_deleted(file::Column::DeleteTime)
+            .filter(file::Column::Table.eq(business.trim()))
+            .filter(file::Column::TableId.eq(business_id))
+            .order_by_asc(file::Column::Id)
+            .all(db)
+            .await
+            .map_err(|error| AppError::internal(format!("查询待删除文件失败: {error}")))?;
+
+        let affected = models.len() as u64;
+
+        for model in models {
+            let mut active = model.into_active_model();
+            apply_soft_delete_audit_fields(
+                &mut active.delete_time,
+                &mut active.delete_user_id,
+                current_user,
+            );
+            active
+                .update(db)
+                .await
+                .map_err(|error| AppError::internal(format!("软删除业务文件失败: {error}")))?;
         }
 
         Ok(affected)
@@ -399,6 +583,27 @@ impl<'a> FileService<'a> {
         dto: RemoteUploadFileDto,
         current_user: &CurrentUser,
     ) -> Result<String, AppError> {
+        self.remote_upload_file_internal(dto, current_user, false)
+            .await
+    }
+
+    /// 通过远程地址下载并上传图片
+    pub async fn remote_upload_image_file(
+        &self,
+        dto: RemoteUploadFileDto,
+        current_user: &CurrentUser,
+    ) -> Result<String, AppError> {
+        self.remote_upload_file_internal(dto, current_user, true)
+            .await
+    }
+
+    /// 通过远程地址下载并上传文件
+    async fn remote_upload_file_internal(
+        &self,
+        dto: RemoteUploadFileDto,
+        current_user: &CurrentUser,
+        require_image_content_type: bool,
+    ) -> Result<String, AppError> {
         validate_remote_upload_file(&dto)?;
 
         let url = parse_remote_upload_url(&dto.url)?;
@@ -416,6 +621,16 @@ impl<'a> FileService<'a> {
                 "远程文件下载失败，响应状态码: {}",
                 response.status()
             )));
+        }
+
+        if require_image_content_type
+            && !response
+                .headers()
+                .get(reqwest::header::CONTENT_TYPE)
+                .and_then(|value| value.to_str().ok())
+                .is_some_and(|value| value.trim().to_ascii_lowercase().starts_with("image/"))
+        {
+            return Err(AppError::bad_request("远程地址返回的内容不是图片"));
         }
 
         if let Some(content_length) = response.content_length()

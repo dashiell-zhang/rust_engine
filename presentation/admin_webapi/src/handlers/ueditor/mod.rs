@@ -22,8 +22,8 @@ use webapi_core::{auth::UserContext, error::AppError};
 use crate::state::AppState;
 
 /// UEditor 协议处理器
-/// UEditor 上传业务域
-const UEDITOR_BUSINESS: &str = "ueditor";
+/// 文章上传业务域
+const ARTICLE_BUSINESS: &str = "Article";
 /// UEditor 默认上传字段名
 const DEFAULT_UPLOAD_FIELD_NAME: &str = "upfile";
 /// UEditor 历史前端在配置缺失时可能退化成 undefined 字段名
@@ -74,9 +74,13 @@ struct UeditorUploadSpec {
 
 /// UEditor 动作查询参数
 #[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct UeditorActionQuery {
     /// UEditor 协议动作名
     pub action: Option<String>,
+
+    /// 本次文章编辑上传批次标识
+    pub upload_key: Option<i64>,
 }
 
 /// UEditor 远程抓图表单
@@ -89,6 +93,7 @@ struct UeditorCrawlForm {
 
 /// UEditor 上传响应
 #[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 struct UeditorUploadResponse {
     /// 协议状态
     state: String,
@@ -98,10 +103,14 @@ struct UeditorUploadResponse {
     title: String,
     /// 原始文件名
     original: String,
+
+    /// 统一文件 ID
+    file_id: String,
 }
 
 /// UEditor 远程抓图单项响应
 #[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 struct UeditorCrawlerItem {
     /// 抓取状态
     state: String,
@@ -109,6 +118,10 @@ struct UeditorCrawlerItem {
     source: String,
     /// 存储后的访问地址
     url: String,
+
+    /// 统一文件 ID
+    #[serde(skip_serializing_if = "Option::is_none")]
+    file_id: Option<String>,
 }
 
 /// 获取 UEditor 配置
@@ -150,26 +163,53 @@ pub async fn upload_ueditor_resource(
         .map(str::trim)
         .filter(|item| !item.is_empty())
         .or_else(|| infer_ueditor_action(content_type));
+    let Some(upload_key) = query.upload_key.filter(|upload_key| *upload_key > 0) else {
+        return Ok(ueditor_state_response("uploadKey 参数为空或格式不正确"));
+    };
 
     match action {
         Some("uploadimage") => {
-            handle_multipart_upload_request(app_state, current_user, request, image_upload_spec())
-                .await
+            handle_multipart_upload_request(
+                app_state,
+                current_user,
+                request,
+                upload_key,
+                image_upload_spec(),
+            )
+            .await
         }
         Some("uploadscrawl") => {
-            handle_base64_upload_request(app_state, current_user, request, scrawl_upload_spec())
-                .await
+            handle_base64_upload_request(
+                app_state,
+                current_user,
+                request,
+                upload_key,
+                scrawl_upload_spec(),
+            )
+            .await
         }
         Some("uploadvideo") => {
-            handle_multipart_upload_request(app_state, current_user, request, video_upload_spec())
-                .await
+            handle_multipart_upload_request(
+                app_state,
+                current_user,
+                request,
+                upload_key,
+                video_upload_spec(),
+            )
+            .await
         }
         Some("uploadfile") => {
-            handle_multipart_upload_request(app_state, current_user, request, file_upload_spec())
-                .await
+            handle_multipart_upload_request(
+                app_state,
+                current_user,
+                request,
+                upload_key,
+                file_upload_spec(),
+            )
+            .await
         }
         Some("crawlimage") | Some("catchimage") => {
-            handle_crawl_image_request(app_state, current_user, request).await
+            handle_crawl_image_request(app_state, current_user, request, upload_key).await
         }
         _ => Ok(ueditor_state_response(
             "action 参数为空或者 action 不被支持。",
@@ -182,6 +222,7 @@ async fn handle_multipart_upload_request(
     app_state: Arc<AppState>,
     current_user: CurrentUser,
     request: Request,
+    upload_key: i64,
     upload_spec: UeditorUploadSpec,
 ) -> Result<Response, AppError> {
     let mut multipart = match Multipart::from_request(request, &app_state).await {
@@ -278,6 +319,7 @@ async fn handle_multipart_upload_request(
         current_user,
         file_name,
         temp_file_path,
+        upload_key,
         upload_spec.sign,
     )
     .await
@@ -288,6 +330,7 @@ async fn handle_base64_upload_request(
     app_state: Arc<AppState>,
     current_user: CurrentUser,
     request: Request,
+    upload_key: i64,
     upload_spec: UeditorUploadSpec,
 ) -> Result<Response, AppError> {
     let bytes = match to_bytes(request.into_body(), DEFAULT_BUFFERED_BODY_LIMIT_BYTES).await {
@@ -341,6 +384,7 @@ async fn handle_base64_upload_request(
         current_user,
         upload_spec.default_file_name.to_string(),
         decoded.as_slice(),
+        upload_key,
         upload_spec.sign,
     )
     .await
@@ -352,6 +396,7 @@ async fn persist_upload_file_from_bytes(
     current_user: CurrentUser,
     file_name: String,
     bytes: &[u8],
+    upload_key: i64,
     sign: &str,
 ) -> Result<Response, AppError> {
     let temp_dir = std::path::Path::new(&app_state.settings.file.root_path).join("temps");
@@ -368,7 +413,15 @@ async fn persist_upload_file_from_bytes(
         )))
     })?;
 
-    persist_upload_file_from_temp(app_state, current_user, file_name, temp_file_path, sign).await
+    persist_upload_file_from_temp(
+        app_state,
+        current_user,
+        file_name,
+        temp_file_path,
+        upload_key,
+        sign,
+    )
+    .await
 }
 
 /// 持久化 UEditor 临时文件
@@ -377,6 +430,7 @@ async fn persist_upload_file_from_temp(
     current_user: CurrentUser,
     file_name: String,
     temp_file_path: PathBuf,
+    upload_key: i64,
     sign: &str,
 ) -> Result<Response, AppError> {
     let service = app_state.file();
@@ -384,8 +438,8 @@ async fn persist_upload_file_from_temp(
     let result = service
         .upload_file(
             UploadFileDto {
-                business: UEDITOR_BUSINESS.to_string(),
-                key: None,
+                business: ARTICLE_BUSINESS.to_string(),
+                key: Some(upload_key),
                 sign: sign.to_string(),
                 is_public_read: true,
                 file_name: file_name.clone(),
@@ -408,6 +462,7 @@ async fn persist_upload_file_from_temp(
         url: file_url,
         title: file_name.clone(),
         original: file_name,
+        file_id,
     })
     .into_response())
 }
@@ -431,6 +486,7 @@ async fn handle_crawl_image_request(
     app_state: Arc<AppState>,
     current_user: CurrentUser,
     request: Request,
+    upload_key: i64,
 ) -> Result<Response, AppError> {
     let bytes = to_bytes(request.into_body(), CRAWL_FORM_MAX_SIZE)
         .await
@@ -457,14 +513,26 @@ async fn handle_crawl_image_request(
 
     // 抓图数量做上限裁剪 避免单次请求无限放大后端开销
     for source in form.source.into_iter().take(MAX_CRAWL_IMAGE_COUNT) {
+        let file_name = match resolve_remote_image_file_name(&source) {
+            Ok(file_name) => file_name,
+            Err(message) => {
+                items.push(UeditorCrawlerItem {
+                    state: message,
+                    source,
+                    url: String::new(),
+                    file_id: None,
+                });
+                continue;
+            }
+        };
         let result = service
-            .remote_upload_file(
+            .remote_upload_image_file(
                 RemoteUploadFileDto {
-                    business: UEDITOR_BUSINESS.to_string(),
-                    key: None,
-                    sign: "catchimage".to_string(),
+                    business: ARTICLE_BUSINESS.to_string(),
+                    key: Some(upload_key),
+                    sign: "content-remote-image".to_string(),
                     is_public_read: true,
-                    file_name: "crawl_image".to_string(),
+                    file_name,
                     url: source.clone(),
                 },
                 &current_user,
@@ -482,6 +550,7 @@ async fn handle_crawl_image_request(
                     state: "SUCCESS".to_string(),
                     source,
                     url,
+                    file_id: Some(file_id),
                 });
             }
             Err(error) => {
@@ -489,6 +558,7 @@ async fn handle_crawl_image_request(
                     state: error.message().to_string(),
                     source,
                     url: String::new(),
+                    file_id: None,
                 });
             }
         }
@@ -571,6 +641,21 @@ fn validate_ueditor_upload(
     Ok(())
 }
 
+/// 解析并校验远程图片原始文件名
+fn resolve_remote_image_file_name(source: &str) -> Result<String, String> {
+    let file_name = source
+        .split(['?', '#'])
+        .next()
+        .and_then(|path| path.rsplit('/').next())
+        .filter(|file_name| !file_name.trim().is_empty())
+        .ok_or_else(|| "远程图片地址缺少文件名".to_string())?
+        .to_string();
+
+    validate_ueditor_upload(&file_name, 0, IMAGE_ALLOW_FILES, IMAGE_MAX_SIZE)?;
+
+    Ok(file_name)
+}
+
 /// 根据请求头推断 UEditor 动作
 fn infer_ueditor_action(content_type: &str) -> Option<&'static str> {
     if content_type
@@ -605,7 +690,7 @@ fn ueditor_state_response(message: impl Into<String>) -> Response {
 /// 图片上传规格
 fn image_upload_spec() -> UeditorUploadSpec {
     UeditorUploadSpec {
-        sign: "uploadimage",
+        sign: "content-image",
         field_name: DEFAULT_UPLOAD_FIELD_NAME,
         default_file_name: "image.png",
         allow_extensions: IMAGE_ALLOW_FILES,
@@ -616,7 +701,7 @@ fn image_upload_spec() -> UeditorUploadSpec {
 /// 涂鸦上传规格
 fn scrawl_upload_spec() -> UeditorUploadSpec {
     UeditorUploadSpec {
-        sign: "uploadscrawl",
+        sign: "content-scrawl",
         field_name: DEFAULT_UPLOAD_FIELD_NAME,
         default_file_name: "scrawl.png",
         allow_extensions: SCRAWL_ALLOW_FILES,
@@ -627,7 +712,7 @@ fn scrawl_upload_spec() -> UeditorUploadSpec {
 /// 视频上传规格
 fn video_upload_spec() -> UeditorUploadSpec {
     UeditorUploadSpec {
-        sign: "uploadvideo",
+        sign: "content-video",
         field_name: DEFAULT_UPLOAD_FIELD_NAME,
         default_file_name: "video.mp4",
         allow_extensions: VIDEO_ALLOW_FILES,
@@ -638,7 +723,7 @@ fn video_upload_spec() -> UeditorUploadSpec {
 /// 文件上传规格
 fn file_upload_spec() -> UeditorUploadSpec {
     UeditorUploadSpec {
-        sign: "uploadfile",
+        sign: "content-attachment",
         field_name: DEFAULT_UPLOAD_FIELD_NAME,
         default_file_name: "file.bin",
         allow_extensions: FILE_ALLOW_FILES,
