@@ -1,3 +1,7 @@
+use font8x8::{
+    BASIC_FONTS, BLOCK_FONTS, BOX_FONTS, GREEK_FONTS, HIRAGANA_FONTS, LATIN_FONTS, MISC_FONTS,
+    SGA_FONTS, UnicodeFonts,
+};
 use image::{
     DynamicImage, ImageBuffer, ImageFormat, Luma, Rgba, RgbaImage,
     imageops::{FilterType, crop_imm},
@@ -43,10 +47,10 @@ pub fn screenshot(
     encode_png(DynamicImage::ImageRgba8(cropped))
 }
 
-/// 获取图像数字验证码
+/// 获取图像验证码
 pub fn get_verify_code(text: &str) -> Result<Vec<u8>, image::ImageError> {
-    let digits = validate_verify_code_text(text)?;
-    let width = 128;
+    let characters = validate_verify_code_text(text)?;
+    let width = 128_u32.max(30 + characters.len() as u32 * 32);
     let height = 45;
     let mut image = RgbaImage::from_pixel(width, height, Rgba([255, 255, 255, 255]));
     for _ in 0..((width * height) / 12) {
@@ -64,12 +68,12 @@ pub fn get_verify_code(text: &str) -> Result<Vec<u8>, image::ImageError> {
         );
     }
 
-    for (x, ch) in [10, 38, 66, 94].into_iter().zip(digits.chars()) {
-        draw_digit(
+    for (index, glyph) in characters.into_iter().enumerate() {
+        draw_glyph(
             &mut image,
-            ch,
-            x,
-            8,
+            glyph,
+            15 + index as u32 * 32,
+            6,
             Rgba([
                 rand::random::<u8>(),
                 rand::random::<u8>(),
@@ -82,16 +86,23 @@ pub fn get_verify_code(text: &str) -> Result<Vec<u8>, image::ImageError> {
     encode_png(DynamicImage::ImageRgba8(image))
 }
 
-/// 校验图片验证码文本
-fn validate_verify_code_text(text: &str) -> Result<&str, image::ImageError> {
-    if text.is_empty() || text.len() > 4 || !text.chars().all(|item| item.is_ascii_digit()) {
-        return Err(image::ImageError::IoError(std::io::Error::new(
-            std::io::ErrorKind::InvalidInput,
-            "验证码必须是 1 到 4 位数字",
-        )));
+/// 校验图片验证码文本并解析字形
+fn validate_verify_code_text(text: &str) -> Result<Vec<[u8; 8]>, image::ImageError> {
+    let characters = text.chars().collect::<Vec<_>>();
+    if text.trim().is_empty() {
+        return Err(invalid_image_input("验证码文本不能为空"));
+    }
+    if characters.len() > 8 {
+        return Err(invalid_image_input("验证码文本不能超过 8 个字符"));
     }
 
-    Ok(text)
+    characters
+        .into_iter()
+        .map(|character| {
+            resolve_glyph(character)
+                .ok_or_else(|| invalid_image_input("验证码包含当前字体不支持的字符"))
+        })
+        .collect()
 }
 
 /// 将图片字节按指定宽高缩放并保持原始格式
@@ -167,73 +178,27 @@ fn encode_image(image: DynamicImage, format: ImageFormat) -> Result<Vec<u8>, ima
     Ok(bytes)
 }
 
-/// 使用七段码绘制数字字符
-fn draw_digit(image: &mut RgbaImage, ch: char, x: u32, y: u32, color: Rgba<u8>) {
-    let segments = match ch {
-        '0' => [true, true, true, true, true, true, false],
-        '1' => [false, true, true, false, false, false, false],
-        '2' => [true, true, false, true, true, false, true],
-        '3' => [true, true, true, true, false, false, true],
-        '4' => [false, true, true, false, false, true, true],
-        '5' => [true, false, true, true, false, true, true],
-        '6' => [true, false, true, true, true, true, true],
-        '7' => [true, true, true, false, false, false, false],
-        '8' => [true, true, true, true, true, true, true],
-        '9' => [true, true, true, true, false, true, true],
-        _ => [false, false, false, false, false, false, false],
-    };
+/// 查找验证码字符的 8x8 字形
+fn resolve_glyph(character: char) -> Option<[u8; 8]> {
+    BASIC_FONTS
+        .get(character)
+        .or_else(|| LATIN_FONTS.get(character))
+        .or_else(|| GREEK_FONTS.get(character))
+        .or_else(|| HIRAGANA_FONTS.get(character))
+        .or_else(|| BLOCK_FONTS.get(character))
+        .or_else(|| BOX_FONTS.get(character))
+        .or_else(|| MISC_FONTS.get(character))
+        .or_else(|| SGA_FONTS.get(character))
+}
 
-    let thickness = 3;
-    let length = 14;
-
-    if segments[0] {
-        fill_rect(image, x + thickness, y, length, thickness, color);
-    }
-    if segments[1] {
-        fill_rect(
-            image,
-            x + thickness + length,
-            y + thickness,
-            thickness,
-            length,
-            color,
-        );
-    }
-    if segments[2] {
-        fill_rect(
-            image,
-            x + thickness + length,
-            y + thickness + length,
-            thickness,
-            length,
-            color,
-        );
-    }
-    if segments[3] {
-        fill_rect(
-            image,
-            x + thickness,
-            y + thickness * 2 + length * 2,
-            length,
-            thickness,
-            color,
-        );
-    }
-    if segments[4] {
-        fill_rect(image, x, y + thickness + length, thickness, length, color);
-    }
-    if segments[5] {
-        fill_rect(image, x, y + thickness, thickness, length, color);
-    }
-    if segments[6] {
-        fill_rect(
-            image,
-            x + thickness,
-            y + thickness + length,
-            length,
-            thickness,
-            color,
-        );
+/// 绘制 8x8 位图字形
+fn draw_glyph(image: &mut RgbaImage, glyph: [u8; 8], x: u32, y: u32, color: Rgba<u8>) {
+    for (row, row_bits) in glyph.into_iter().enumerate() {
+        for column in 0..8 {
+            if row_bits & (1 << column) != 0 {
+                fill_rect(image, x + column * 3, y + row as u32 * 4, 3, 4, color);
+            }
+        }
     }
 }
 

@@ -49,7 +49,10 @@ impl<'a> LlmInvokeService<'a> {
         create_user_id: Option<i64>,
     ) -> Result<AppLlmChatResponse, AppError> {
         let prepared = self.prepare_chat(code, parameters).await?;
-        let client = ModelConfigAppLlmClient::new(prepared.model_config.clone())?;
+        let client = ModelConfigAppLlmClient::new(
+            prepared.model_config.clone(),
+            self.context.http_client_factory,
+        )?;
         let response = client.chat(prepared.request).await?;
 
         let assistant_content = response
@@ -95,7 +98,10 @@ impl<'a> LlmInvokeService<'a> {
         create_user_id: Option<i64>,
     ) -> Result<BoxStream<'a, Result<AppLlmStreamChunk, AppError>>, AppError> {
         let prepared = self.prepare_chat(code, parameters).await?;
-        let client = ModelConfigAppLlmClient::new(prepared.model_config.clone())?;
+        let client = ModelConfigAppLlmClient::new(
+            prepared.model_config.clone(),
+            self.context.http_client_factory,
+        )?;
 
         // 复制轻量上下文用于流结束后异步保存会话记录
         let service = Self {
@@ -104,6 +110,7 @@ impl<'a> LlmInvokeService<'a> {
 
         Ok(Box::pin(async_stream::try_stream! {
             let mut assistant_content = String::new();
+            let mut is_completed = false;
             // 在流式返回过程中持续聚合文本 便于结束后落库完整回复
             let mut stream = client.chat_stream(prepared.request);
 
@@ -114,18 +121,24 @@ impl<'a> LlmInvokeService<'a> {
                     assistant_content.push_str(content);
                 }
 
+                if chunk.done {
+                    is_completed = true;
+                }
+
                 yield chunk;
             }
 
-            service
-                .save_conversation(
-                    prepared.llm_app_id,
-                    prepared.system_prompt.unwrap_or_default(),
-                    prepared.user_prompt,
-                    assistant_content,
-                    create_user_id,
-                )
-                .await;
+            if is_completed {
+                service
+                    .save_conversation(
+                        prepared.llm_app_id,
+                        prepared.system_prompt.unwrap_or_default(),
+                        prepared.user_prompt,
+                        assistant_content,
+                        create_user_id,
+                    )
+                    .await;
+            }
         }))
     }
 

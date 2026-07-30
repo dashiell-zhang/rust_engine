@@ -15,7 +15,9 @@ use application_model::task_center::ARGS_DEFAULT_PARAMETER;
 use common::identifier_generator::IdentifierGenerator;
 use identifier_generator::refresh::RefreshSignTask;
 use logger::LoggerRuntime;
-use repository::{extensions::SoftDeleteQueryExt, task_setting};
+use repository::{
+    extensions::SoftDeleteQueryExt, read_database::ReadDatabaseConnection, task_setting,
+};
 use sea_orm::{
     ActiveModelTrait, ActiveValue::Set, Database, DatabaseConnection, EntityTrait, IntoActiveModel,
 };
@@ -72,6 +74,9 @@ pub struct TaskServiceHost {
 
     /// 数据库连接
     db_pool: Arc<DatabaseConnection>,
+
+    /// 数据库只读连接
+    read_db_pool: Arc<ReadDatabaseConnection>,
 
     /// 任务注册表
     registry: TaskRegistry,
@@ -140,6 +145,24 @@ impl TaskServiceHostBuilder {
             .map_err(|error| format!("数据库连接初始化失败: {error}"))?,
         );
 
+        let read_connection = if self.settings.database.read_connection.trim().is_empty() {
+            self.settings.database.connection.clone()
+        } else {
+            self.settings.database.read_connection.clone()
+        };
+        let mut read_connect_options = TaskServiceStartup::build_postgres_connect_options(
+            read_connection,
+            &self.settings.host.database_pool,
+        );
+        read_connect_options.map_sqlx_postgres_opts(|options| {
+            options.options([("default_transaction_read_only", "on")])
+        });
+        let read_db_pool = Arc::new(ReadDatabaseConnection::new(
+            Database::connect(read_connect_options)
+                .await
+                .map_err(|error| format!("只读数据库连接初始化失败: {error}"))?,
+        ));
+
         let logger_runtime = (self.build_logger_runtime)(
             &self.settings,
             &TaskServiceLoggerBuilderContext {
@@ -174,6 +197,7 @@ impl TaskServiceHostBuilder {
 
         let feature_context = TaskServiceFeatureContext {
             db_pool: Arc::clone(&db_pool),
+            read_db_pool: Arc::clone(&read_db_pool),
             identifier_generator: identifier_generator.clone(),
             sms_sender,
             email_sender,
@@ -213,6 +237,7 @@ impl TaskServiceHostBuilder {
         Ok(TaskServiceHost {
             runner,
             db_pool,
+            read_db_pool,
             registry,
             _logger_runtime: logger_runtime,
         })
@@ -220,6 +245,11 @@ impl TaskServiceHostBuilder {
 }
 
 impl TaskServiceHost {
+    /// 获取只读数据库连接
+    pub fn read_db(&self) -> &ReadDatabaseConnection {
+        self.read_db_pool.as_ref()
+    }
+
     /// Debug 模式下选择需要启用的任务
     pub async fn select_debug_tasks(&self) -> Result<bool, String> {
         if !cfg!(debug_assertions) {

@@ -55,14 +55,44 @@ impl LlmModelConfig {
 }
 
 /// 根据模型配置创建 LLM 客户端
-pub fn create_client(config: LlmModelConfig) -> Result<Arc<dyn LlmClient>, LlmError> {
+pub fn create_client(
+    http_client: reqwest::Client,
+    config: LlmModelConfig,
+) -> Result<Arc<dyn LlmClient>, LlmError> {
+    validate_config(&config)?;
     let protocol = config.protocol()?;
 
     match protocol {
         LlmProtocolType::Chat => Ok(Arc::new(OpenAiCompatibleClient::new(
+            http_client,
             OpenAiCompatibleSettings::new_endpoint(config.endpoint, config.api_key),
-        )?)),
-        LlmProtocolType::Responses => Ok(Arc::new(OpenAiResponsesClient::new(config)?)),
-        LlmProtocolType::Anthropic => Ok(Arc::new(AnthropicMessagesClient::new(config)?)),
+        ))),
+        LlmProtocolType::Responses => Ok(Arc::new(OpenAiResponsesClient::new(http_client, config))),
+        LlmProtocolType::Anthropic => {
+            Ok(Arc::new(AnthropicMessagesClient::new(http_client, config)))
+        }
     }
+}
+
+/// 校验 LLM 模型运行时配置
+fn validate_config(config: &LlmModelConfig) -> Result<(), LlmError> {
+    if config.endpoint.trim().is_empty() {
+        return Err(LlmError::InvalidRequest(
+            "LLM model endpoint is required".to_string(),
+        ));
+    }
+
+    if config.api_key.trim().is_empty() {
+        return Err(LlmError::InvalidRequest(
+            "LLM model api key is required".to_string(),
+        ));
+    }
+
+    if config.model_id.trim().is_empty() {
+        return Err(LlmError::InvalidRequest(
+            "LLM model id is required".to_string(),
+        ));
+    }
+
+    Ok(())
 }

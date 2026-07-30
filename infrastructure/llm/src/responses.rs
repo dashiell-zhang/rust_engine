@@ -1,12 +1,10 @@
-use std::time::Duration;
-
 use async_trait::async_trait;
 use futures_util::{StreamExt, stream::BoxStream};
 use serde::Deserialize;
 use serde_json::{Map, Value, json};
 
 use crate::{
-    LlmClient, LlmError, LlmModelConfig,
+    LLM_REQUEST_TIMEOUT, LlmClient, LlmError, LlmModelConfig,
     models::{
         ChatChoice, ChatMessage, ChatRequest, ChatResponse, ChatRole, ChatStreamChoiceDelta,
         ChatStreamChunk, ChatStreamDelta, Usage,
@@ -24,16 +22,11 @@ pub struct OpenAiResponsesClient {
 
 impl OpenAiResponsesClient {
     /// 创建 Responses API 客户端
-    pub fn new(config: LlmModelConfig) -> Result<Self, LlmError> {
-        let http_client = reqwest::Client::builder()
-            .timeout(Duration::from_secs(120))
-            .build()
-            .map_err(|e| LlmError::Http(e.to_string()))?;
-
-        Ok(Self {
+    pub fn new(http_client: reqwest::Client, config: LlmModelConfig) -> Self {
+        Self {
             http_client,
             config,
-        })
+        }
     }
 
     /// 校验配置与请求
@@ -74,6 +67,7 @@ impl LlmClient for OpenAiResponsesClient {
         let response = self
             .http_client
             .post(self.config.endpoint.trim())
+            .timeout(LLM_REQUEST_TIMEOUT)
             .bearer_auth(&self.config.api_key)
             .json(&body)
             .send()
@@ -101,6 +95,7 @@ impl LlmClient for OpenAiResponsesClient {
             let response = self
                 .http_client
                 .post(self.config.endpoint.trim())
+                .timeout(LLM_REQUEST_TIMEOUT)
                 .bearer_auth(&self.config.api_key)
                 .json(&body)
                 .send()
@@ -254,16 +249,17 @@ fn map_stream_event(
             usage: None,
         })),
         "response.completed" => {
-            let response = dto.response;
-            let usage = response
-                .as_ref()
-                .and_then(|item| item.usage.clone())
-                .map(ResponseUsageDto::into_usage);
+            let response = dto.response.ok_or_else(|| {
+                LlmError::StreamParse(
+                    "OpenAI Responses completed event is missing the response payload".to_string(),
+                )
+            })?;
+            let usage = response.usage.clone().map(ResponseUsageDto::into_usage);
             Ok(Some(ChatStreamChunk {
-                id: response.as_ref().and_then(|item| item.id.clone()),
+                id: response.id.clone(),
                 model: response
-                    .as_ref()
-                    .and_then(|item| item.model.clone())
+                    .model
+                    .clone()
                     .unwrap_or_else(|| fallback_model.to_string()),
                 choices: vec![ChatStreamChoiceDelta {
                     index: 0,
@@ -271,7 +267,7 @@ fn map_stream_event(
                         role: None,
                         content: None,
                     },
-                    finish_reason: response.and_then(|item| item.status),
+                    finish_reason: Some(response.status.unwrap_or_else(|| "completed".to_string())),
                 }],
                 usage,
             }))
@@ -279,19 +275,53 @@ fn map_stream_event(
         "response.failed" => {
             let message = dto
                 .response
-                .and_then(|item| item.error)
-                .and_then(|error| error.message)
+                .as_ref()
+                .and_then(|item| item.error.as_ref())
+                .and_then(|error| error.message.clone())
+                .or_else(|| dto.error.as_ref().and_then(|error| error.message.clone()))
+                .or(dto.message)
                 .unwrap_or_else(|| "OpenAI Responses response failed".to_string());
+            let code = dto
+                .response
+                .as_ref()
+                .and_then(|item| item.error.as_ref())
+                .and_then(|error| error.code.as_deref())
+                .or_else(|| dto.error.as_ref().and_then(|error| error.code.as_deref()))
+                .or(dto.code.as_deref());
+            Err(LlmError::InvalidRequest(with_error_code(message, code)))
+        }
+        "response.incomplete" => {
+            let reason = dto
+                .response
+                .and_then(|item| item.incomplete_details)
+                .and_then(|details| details.reason);
+            let message = reason.map_or_else(
+                || "OpenAI Responses response is incomplete".to_string(),
+                |reason| format!("OpenAI Responses response is incomplete: {reason}"),
+            );
             Err(LlmError::InvalidRequest(message))
         }
         "error" => {
             let message = dto
                 .message
-                .or_else(|| dto.error.and_then(|error| error.message))
+                .or_else(|| dto.error.as_ref().and_then(|error| error.message.clone()))
                 .unwrap_or_else(|| "OpenAI Responses stream returned an error".to_string());
-            Err(LlmError::InvalidRequest(message))
+            let code = dto
+                .error
+                .as_ref()
+                .and_then(|error| error.code.as_deref())
+                .or(dto.code.as_deref());
+            Err(LlmError::InvalidRequest(with_error_code(message, code)))
         }
         _ => Ok(None),
+    }
+}
+
+/// 在提供商错误消息后附加错误代码
+fn with_error_code(message: String, code: Option<&str>) -> String {
+    match code.filter(|value| !value.trim().is_empty()) {
+        Some(code) => format!("{message} ({code})"),
+        None => message,
     }
 }
 
@@ -326,6 +356,8 @@ struct ResponseDto {
     output: Option<Vec<ResponseOutputItemDto>>,
     usage: Option<ResponseUsageDto>,
     error: Option<ResponseErrorDto>,
+    #[serde(rename = "incomplete_details")]
+    incomplete_details: Option<ResponseIncompleteDetailsDto>,
 }
 
 /// Responses API 输出项
@@ -353,12 +385,20 @@ struct ResponseStreamEventDto {
     response: Option<ResponseDto>,
     message: Option<String>,
     error: Option<ResponseErrorDto>,
+    code: Option<String>,
 }
 
 /// Responses API 错误详情
 #[derive(Deserialize)]
 struct ResponseErrorDto {
+    code: Option<String>,
     message: Option<String>,
+}
+
+/// Responses API 响应不完整详情
+#[derive(Deserialize)]
+struct ResponseIncompleteDetailsDto {
+    reason: Option<String>,
 }
 
 /// Responses API 用量统计

@@ -82,9 +82,46 @@ fn get_network_time_from(server: SocketAddr) -> std::io::Result<DateTime<Utc>> {
         ));
     }
 
-    let seconds = u32::from_be_bytes([packet[40], packet[41], packet[42], packet[43]]) as i64;
+    let leap_indicator = packet[0] >> 6;
+    let mode = packet[0] & 0x07;
+    let stratum = packet[1];
+    if leap_indicator == 3 || mode != 4 || !(1..=15).contains(&stratum) {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "NTP 响应状态无效",
+        ));
+    }
+
+    let seconds_part = u32::from_be_bytes([packet[40], packet[41], packet[42], packet[43]]);
     let fraction = u32::from_be_bytes([packet[44], packet[45], packet[46], packet[47]]) as u64;
-    let unix_seconds = seconds - 2_208_988_800;
+    if seconds_part == 0 && fraction == 0 {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "NTP 响应未包含服务器发送时间",
+        ));
+    }
+
+    const NTP_UNIX_OFFSET_SECONDS: u64 = 2_208_988_800;
+    const NTP_ERA_SECONDS: u64 = 1_u64 << 32;
+
+    let current_unix_seconds = u64::try_from(Utc::now().timestamp())
+        .map_err(|_| std::io::Error::other("当前时间早于 Unix 纪元"))?;
+    let current_ntp_seconds = current_unix_seconds + NTP_UNIX_OFFSET_SECONDS;
+    let current_era = current_ntp_seconds / NTP_ERA_SECONDS;
+    let mut seconds = u64::from(seconds_part) + current_era * NTP_ERA_SECONDS;
+
+    if seconds > current_ntp_seconds + NTP_ERA_SECONDS / 2 && seconds >= NTP_ERA_SECONDS {
+        seconds -= NTP_ERA_SECONDS;
+    } else if seconds + NTP_ERA_SECONDS / 2 < current_ntp_seconds {
+        seconds = seconds
+            .checked_add(NTP_ERA_SECONDS)
+            .ok_or_else(|| std::io::Error::other("NTP 时代换算溢出"))?;
+    }
+
+    let unix_seconds = seconds
+        .checked_sub(NTP_UNIX_OFFSET_SECONDS)
+        .and_then(|value| i64::try_from(value).ok())
+        .ok_or_else(|| std::io::Error::other("NTP 时间超出支持范围"))?;
     let nanos = ((fraction * 1_000_000_000) >> 32) as u32;
 
     DateTime::<Utc>::from_timestamp(unix_seconds, nanos)

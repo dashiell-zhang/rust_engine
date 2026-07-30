@@ -39,8 +39,8 @@ pub fn remove_html(html_text: &str) -> String {
     let tag_regex = Regex::new(r"(?is)<[^>]+>").expect("HTML 标签正则应有效");
     let space_regex = Regex::new(r"\s+").expect("空白正则应有效");
 
-    let text = html_unescape(html_text);
-    let text = script_regex.replace_all(&text, "");
+    let text = html_escape::decode_html_entities(html_text);
+    let text = script_regex.replace_all(text.as_ref(), "");
     let text = tag_regex.replace_all(&text, "");
 
     space_regex.replace_all(text.trim(), " ").into_owned()
@@ -237,6 +237,82 @@ pub fn is_lan_ip_address_v6(ip_address: &str) -> bool {
     }
 }
 
+/// 检查文本是否为可直接访问的公网 IP 地址
+pub fn is_public_ip_address_text(ip_address: &str) -> bool {
+    ip_address.parse::<IpAddr>().is_ok_and(is_public_ip_address)
+}
+
+/// 检查 IP 地址是否为可直接访问的公网地址
+pub fn is_public_ip_address(ip_address: IpAddr) -> bool {
+    match ip_address {
+        IpAddr::V4(ipv4) => is_public_ipv4_address(ipv4),
+        IpAddr::V6(ipv6) => {
+            if let Some(ipv4) = ipv6.to_ipv4_mapped() {
+                return is_public_ipv4_address(ipv4);
+            }
+
+            is_public_ipv6_address(ipv6)
+        }
+    }
+}
+
+/// 检查 IPv4 地址是否为公网地址
+fn is_public_ipv4_address(ip_address: Ipv4Addr) -> bool {
+    let [first, second, third, _] = ip_address.octets();
+
+    match first {
+        0 | 10 | 127 => false,
+        100 if (64..=127).contains(&second) => false,
+        169 if second == 254 => false,
+        172 if (16..=31).contains(&second) => false,
+        192 if second == 0 && matches!(third, 0 | 2) => false,
+        192 if second == 88 && third == 99 => false,
+        192 if second == 168 => false,
+        198 if matches!(second, 18 | 19) => false,
+        198 if second == 51 && third == 100 => false,
+        203 if second == 0 && third == 113 => false,
+        224..=255 => false,
+        _ => true,
+    }
+}
+
+/// 检查 IPv6 地址是否为公网地址
+fn is_public_ipv6_address(ip_address: Ipv6Addr) -> bool {
+    let bytes = ip_address.octets();
+
+    // 仅允许当前全球单播地址空间 2000::/3
+    if bytes[0] & 0xe0 != 0x20 {
+        return false;
+    }
+
+    // 2001::/23 包含协议分配、基准测试和过渡地址
+    if bytes[0] == 0x20 && bytes[1] == 0x01 && bytes[2] <= 0x01 {
+        return false;
+    }
+
+    // 2001:db8::/32 为文档示例地址
+    if bytes[0] == 0x20 && bytes[1] == 0x01 && bytes[2] == 0x0d && bytes[3] == 0xb8 {
+        return false;
+    }
+
+    // 2002::/16 为 6to4 过渡地址
+    if bytes[0] == 0x20 && bytes[1] == 0x02 {
+        return false;
+    }
+
+    // 3ffe::/16 为已归还的旧 6bone 地址
+    if bytes[0] == 0x3f && bytes[1] == 0xfe {
+        return false;
+    }
+
+    // 3fff::/20 为文档示例地址
+    if bytes[0] == 0x3f && bytes[1] == 0xff && bytes[2] & 0xf0 == 0 {
+        return false;
+    }
+
+    true
+}
+
 /// 检查 IPv4 地址是否在指定 CIDR 范围内
 pub fn is_ip_in_cidr_range_v4(ip_address: &str, cidr_range: &str) -> bool {
     let Some((network_text, prefix_text)) = cidr_range.split_once('/') else {
@@ -421,25 +497,6 @@ fn is_emoji(value: char) -> bool {
         value as u32,
         0x1F300..=0x1FAFF | 0x2600..=0x27BF | 0xFE00..=0xFE0F | 0x1F1E6..=0x1F1FF
     )
-}
-
-/// 解码常见 HTML 实体
-fn html_unescape(value: &str) -> String {
-    value
-        .replace("&quot;", "\"")
-        .replace("&#34;", "\"")
-        .replace("&amp;", "&")
-        .replace("&#38;", "&")
-        .replace("&lt;", "<")
-        .replace("&#60;", "<")
-        .replace("&gt;", ">")
-        .replace("&#62;", ">")
-        .replace("&nbsp;", " ")
-        .replace("&#160;", " ")
-        .replace("&iexcl;", "\u{00A1}")
-        .replace("&cent;", "\u{00A2}")
-        .replace("&pound;", "\u{00A3}")
-        .replace("&copy;", "\u{00A9}")
 }
 
 /// 解析指定位置的 \uXXXX 转义值

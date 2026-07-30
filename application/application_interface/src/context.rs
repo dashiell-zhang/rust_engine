@@ -180,4 +180,10 @@ pub struct MessageContext<'a> {
 pub struct LlmContext<'a> {
     /// 通用上下文
     pub app: AppContext<'a>,
+
+    /// LLM 配置并发控制锁
+    pub distributed_lock: &'a dyn DistributedLock,
+
+    /// 共享 HTTP 客户端工厂
+    pub http_client_factory: &'a HttpClientFactory,
 }

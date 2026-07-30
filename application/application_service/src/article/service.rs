@@ -1054,7 +1054,9 @@ fn resolve_digest(digest: Option<&str>, content: Option<&str>) -> Option<String>
         return d.map(str::to_owned);
     }
 
-    let text = content.map(strip_html_tags).filter(|s| !s.is_empty())?;
+    let text = content
+        .map(common::string_helper::remove_html)
+        .filter(|s| !s.is_empty())?;
 
     let truncated = if text.chars().count() > 255 {
         text.chars().take(255).collect()
@@ -1063,23 +1065,6 @@ fn resolve_digest(digest: Option<&str>, content: Option<&str>) -> Option<String>
     };
 
     Some(truncated)
-}
-
-/// 简单去除 HTML 标签，仅保留纯文本内容
-fn strip_html_tags(html: &str) -> String {
-    let mut result = String::with_capacity(html.len());
-    let mut in_tag = false;
-
-    for ch in html.chars() {
-        match ch {
-            '<' => in_tag = true,
-            '>' => in_tag = false,
-            _ if !in_tag => result.push(ch),
-            _ => {}
-        }
-    }
-
-    result
 }
 
 /// 按栏目 ID 批量加载栏目数据

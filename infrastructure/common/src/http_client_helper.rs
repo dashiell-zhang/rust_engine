@@ -12,7 +12,7 @@ use reqwest::{
 };
 use tokio::{fs, io::AsyncWriteExt};
 
-use crate::error_helper::CustomError;
+use crate::{error_helper::CustomError, io_helper::TemporaryFileGuard};
 
 /// 表单数据项
 pub enum PostFormDataItem {
@@ -65,8 +65,9 @@ pub async fn download_file(
         .unwrap_or_else(|| "download.bin".to_string());
     let file_path = folder_path.join(resolved_name);
     let temp_file_path = temporary_download_path(&file_path);
+    let mut temp_file_guard = TemporaryFileGuard::new(temp_file_path);
 
-    let mut file = fs::File::create(&temp_file_path)
+    let mut file = fs::File::create(temp_file_guard.path())
         .await
         .map_err(|error| CustomError::with_source("创建本地文件失败", error))?;
     let mut response = response;
@@ -84,10 +85,11 @@ pub async fn download_file(
         .map_err(|error| CustomError::with_source("刷新本地文件失败", error))?;
     drop(file);
 
-    if let Err(error) = replace_file(&temp_file_path, &file_path).await {
-        let _ = fs::remove_file(&temp_file_path).await;
+    if let Err(error) = replace_file(temp_file_guard.path(), &file_path).await {
         return Err(CustomError::with_source("保存下载文件失败", error));
     }
+
+    temp_file_guard.preserve();
 
     Ok(Some(file_path))
 }

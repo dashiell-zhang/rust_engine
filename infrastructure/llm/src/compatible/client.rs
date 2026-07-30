@@ -1,11 +1,10 @@
-use std::time::Duration;
-
 use async_trait::async_trait;
 use futures_util::StreamExt;
 use futures_util::stream::BoxStream;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
+use crate::LLM_REQUEST_TIMEOUT;
 use crate::client::LlmClient;
 use crate::error::LlmError;
 use crate::models::{
@@ -27,17 +26,12 @@ pub struct OpenAiCompatibleClient {
 impl OpenAiCompatibleClient {
     /// 创建 OpenAI 兼容客户端
     ///
-    /// 内部构建一个带超时配置的 `reqwest::Client`，失败时返回 `LlmError::Http`
-    pub fn new(settings: OpenAiCompatibleSettings) -> Result<Self, LlmError> {
-        let http_client = reqwest::Client::builder()
-            .timeout(Duration::from_secs(120))
-            .build()
-            .map_err(|e| LlmError::Http(e.to_string()))?;
-
-        Ok(Self {
+    /// 使用宿主提供的共享 HTTP 客户端创建协议客户端
+    pub fn new(http_client: reqwest::Client, settings: OpenAiCompatibleSettings) -> Self {
+        Self {
             http_client,
             settings,
-        })
+        }
     }
 
     /// 拼接 chat completions 接口完整地址
@@ -62,6 +56,7 @@ impl LlmClient for OpenAiCompatibleClient {
         let response = self
             .http_client
             .post(self.chat_url())
+            .timeout(LLM_REQUEST_TIMEOUT)
             .bearer_auth(&self.settings.api_key)
             .json(&body)
             .send()
@@ -88,6 +83,7 @@ impl LlmClient for OpenAiCompatibleClient {
 
             let response = self.http_client
                 .post(self.chat_url())
+                .timeout(LLM_REQUEST_TIMEOUT)
                 .bearer_auth(&self.settings.api_key)
                 .json(&body)
                 .send()
@@ -104,6 +100,7 @@ impl LlmClient for OpenAiCompatibleClient {
 
             // 用于跨 chunk 拼接不完整行的缓冲区
             let mut buffer = String::new();
+            let mut completion_emitted = false;
 
             while let Some(chunk) = stream.next().await {
                 let chunk = chunk.map_err(|e| LlmError::Http(e.to_string()))?;
@@ -122,6 +119,21 @@ impl LlmClient for OpenAiCompatibleClient {
 
                     // 流结束标记
                     if data == "[DONE]" {
+                        if !completion_emitted {
+                            yield ChatStreamChunk {
+                                id: None,
+                                model: request.model.clone(),
+                                choices: vec![ChatStreamChoiceDelta {
+                                    index: 0,
+                                    delta: ChatStreamDelta {
+                                        role: None,
+                                        content: None,
+                                    },
+                                    finish_reason: Some("done".to_string()),
+                                }],
+                                usage: None,
+                            };
+                        }
                         return;
                     }
 
@@ -132,7 +144,12 @@ impl LlmClient for OpenAiCompatibleClient {
                     let wire: WireStreamChunk = serde_json::from_str(data)
                         .map_err(|e| LlmError::StreamParse(format!("无法解析 SSE chunk: {e}, 原始数据: {data}")))?;
 
-                    yield wire.into_chat_stream_chunk();
+                    let chunk = wire.into_chat_stream_chunk();
+                    completion_emitted |= chunk
+                        .choices
+                        .iter()
+                        .any(|choice| choice.finish_reason.is_some());
+                    yield chunk;
                 }
             }
         })

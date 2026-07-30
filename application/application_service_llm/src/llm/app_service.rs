@@ -140,7 +140,28 @@ impl<'a> LlmAppService<'a> {
         validate_edit_llm_app(&dto)?;
 
         let code = dto.code.trim().to_string();
-        ensure_llm_model_exists(self.context.app.db, dto.llm_model_id).await?;
+        let _code_lock = self
+            .context
+            .distributed_lock
+            .try_lock(
+                &format!("llm:app:code:{code}"),
+                std::time::Duration::ZERO,
+                1,
+            )
+            .await?
+            .ok_or_else(|| AppError::conflict("当前应用 Code 正在处理中，请稍后重试"))?;
+        let _model_lock = self
+            .context
+            .distributed_lock
+            .try_lock(
+                &format!("llm:model:id:{}", dto.llm_model_id),
+                std::time::Duration::ZERO,
+                1,
+            )
+            .await?
+            .ok_or_else(|| AppError::conflict("当前关联模型正在处理中，请稍后重试"))?;
+
+        validate_llm_model_state(self.context.app.db, dto.llm_model_id, dto.is_enable).await?;
 
         let exists = llm_app::Entity::find()
             .filter(llm_app::Column::Code.eq(code.clone()))
@@ -202,7 +223,28 @@ impl<'a> LlmAppService<'a> {
         validate_edit_llm_app(&dto)?;
 
         let code = dto.code.trim().to_string();
-        ensure_llm_model_exists(self.context.app.db, dto.llm_model_id).await?;
+        let _code_lock = self
+            .context
+            .distributed_lock
+            .try_lock(
+                &format!("llm:app:code:{code}"),
+                std::time::Duration::ZERO,
+                1,
+            )
+            .await?
+            .ok_or_else(|| AppError::conflict("当前应用 Code 正在处理中，请稍后重试"))?;
+        let _model_lock = self
+            .context
+            .distributed_lock
+            .try_lock(
+                &format!("llm:model:id:{}", dto.llm_model_id),
+                std::time::Duration::ZERO,
+                1,
+            )
+            .await?
+            .ok_or_else(|| AppError::conflict("当前关联模型正在处理中，请稍后重试"))?;
+
+        validate_llm_model_state(self.context.app.db, dto.llm_model_id, dto.is_enable).await?;
 
         let duplicate_count = llm_app::Entity::find()
             .filter(llm_app::Column::Id.ne(llm_app_id))
@@ -294,7 +336,8 @@ impl<'a> LlmAppService<'a> {
         let model_config = load_enabled_model_config(self.context.app.db, request.llm_model_id)
             .await?
             .ok_or_else(|| AppError::bad_request("无效的 LlmModelId 或模型已禁用"))?;
-        let client = ModelConfigAppLlmClient::new(model_config.clone())?;
+        let client =
+            ModelConfigAppLlmClient::new(model_config.clone(), self.context.http_client_factory)?;
 
         let parameters = request.parameters.unwrap_or_default();
         validate_required_parameters(
@@ -592,20 +635,25 @@ async fn load_model_names(
         .collect())
 }
 
-/// 确认模型存在
-async fn ensure_llm_model_exists(
+/// 校验 LLM 应用关联模型的状态
+async fn validate_llm_model_state(
     db: &sea_orm::DatabaseConnection,
     model_id: i64,
+    app_is_enable: bool,
 ) -> Result<(), AppError> {
-    let exists = llm_model::Entity::find()
+    let model = llm_model::Entity::find()
         .filter(llm_model::Column::Id.eq(model_id))
         .not_deleted(llm_model::Column::DeleteTime)
-        .count(db)
+        .one(db)
         .await
         .map_err(to_app_error)?;
 
-    if exists == 0 {
+    let Some(model) = model else {
         return Err(AppError::bad_request("无效的 LlmModelId"));
+    };
+
+    if app_is_enable && !model.is_enable {
+        return Err(AppError::conflict("启用的 LLM 应用不可以关联已禁用模型"));
     }
 
     Ok(())

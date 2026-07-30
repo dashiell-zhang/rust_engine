@@ -4,6 +4,7 @@ use llm::{ChatMessage, ChatRequest, ChatRole, ChatStreamChunk, LlmModelConfig, c
 
 use application_interface::{
     error::AppError,
+    http_client::HttpClientFactory,
     llm::{
         AppLlmChatRequest, AppLlmChatResponse, AppLlmClient, AppLlmMessage, AppLlmRole,
         AppLlmStreamChunk, AppLlmUsage,
@@ -18,8 +19,11 @@ pub struct ModelConfigAppLlmClient {
 
 impl ModelConfigAppLlmClient {
     /// 创建模型配置客户端
-    pub fn new(config: LlmModelConfig) -> Result<Self, AppError> {
-        let client = create_client(config)
+    pub fn new(
+        config: LlmModelConfig,
+        http_client_factory: &HttpClientFactory,
+    ) -> Result<Self, AppError> {
+        let client = create_client(http_client_factory.client(), config)
             .map_err(|error| AppError::internal(format!("初始化 LLM 客户端失败: {error}")))?;
 
         Ok(Self { client })

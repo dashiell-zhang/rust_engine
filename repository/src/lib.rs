@@ -11,6 +11,9 @@ pub mod extensions;
 /// SQL 命令策略工具
 pub mod sql_command;
 
+/// 数据库只读连接
+pub mod read_database;
+
 /// 应用配置实体
 pub mod app_setting;
 

@@ -1,6 +1,6 @@
 use chrono::Utc;
 use repository::extensions::SoftDeleteQueryExt;
-use repository::llm_model;
+use repository::{llm_app, llm_model};
 use sea_orm::{
     ActiveModelTrait, ColumnTrait, EntityTrait, IntoActiveModel, PaginatorTrait, QueryFilter,
     QueryOrder, QuerySelect, Set,
@@ -113,6 +113,17 @@ impl<'a> LlmModelService<'a> {
         validate_create_llm_model(&dto)?;
 
         let name = dto.name.trim().to_string();
+        let _name_lock = self
+            .context
+            .distributed_lock
+            .try_lock(
+                &format!("llm:model:name:{name}"),
+                std::time::Duration::ZERO,
+                1,
+            )
+            .await?
+            .ok_or_else(|| AppError::conflict("当前模型名称正在处理中，请稍后重试"))?;
+
         ensure_name_unique(self.context.app.db, &name, None).await?;
 
         let id = self
@@ -161,6 +172,24 @@ impl<'a> LlmModelService<'a> {
 
         validate_update_llm_model(&dto)?;
 
+        let name = dto.name.trim().to_string();
+        let _name_lock = self
+            .context
+            .distributed_lock
+            .try_lock(
+                &format!("llm:model:name:{name}"),
+                std::time::Duration::ZERO,
+                1,
+            )
+            .await?
+            .ok_or_else(|| AppError::conflict("当前模型名称正在处理中，请稍后重试"))?;
+        let _model_lock = self
+            .context
+            .distributed_lock
+            .try_lock(&format!("llm:model:id:{id}"), std::time::Duration::ZERO, 1)
+            .await?
+            .ok_or_else(|| AppError::conflict("当前模型正在处理中，请稍后重试"))?;
+
         let model = llm_model::Entity::find()
             .filter(llm_model::Column::Id.eq(id))
             .not_deleted(llm_model::Column::DeleteTime)
@@ -172,8 +201,23 @@ impl<'a> LlmModelService<'a> {
             return Err(AppError::bad_request("无效的 id"));
         };
 
-        let name = dto.name.trim().to_string();
         ensure_name_unique(self.context.app.db, &name, Some(id)).await?;
+
+        if model.is_enable && !dto.is_enable {
+            let enabled_app_count = llm_app::Entity::find()
+                .filter(llm_app::Column::LlmModelId.eq(id))
+                .filter(llm_app::Column::IsEnable.eq(true))
+                .not_deleted(llm_app::Column::DeleteTime)
+                .count(self.context.app.db)
+                .await
+                .map_err(to_app_error)?;
+
+            if enabled_app_count > 0 {
+                return Err(AppError::conflict(
+                    "当前模型下存在已启用的 LLM 应用，无法禁用",
+                ));
+            }
+        }
 
         let mut active = model.into_active_model();
         active.name = Set(name);
@@ -205,6 +249,13 @@ impl<'a> LlmModelService<'a> {
             return Err(AppError::bad_request("无效的 id"));
         }
 
+        let _model_lock = self
+            .context
+            .distributed_lock
+            .try_lock(&format!("llm:model:id:{id}"), std::time::Duration::ZERO, 1)
+            .await?
+            .ok_or_else(|| AppError::conflict("当前模型正在处理中，请稍后重试"))?;
+
         let model = llm_model::Entity::find()
             .filter(llm_model::Column::Id.eq(id))
             .not_deleted(llm_model::Column::DeleteTime)
@@ -215,6 +266,17 @@ impl<'a> LlmModelService<'a> {
         let Some(model) = model else {
             return Ok(true);
         };
+
+        let app_count = llm_app::Entity::find()
+            .filter(llm_app::Column::LlmModelId.eq(id))
+            .not_deleted(llm_app::Column::DeleteTime)
+            .count(self.context.app.db)
+            .await
+            .map_err(to_app_error)?;
+
+        if app_count > 0 {
+            return Err(AppError::conflict("当前模型下存在 LLM 应用，无法删除"));
+        }
 
         let mut active = model.into_active_model();
         active.delete_time = Set(Some(Utc::now().into()));

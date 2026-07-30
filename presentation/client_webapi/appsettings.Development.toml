@@ -13,6 +13,7 @@ sqlx_logging = false
 
 [database]
 connection = "postgres://postgres:123456@127.0.0.1:5432/webcore"
+read_connection = ""
 
 [cors]
 allowed_origin_list = [

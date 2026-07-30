@@ -28,6 +28,7 @@ use axum::Router;
 use identifier_generator::IdentifierGenerator;
 use identifier_generator::refresh::RefreshSignTask;
 use logger::LoggerRuntime;
+use repository::read_database::ReadDatabaseConnection;
 use sea_orm::Database;
 use utoipa::OpenApi;
 
@@ -130,6 +131,24 @@ impl WebApiHostBuilder {
             .map_err(|error| format!("数据库连接初始化失败: {error}"))?,
         );
 
+        let read_connection = if self.settings.database.read_connection.trim().is_empty() {
+            self.settings.database.connection.clone()
+        } else {
+            self.settings.database.read_connection.clone()
+        };
+        let mut read_connect_options = WebApiStartup::build_postgres_connect_options(
+            read_connection,
+            &self.settings.host.database_pool,
+        );
+        read_connect_options.map_sqlx_postgres_opts(|options| {
+            options.options([("default_transaction_read_only", "on")])
+        });
+        let read_db_pool = Arc::new(ReadDatabaseConnection::new(
+            Database::connect(read_connect_options)
+                .await
+                .map_err(|error| format!("只读数据库连接初始化失败: {error}"))?,
+        ));
+
         let logger_runtime = (self.build_logger_runtime)(
             &self.settings,
             &WebApiLoggerBuilderContext {
@@ -198,6 +217,7 @@ impl WebApiHostBuilder {
 
         let app_state = Arc::new(AppState {
             db_pool,
+            read_db_pool,
             id_generator,
             role_code_lock,
             file_storage: self.file_storage,

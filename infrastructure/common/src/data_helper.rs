@@ -119,6 +119,10 @@ pub fn excel_to_data_table(
 
     let mut table = Vec::new();
     for row in data_rows.drain(..) {
+        if !row.iter().any(excel_cell_has_value) {
+            continue;
+        }
+
         let mut item = HashMap::new();
         for (index, header) in headers.iter().enumerate() {
             let value = row.get(index).map(cell_to_json).unwrap_or(Value::Null);
@@ -347,6 +351,15 @@ fn cell_to_json(cell: &Data) -> Value {
         Data::DateTime(value) => Value::String(value.to_string()),
         Data::DateTimeIso(value) => Value::String(value.clone()),
         Data::DurationIso(value) => Value::String(value.clone()),
-        Data::Error(error) => Value::String(error.to_string()),
+        Data::Error(_) => Value::String(String::new()),
+    }
+}
+
+/// 判断 Excel 单元格是否包含有效数据
+fn excel_cell_has_value(cell: &Data) -> bool {
+    match cell {
+        Data::Empty => false,
+        Data::String(value) => !value.trim().is_empty(),
+        _ => true,
     }
 }

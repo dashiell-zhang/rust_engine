@@ -1,6 +1,9 @@
 /// LLM 操作错误类型
 pub mod error;
 
+/// LLM 单次请求整体超时时间
+pub(crate) const LLM_REQUEST_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(120);
+
 /// LLM 数据模型（消息、请求、响应、流式分片等）
 pub mod models;
 

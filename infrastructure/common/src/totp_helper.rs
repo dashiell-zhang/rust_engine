@@ -25,10 +25,14 @@ pub const DEFAULT_DIGITS: u32 = 6;
 pub const DEFAULT_PERIOD: u64 = 30;
 
 /// 生成随机 Base32 编码密钥
-pub fn generate_base32_secret(secret_bytes: usize) -> String {
-    let mut bytes = vec![0u8; secret_bytes.max(DEFAULT_SECRET_BYTES)];
+pub fn generate_base32_secret(secret_bytes: usize) -> Result<String, String> {
+    if secret_bytes < DEFAULT_SECRET_BYTES {
+        return Err(format!("密钥长度不能小于 {DEFAULT_SECRET_BYTES} 字节"));
+    }
+
+    let mut bytes = vec![0u8; secret_bytes];
     rand::fill(bytes.as_mut_slice());
-    base32_encode(&bytes)
+    Ok(base32_encode(&bytes))
 }
 
 /// 构造 otpauth URL
@@ -47,14 +51,14 @@ pub fn build_otpauth_url(
 
     let enc_issuer = urlencoding::encode(issuer);
     let enc_account = urlencoding::encode(account_name);
-    let enc_secret = urlencoding::encode(base32_secret);
+    let secret = decode_secret(base32_secret)?;
+    let normalized_secret = base32_encode(&secret);
+    let enc_secret = urlencoding::encode(&normalized_secret);
     let algo_name = match algo {
         Algo::Sha1 => "SHA1",
         Algo::Sha256 => "SHA256",
         Algo::Sha512 => "SHA512",
     };
-    let _ = decode_secret(base32_secret)?;
-
     Ok(format!(
         "otpauth://totp/{enc_issuer}:{enc_account}?secret={enc_secret}&issuer={enc_issuer}&digits={digits}&period={period}&algorithm={algo_name}"
     ))
@@ -158,8 +162,8 @@ fn compute_hotp(key: &[u8], counter: u64, digits: u32, algo: Algo) -> Result<Str
 
 /// 校验位数范围
 fn validate_digits(digits: u32) -> Result<(), String> {
-    if !(6..=8).contains(&digits) {
-        return Err("验证码位数必须在 6 到 8 之间".to_string());
+    if !(6..=9).contains(&digits) {
+        return Err("验证码位数必须在 6 到 9 之间".to_string());
     }
 
     Ok(())

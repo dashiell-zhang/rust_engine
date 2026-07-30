@@ -3,6 +3,7 @@ use application_interface::email::AppEmailSender;
 use application_interface::sms::AppSmsSender;
 use application_interface::storage::AppFileStorage;
 use common::identifier_generator::IdentifierGenerator;
+use repository::read_database::ReadDatabaseConnection;
 use sea_orm::DatabaseConnection;
 use std::sync::Arc;
 
@@ -11,6 +12,9 @@ use std::sync::Arc;
 pub struct TaskServiceFeatureContext {
     /// 数据库连接
     pub db_pool: Arc<DatabaseConnection>,
+
+    /// 数据库只读连接池
+    pub read_db_pool: Arc<ReadDatabaseConnection>,
 
     /// ID 生成器
     pub identifier_generator: IdentifierGenerator,

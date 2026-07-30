@@ -1,5 +1,6 @@
 use common::img_helper;
-use common::io_helper;
+use common::io_helper::{self, TemporaryFileGuard};
+use common::string_helper::is_public_ip_address;
 use repository::extensions::SoftDeleteQueryExt;
 use std::collections::HashSet;
 use std::net::{IpAddr, SocketAddr};
@@ -657,8 +658,9 @@ impl<'a> FileService<'a> {
                 .unwrap_or_default()
         );
         let temp_file_path = temp_dir_path.join(temp_file_name);
+        let temp_file_guard = TemporaryFileGuard::new(temp_file_path);
 
-        let mut temp_file = fs::File::create(&temp_file_path)
+        let mut temp_file = fs::File::create(temp_file_guard.path())
             .await
             .map_err(|error| AppError::internal(format!("创建临时文件失败: {error}")))?;
         let mut total_size = 0_usize;
@@ -670,7 +672,6 @@ impl<'a> FileService<'a> {
         {
             total_size += chunk.len();
             if total_size > REMOTE_UPLOAD_MAX_BYTES {
-                let _ = fs::remove_file(&temp_file_path).await;
                 return Err(AppError::bad_request(format!(
                     "远程文件大小超过限制，最大允许 {} 字节",
                     REMOTE_UPLOAD_MAX_BYTES
@@ -684,7 +685,6 @@ impl<'a> FileService<'a> {
         }
 
         if total_size == 0 {
-            let _ = fs::remove_file(&temp_file_path).await;
             return Err(AppError::bad_request("远程文件内容为空"));
         }
 
@@ -692,24 +692,20 @@ impl<'a> FileService<'a> {
             .flush()
             .await
             .map_err(|error| AppError::internal(format!("刷新临时文件失败: {error}")))?;
+        drop(temp_file);
 
-        let result = self
-            .upload_file(
-                UploadFileDto {
-                    business: dto.business,
-                    key: dto.key,
-                    sign: dto.sign,
-                    is_public_read: dto.is_public_read,
-                    file_name: dto.file_name,
-                    temp_file_path: temp_file_path.to_string_lossy().to_string(),
-                },
-                current_user,
-            )
-            .await;
-
-        let _ = fs::remove_file(&temp_file_path).await;
-
-        result
+        self.upload_file(
+            UploadFileDto {
+                business: dto.business,
+                key: dto.key,
+                sign: dto.sign,
+                is_public_read: dto.is_public_read,
+                file_name: dto.file_name,
+                temp_file_path: temp_file_guard.path().to_string_lossy().to_string(),
+            },
+            current_user,
+        )
+        .await
     }
 
     /// 删除文件
@@ -883,9 +879,9 @@ async fn validate_remote_upload_target(url: &Url) -> Result<RemoteUploadTarget, 
     }
 
     if let Ok(ip) = host.parse::<IpAddr>() {
-        if is_private_ip(ip) {
+        if !is_public_ip_address(ip) {
             return Err(AppError::bad_request(
-                "远程文件地址不允许指向本地或内网地址",
+                "远程文件地址必须指向可访问的公网地址",
             ));
         }
 
@@ -913,9 +909,9 @@ async fn validate_remote_upload_target(url: &Url) -> Result<RemoteUploadTarget, 
     }
 
     for address in &resolved {
-        if is_private_ip(address.ip()) {
+        if !is_public_ip_address(address.ip()) {
             return Err(AppError::bad_request(
-                "远程文件地址不允许指向本地或内网地址",
+                "远程文件地址必须指向可访问的公网地址",
             ));
         }
     }
@@ -939,25 +935,4 @@ fn build_remote_upload_client(
             None => builder,
         }
     })
-}
-
-/// 判断 IP 是否属于本地或内网范围
-fn is_private_ip(ip: IpAddr) -> bool {
-    match ip {
-        IpAddr::V4(ipv4) => {
-            ipv4.is_private()
-                || ipv4.is_loopback()
-                || ipv4.is_link_local()
-                || ipv4.is_broadcast()
-                || ipv4.is_documentation()
-                || ipv4.is_unspecified()
-        }
-        IpAddr::V6(ipv6) => {
-            ipv6.is_loopback()
-                || ipv6.is_multicast()
-                || ipv6.is_unspecified()
-                || ipv6.is_unique_local()
-                || ipv6.is_unicast_link_local()
-        }
-    }
 }

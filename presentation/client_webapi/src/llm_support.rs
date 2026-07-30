@@ -23,6 +23,8 @@ impl<'a> ClientLlmApplicationAdapter<'a> {
     fn llm_context(&self) -> LlmContext<'_> {
         LlmContext {
             app: self.app_context(),
+            distributed_lock: self.state.role_code_lock.as_ref(),
+            http_client_factory: &self.state.http_client_factory,
         }
     }
 

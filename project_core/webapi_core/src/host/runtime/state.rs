@@ -18,7 +18,10 @@ use common::app_error::AppError as ApplicationError;
 use distributed_cache::{CacheEntryOptions, DistributedCache, DistributedCacheExt};
 use distributed_lock::DistributedLock;
 use identifier_generator::IdentifierGenerator;
-use repository::{database_health, extensions::SoftDeleteQueryExt, user_token};
+use repository::{
+    database_health, extensions::SoftDeleteQueryExt, read_database::ReadDatabaseConnection,
+    user_token,
+};
 use sea_orm::DatabaseConnection;
 use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
 use std::sync::Arc;
@@ -28,6 +31,9 @@ use std::time::Duration;
 pub struct AppState {
     /// 数据库连接池
     pub db_pool: Arc<DatabaseConnection>,
+
+    /// 数据库只读连接池
+    pub read_db_pool: Arc<ReadDatabaseConnection>,
 
     /// ID 生成器适配器
     pub id_generator: IdentifierGenerator,
@@ -61,6 +67,11 @@ impl AppState {
     /// 获取主库连接
     pub fn primary_db(&self) -> &DatabaseConnection {
         self.db_pool.as_ref()
+    }
+
+    /// 获取只读数据库连接
+    pub fn read_db(&self) -> &ReadDatabaseConnection {
+        self.read_db_pool.as_ref()
     }
 }
 

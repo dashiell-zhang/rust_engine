@@ -1,12 +1,10 @@
-use std::time::Duration;
-
 use async_trait::async_trait;
 use futures_util::{StreamExt, stream::BoxStream};
 use serde::Deserialize;
 use serde_json::{Map, Value, json};
 
 use crate::{
-    LlmClient, LlmError, LlmModelConfig,
+    LLM_REQUEST_TIMEOUT, LlmClient, LlmError, LlmModelConfig,
     models::{
         ChatChoice, ChatMessage, ChatRequest, ChatResponse, ChatRole, ChatStreamChoiceDelta,
         ChatStreamChunk, ChatStreamDelta, Usage,
@@ -27,16 +25,11 @@ pub struct AnthropicMessagesClient {
 
 impl AnthropicMessagesClient {
     /// 创建 Anthropic Messages API 客户端
-    pub fn new(config: LlmModelConfig) -> Result<Self, LlmError> {
-        let http_client = reqwest::Client::builder()
-            .timeout(Duration::from_secs(120))
-            .build()
-            .map_err(|e| LlmError::Http(e.to_string()))?;
-
-        Ok(Self {
+    pub fn new(http_client: reqwest::Client, config: LlmModelConfig) -> Self {
+        Self {
             http_client,
             config,
-        })
+        }
     }
 
     /// 校验配置与请求
@@ -77,6 +70,7 @@ impl LlmClient for AnthropicMessagesClient {
         let response = self
             .http_client
             .post(self.config.endpoint.trim())
+            .timeout(LLM_REQUEST_TIMEOUT)
             .header("x-api-key", &self.config.api_key)
             .header("anthropic-version", ANTHROPIC_VERSION)
             .json(&body)
@@ -105,6 +99,7 @@ impl LlmClient for AnthropicMessagesClient {
             let response = self
                 .http_client
                 .post(self.config.endpoint.trim())
+                .timeout(LLM_REQUEST_TIMEOUT)
                 .header("x-api-key", &self.config.api_key)
                 .header("anthropic-version", ANTHROPIC_VERSION)
                 .json(&body)
@@ -123,6 +118,7 @@ impl LlmClient for AnthropicMessagesClient {
             let mut message_id: Option<String> = None;
             let mut model = request.model.clone();
             let mut input_tokens: Option<i32> = None;
+            let mut completion_emitted = false;
 
             while let Some(chunk) = stream.next().await {
                 let chunk = chunk.map_err(|e| LlmError::Http(e.to_string()))?;
@@ -172,6 +168,8 @@ impl LlmClient for AnthropicMessagesClient {
                         }
                         "message_delta" => {
                             let output_tokens = wire.usage.and_then(|usage| usage.output_tokens);
+                            let finish_reason = wire.delta.and_then(|delta| delta.stop_reason);
+                            completion_emitted |= finish_reason.is_some();
                             let usage = if input_tokens.is_none() && output_tokens.is_none() {
                                 None
                             } else {
@@ -190,12 +188,27 @@ impl LlmClient for AnthropicMessagesClient {
                                         role: None,
                                         content: None,
                                     },
-                                    finish_reason: wire.delta.and_then(|delta| delta.stop_reason),
+                                    finish_reason,
                                 }],
                                 usage,
                             };
                         }
                         "message_stop" => {
+                            if !completion_emitted {
+                                yield ChatStreamChunk {
+                                    id: message_id.clone(),
+                                    model: model.clone(),
+                                    choices: vec![ChatStreamChoiceDelta {
+                                        index: 0,
+                                        delta: ChatStreamDelta {
+                                            role: None,
+                                            content: None,
+                                        },
+                                        finish_reason: Some("message_stop".to_string()),
+                                    }],
+                                    usage: None,
+                                };
+                            }
                             return;
                         }
                         "error" => {
