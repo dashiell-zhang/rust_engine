@@ -30,7 +30,13 @@ use syn::{
 /// }
 /// ```
 #[proc_macro_attribute]
-pub fn logging(_attr: TokenStream, item: TokenStream) -> TokenStream {
+pub fn logging(attr: TokenStream, item: TokenStream) -> TokenStream {
+    if !attr.is_empty() {
+        return syn::Error::new(proc_macro2::Span::call_site(), "#[logging] 不接受属性参数")
+            .to_compile_error()
+            .into();
+    }
+
     let input = parse_macro_input!(item as ItemFn);
 
     expand_logging(input).unwrap_or_else(|e| e.to_compile_error().into())
@@ -45,12 +51,12 @@ fn expand_logging(input: ItemFn) -> syn::Result<TokenStream> {
         return Err(syn::Error::new_spanned(sig, "#[logging] 只能用于 async fn"));
     }
 
+    extract_result_types(sig)?;
+
     let attrs = &input.attrs;
     let vis = &input.vis;
     let body = &input.block;
-
-    // 用于在日志 method 字段中标识方法名
-    let fn_name_str = sig.ident.to_string();
+    let method_key = build_method_key(sig);
 
     let expanded: TokenStream2 = quote! {
 
@@ -60,10 +66,10 @@ fn expand_logging(input: ItemFn) -> syn::Result<TokenStream> {
             // 生成本次调用的唯一追踪 ID，用于关联 executing/executed/exception 三条日志
             let __log_trace_id = ::source_generator_runtime::new_trace_id();
 
-            // 拼接模块路径与方法名，形成结构化日志中的 method 字段
-            let __log_method = ::std::concat!(::std::module_path!(), "::", #fn_name_str);
+            // 组合模块、实现类型和完整签名，形成结构化日志中的 method 字段
+            let __log_method = #method_key;
 
-            ::source_generator_runtime::log_executing(__log_method, &__log_trace_id);
+            ::source_generator_runtime::log_executing(&__log_method, &__log_trace_id);
 
             // 记录方法开始时间，用于计算 duration_ms
             let __log_start = ::std::time::Instant::now();
@@ -76,11 +82,11 @@ fn expand_logging(input: ItemFn) -> syn::Result<TokenStream> {
             // 根据执行结果分别记录成功或异常日志
             match &__log_result {
                 ::core::result::Result::Ok(_) => {
-                    ::source_generator_runtime::log_executed(__log_method, &__log_trace_id, __log_duration_ms);
+                    ::source_generator_runtime::log_executed(&__log_method, &__log_trace_id, __log_duration_ms);
                 }
                 ::core::result::Result::Err(__log_err) => {
                     ::source_generator_runtime::log_exception(
-                        __log_method,
+                        &__log_method,
                         &__log_trace_id,
                         __log_duration_ms,
                         &::std::format!("{:?}", __log_err),
@@ -103,8 +109,7 @@ fn expand_logging(input: ItemFn) -> syn::Result<TokenStream> {
 ///
 /// - `max_retries`：最大重试次数，默认 3
 /// - `delay_seconds`：每次重试前等待秒数，默认 0
-/// - `max_attempts`：`max_retries` 的兼容别名
-/// - `delay_ms`：Rust 侧扩展的毫秒级等待配置，优先级高于 `delay_seconds`
+/// - `delay_ms`：Rust 侧扩展的毫秒级等待配置，不能与 `delay_seconds` 同时使用
 ///
 /// 仅支持返回 Result<T, E> 的 async fn
 ///
@@ -140,8 +145,12 @@ pub fn retry(attr: TokenStream, item: TokenStream) -> TokenStream {
 ///
 /// - cache：缓存实例表达式，支持 Arc<HybridCache> 或 &HybridCache
 /// - ttl_seconds：L2 缓存有效期秒数，默认 60
+/// - lock：可选的分布式锁实例表达式，用于缓存回源防击穿
+/// - lock_expiry_seconds：防击穿锁有效期秒数，默认 60
+/// - key_scope：无 self 接收者时必填，用于区分自由函数或静态关联函数
 ///
-/// 仅支持返回 Result<T, E> 的 async fn
+/// 仅支持返回 Result<T, E> 的 async fn，T 需实现 Serialize 与 DeserializeOwned
+/// 不支持 Result<(), E>、&mut self 或包含可变引用的参数
 #[proc_macro_attribute]
 pub fn cacheable(attr: TokenStream, item: TokenStream) -> TokenStream {
     let args = parse_macro_input!(attr as CacheableArgs);
@@ -159,8 +168,9 @@ pub fn cacheable(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// - is_block：获取不到锁时是否立即返回错误
 /// - semaphore：允许的最大并发数，默认 1
 /// - expiry_seconds：锁过期秒数，默认 0 表示使用锁实现默认值
+/// - key_scope：无 self 接收者时必填，用于区分自由函数或静态关联函数
 ///
-/// 仅支持返回 Result<T, E> 的 async fn
+/// 仅支持返回 Result<T, E> 的 async fn，E 需实现 From<String> 与 From<LockError>
 #[proc_macro_attribute]
 pub fn concurrency_limit(attr: TokenStream, item: TokenStream) -> TokenStream {
     let args = parse_macro_input!(attr as ConcurrencyLimitArgs);
@@ -435,25 +445,31 @@ impl Parse for TaskRegistryRegistrationEntry {
         let content;
         braced!(content in input);
 
-        match kind.to_string().as_str() {
-            "queue" => Ok(Self::Queue {
+        let entry = match kind.to_string().as_str() {
+            "queue" => Self::Queue {
                 definition: parse_named_expr(&content, "definition")?,
                 handler: parse_named_expr(&content, "handler")?,
-            }),
-            "schedule" => Ok(Self::Schedule {
+            },
+            "schedule" => Self::Schedule {
                 definition: parse_named_expr(&content, "definition")?,
                 handler: parse_named_expr(&content, "handler")?,
-            }),
-            "queue_alias" => Ok(Self::QueueAlias {
+            },
+            "queue_alias" => Self::QueueAlias {
                 alias: parse_named_expr(&content, "alias")?,
                 target: parse_named_expr(&content, "target")?,
-            }),
-            "schedule_alias" => Ok(Self::ScheduleAlias {
+            },
+            "schedule_alias" => Self::ScheduleAlias {
                 alias: parse_named_expr(&content, "alias")?,
                 target: parse_named_expr(&content, "target")?,
-            }),
-            _ => Err(syn::Error::new(kind.span(), "不支持的任务注册类型")),
+            },
+            _ => return Err(syn::Error::new(kind.span(), "不支持的任务注册类型")),
+        };
+
+        if !content.is_empty() {
+            return Err(content.error("任务注册项包含未识别的额外字段"));
         }
+
+        Ok(entry)
     }
 }
 
@@ -594,7 +610,7 @@ struct RetryArgs {
 }
 
 impl Default for RetryArgs {
-    /// 返回默认重试配置：3 次尝试，不等待
+    /// 返回默认重试配置：最多重试 3 次，不等待
     fn default() -> Self {
         Self {
             max_retries: syn::parse_quote!(3u32),
@@ -607,6 +623,9 @@ impl Parse for RetryArgs {
     /// 从属性参数列表解析 max_retries 与 delay_seconds
     fn parse(input: ParseStream) -> syn::Result<Self> {
         let mut args = RetryArgs::default();
+        let mut has_max_retries = false;
+        let mut has_delay_ms = false;
+        let mut has_delay_seconds = false;
 
         // 无参数时直接使用默认值
         if input.is_empty() {
@@ -624,24 +643,43 @@ impl Parse for RetryArgs {
                 .to_string();
 
             match name.as_str() {
-                "max_retries" | "max_attempts" => {
+                "max_retries" => {
+                    if has_max_retries {
+                        return Err(syn::Error::new_spanned(
+                            &meta.path,
+                            "参数 max_retries 不能重复配置",
+                        ));
+                    }
+                    has_max_retries = true;
                     args.max_retries = meta.value.clone();
                 }
                 "delay_ms" => {
+                    if has_delay_ms || has_delay_seconds {
+                        return Err(syn::Error::new_spanned(
+                            &meta.path,
+                            "delay_ms 与 delay_seconds 只能配置一个且不能重复",
+                        ));
+                    }
+                    has_delay_ms = true;
                     args.delay_ms = meta.value.clone();
                 }
                 "delay_seconds" => {
+                    if has_delay_ms || has_delay_seconds {
+                        return Err(syn::Error::new_spanned(
+                            &meta.path,
+                            "delay_ms 与 delay_seconds 只能配置一个且不能重复",
+                        ));
+                    }
+                    has_delay_seconds = true;
                     let delay_seconds = meta.value.clone();
                     args.delay_ms = syn::parse_quote! {
-                        ::source_generator_runtime::retry_delay_ms_from_seconds((#delay_seconds) as u64)
+                        ::source_generator_runtime::retry_delay_ms_from_seconds(#delay_seconds)
                     };
                 }
                 other => {
                     return Err(syn::Error::new_spanned(
                         &meta.path,
-                        format!(
-                            "未知参数 `{other}`，支持 max_retries / delay_seconds / max_attempts / delay_ms"
-                        ),
+                        format!("未知参数 `{other}`，支持 max_retries / delay_seconds / delay_ms"),
                     ));
                 }
             }
@@ -660,9 +698,12 @@ fn expand_retry(args: RetryArgs, input: ItemFn) -> syn::Result<TokenStream> {
         return Err(syn::Error::new_spanned(sig, "#[retry] 只能用于 async fn"));
     }
 
+    extract_result_types(sig)?;
+
     let attrs = &input.attrs;
     let vis = &input.vis;
     let body = &input.block;
+    let method_key = build_method_key(sig);
 
     // 将宏参数转为编译期字面量，嵌入生成代码
     let max_retries = args.max_retries;
@@ -673,15 +714,17 @@ fn expand_retry(args: RetryArgs, input: ItemFn) -> syn::Result<TokenStream> {
         #(#attrs)*
         #vis #sig {
 
-            let __retry_max: u32 = ::source_generator_runtime::normalize_retry_max_retries((#max_retries) as u32);
-            let __retry_delay_ms: u64 = (#delay_ms) as u64;
+            let __retry_max: u32 = #max_retries;
+            let __retry_delay_ms: u64 = #delay_ms;
 
             if __retry_max == 0 {
                 return (async #body).await;
             }
 
-            // 记录已消耗的尝试次数，首次执行前为 0
-            let mut __retry_attempt: u32 = 0;
+            // 记录已经执行的重试次数，首次执行前为 0
+            let mut __retry_count: u64 = 0;
+            let __retry_max = u64::from(__retry_max);
+            let mut __retry_method = ::core::option::Option::None;
 
             loop {
 
@@ -695,12 +738,17 @@ fn expand_retry(args: RetryArgs, input: ItemFn) -> syn::Result<TokenStream> {
                         return ::core::result::Result::Ok(__val);
                     }
                     ::core::result::Result::Err(__err) => {
-                        __retry_attempt += 1;
-                        // 已耗尽所有重试次数，返回最后一次的错误
-                        // __retry_max 表示最大重试次数，原始执行不计入，因此条件为 >
-                        if __retry_attempt > __retry_max {
+                        let __retry_method = __retry_method.get_or_insert_with(|| #method_key);
+                        if __retry_count >= __retry_max {
+                            ::source_generator_runtime::log_retry_exhausted(__retry_method, __retry_count);
                             return ::core::result::Result::Err(__err);
                         }
+                        __retry_count += 1;
+                        ::source_generator_runtime::log_retry_scheduled(
+                            __retry_method,
+                            __retry_count,
+                            __retry_delay_ms,
+                        );
                         // 等待指定间隔后进行下一次重试，delay_ms 为 0 时直接跳过
                         ::source_generator_runtime::retry_sleep(__retry_delay_ms).await;
                     }
@@ -722,6 +770,15 @@ struct CacheableArgs {
 
     /// L2 缓存有效期秒数
     ttl_seconds: Expr,
+
+    /// 可选的分布式锁实例表达式
+    lock: Option<Expr>,
+
+    /// 防击穿锁有效期秒数
+    lock_expiry_seconds: Expr,
+
+    /// 无接收者函数的显式键作用域
+    key_scope: Option<syn::LitStr>,
 }
 
 impl Parse for CacheableArgs {
@@ -731,6 +788,14 @@ impl Parse for CacheableArgs {
 
         let mut cache: Option<Expr> = None;
         let mut ttl_seconds: Expr = syn::parse_quote!(60u64);
+        let mut lock: Option<Expr> = None;
+        let mut lock_expiry_seconds: Expr = syn::parse_quote!(60u64);
+        let mut key_scope: Option<syn::LitStr> = None;
+        let mut has_cache = false;
+        let mut has_ttl_seconds = false;
+        let mut has_lock = false;
+        let mut has_lock_expiry_seconds = false;
+        let mut has_key_scope = false;
 
         for meta in &metas {
             let name = meta
@@ -741,15 +806,61 @@ impl Parse for CacheableArgs {
 
             match name.as_str() {
                 "cache" => {
+                    if has_cache {
+                        return Err(syn::Error::new_spanned(
+                            &meta.path,
+                            "参数 cache 不能重复配置",
+                        ));
+                    }
+                    has_cache = true;
                     cache = Some(meta.value.clone());
                 }
                 "ttl_seconds" => {
+                    if has_ttl_seconds {
+                        return Err(syn::Error::new_spanned(
+                            &meta.path,
+                            "参数 ttl_seconds 不能重复配置",
+                        ));
+                    }
+                    has_ttl_seconds = true;
                     ttl_seconds = meta.value.clone();
+                }
+                "lock" => {
+                    if has_lock {
+                        return Err(syn::Error::new_spanned(
+                            &meta.path,
+                            "参数 lock 不能重复配置",
+                        ));
+                    }
+                    has_lock = true;
+                    lock = Some(meta.value.clone());
+                }
+                "lock_expiry_seconds" => {
+                    if has_lock_expiry_seconds {
+                        return Err(syn::Error::new_spanned(
+                            &meta.path,
+                            "参数 lock_expiry_seconds 不能重复配置",
+                        ));
+                    }
+                    has_lock_expiry_seconds = true;
+                    lock_expiry_seconds = meta.value.clone();
+                }
+                "key_scope" => {
+                    if has_key_scope {
+                        return Err(syn::Error::new_spanned(
+                            &meta.path,
+                            "参数 key_scope 不能重复配置",
+                        ));
+                    }
+                    has_key_scope = true;
+                    key_scope = Some(parse_key_scope_literal(&meta.value)?);
                 }
                 other => {
                     return Err(syn::Error::new_spanned(
                         &meta.path,
-                        format!("未知参数 `{other}`，支持 cache / ttl_seconds"),
+                        format!(
+                            "未知参数 `{other}`，支持 cache / ttl_seconds / lock / lock_expiry_seconds / key_scope"
+                        ),
                     ));
                 }
             }
@@ -757,7 +868,20 @@ impl Parse for CacheableArgs {
 
         let cache = cache.ok_or_else(|| syn::Error::new(input.span(), "缺少必填参数 cache"))?;
 
-        Ok(Self { cache, ttl_seconds })
+        if has_lock_expiry_seconds && !has_lock {
+            return Err(syn::Error::new(
+                input.span(),
+                "配置 lock_expiry_seconds 时必须同时配置 lock",
+            ));
+        }
+
+        Ok(Self {
+            cache,
+            ttl_seconds,
+            lock,
+            lock_expiry_seconds,
+            key_scope,
+        })
     }
 }
 
@@ -777,6 +901,9 @@ struct ConcurrencyLimitArgs {
 
     /// 锁过期秒数
     expiry_seconds: Expr,
+
+    /// 无接收者函数的显式键作用域
+    key_scope: Option<syn::LitStr>,
 }
 
 impl Default for ConcurrencyLimitArgs {
@@ -788,6 +915,7 @@ impl Default for ConcurrencyLimitArgs {
             is_block: syn::parse_quote!(false),
             semaphore: syn::parse_quote!(1u32),
             expiry_seconds: syn::parse_quote!(0u64),
+            key_scope: None,
         }
     }
 }
@@ -798,6 +926,11 @@ impl Parse for ConcurrencyLimitArgs {
         let metas = Punctuated::<MetaNameValue, Token![,]>::parse_terminated(input)?;
         let mut args = ConcurrencyLimitArgs::default();
         let mut has_lock = false;
+        let mut has_is_use_parameter = false;
+        let mut has_is_block = false;
+        let mut has_semaphore = false;
+        let mut has_expiry_seconds = false;
+        let mut has_key_scope = false;
 
         for meta in &metas {
             let name = meta
@@ -808,26 +941,70 @@ impl Parse for ConcurrencyLimitArgs {
 
             match name.as_str() {
                 "lock" => {
+                    if has_lock {
+                        return Err(syn::Error::new_spanned(
+                            &meta.path,
+                            "参数 lock 不能重复配置",
+                        ));
+                    }
                     args.lock = meta.value.clone();
                     has_lock = true;
                 }
                 "is_use_parameter" => {
+                    if has_is_use_parameter {
+                        return Err(syn::Error::new_spanned(
+                            &meta.path,
+                            "参数 is_use_parameter 不能重复配置",
+                        ));
+                    }
+                    has_is_use_parameter = true;
                     args.is_use_parameter = meta.value.clone();
                 }
                 "is_block" => {
+                    if has_is_block {
+                        return Err(syn::Error::new_spanned(
+                            &meta.path,
+                            "参数 is_block 不能重复配置",
+                        ));
+                    }
+                    has_is_block = true;
                     args.is_block = meta.value.clone();
                 }
                 "semaphore" => {
+                    if has_semaphore {
+                        return Err(syn::Error::new_spanned(
+                            &meta.path,
+                            "参数 semaphore 不能重复配置",
+                        ));
+                    }
+                    has_semaphore = true;
                     args.semaphore = meta.value.clone();
                 }
                 "expiry_seconds" => {
+                    if has_expiry_seconds {
+                        return Err(syn::Error::new_spanned(
+                            &meta.path,
+                            "参数 expiry_seconds 不能重复配置",
+                        ));
+                    }
+                    has_expiry_seconds = true;
                     args.expiry_seconds = meta.value.clone();
+                }
+                "key_scope" => {
+                    if has_key_scope {
+                        return Err(syn::Error::new_spanned(
+                            &meta.path,
+                            "参数 key_scope 不能重复配置",
+                        ));
+                    }
+                    has_key_scope = true;
+                    args.key_scope = Some(parse_key_scope_literal(&meta.value)?);
                 }
                 other => {
                     return Err(syn::Error::new_spanned(
                         &meta.path,
                         format!(
-                            "未知参数 `{other}`，支持 lock / is_use_parameter / is_block / semaphore / expiry_seconds"
+                            "未知参数 `{other}`，支持 lock / is_use_parameter / is_block / semaphore / expiry_seconds / key_scope"
                         ),
                     ));
                 }
@@ -853,36 +1030,157 @@ fn expand_cacheable(args: CacheableArgs, input: ItemFn) -> syn::Result<TokenStre
         ));
     }
 
-    let (_, error_ty) = extract_result_types(sig)?;
+    let (ok_ty, _) = extract_result_types(sig)?;
+
+    if matches!(ok_ty, Type::Tuple(tuple) if tuple.elems.is_empty()) {
+        return Err(syn::Error::new_spanned(
+            ok_ty,
+            "#[cacheable] 不能用于返回 Result<(), E> 的命令方法",
+        ));
+    }
+
+    if let Some(input) = sig.inputs.iter().find(|input| match input {
+        syn::FnArg::Receiver(receiver) => {
+            receiver.reference.is_some() && receiver.mutability.is_some()
+        }
+        syn::FnArg::Typed(typed) => contains_mutable_reference(&typed.ty),
+    }) {
+        return Err(syn::Error::new_spanned(
+            input,
+            "#[cacheable] 不支持 &mut self 或包含可变引用的参数",
+        ));
+    }
+
+    if !has_receiver(sig) && args.key_scope.is_none() {
+        return Err(syn::Error::new_spanned(
+            sig,
+            "无 self 接收者的 #[cacheable] 函数必须配置唯一的 key_scope",
+        ));
+    }
+
     let arg_tuple = build_argument_tuple(sig)?;
+    let method_key = build_scoped_method_key(sig, args.key_scope.as_ref());
 
     let attrs = &input.attrs;
     let vis = &input.vis;
     let body = &input.block;
-    let fn_name_str = sig.ident.to_string();
     let cache_expr = args.cache;
     let ttl_seconds = args.ttl_seconds;
+    let lock_expiry_seconds = args.lock_expiry_seconds;
+    let lock_behavior = if let Some(lock_expr) = args.lock {
+        quote! {
+            let __cache_lock_service =
+                ::source_generator_runtime::distributed_lock_ref(&(#lock_expr));
+            let __cache_lock_expiry_seconds: u64 = #lock_expiry_seconds;
+            let __cache_lock_guard = match __cache_lock_service
+                .lock(
+                    &::source_generator_runtime::cacheable_lock_key(
+                        &__cache_method_key,
+                        &__cache_arguments_key,
+                    ),
+                    ::std::time::Duration::from_secs(__cache_lock_expiry_seconds),
+                    1,
+                )
+                .await
+            {
+                ::core::result::Result::Ok(guard) => ::core::option::Option::Some(guard),
+                ::core::result::Result::Err(error) => {
+                    ::source_generator_runtime::log_cache_degraded(
+                        &__cache_method_key,
+                        "stampede_lock",
+                        &error,
+                    );
+                    ::core::option::Option::None
+                }
+            };
+
+            if __cache_lock_guard.is_some() {
+                match __cache.get_json::<#ok_ty>(&__cache_key).await {
+                    ::core::result::Result::Ok(::core::option::Option::Some(value)) => {
+                        return ::core::result::Result::Ok(value);
+                    }
+                    ::core::result::Result::Ok(::core::option::Option::None) => {}
+                    ::core::result::Result::Err(error) => {
+                        ::source_generator_runtime::log_cache_degraded(
+                            &__cache_method_key,
+                            "read_after_lock",
+                            &error,
+                        );
+                    }
+                }
+            }
+        }
+    } else {
+        quote! {}
+    };
 
     let expanded: TokenStream2 = quote! {
         #(#attrs)*
         #vis #sig {
 
+            let __cache_method_key = #method_key;
+            let __cache_arguments_key = match ::source_generator_runtime::arguments_key(&#arg_tuple) {
+                ::core::result::Result::Ok(key) => key,
+                ::core::result::Result::Err(error) => {
+                    ::source_generator_runtime::log_cache_degraded(
+                        &__cache_method_key,
+                        "arguments_key",
+                        &error,
+                    );
+                    return (async #body).await;
+                }
+            };
             let __cache_key = ::source_generator_runtime::cacheable_key(
-                ::std::module_path!(),
-                #fn_name_str,
-                &#arg_tuple,
+                &__cache_method_key,
+                &__cache_arguments_key,
             );
             let __cache = ::source_generator_runtime::hybrid_cache_ref(&(#cache_expr));
-            let __cache_result = __cache
-                .get_or_create_json(&__cache_key, #ttl_seconds, || async {
-                    let __cache_inner_result = (async #body).await;
-                    __cache_inner_result.map_err(::source_generator_runtime::hybrid_cache_factory_error)
-                })
-                .await;
+            let __cache_ttl_seconds: u64 = #ttl_seconds;
 
-            __cache_result.map_err(|error| {
-                <#error_ty as ::core::convert::From<::std::string::String>>::from(error.to_string())
-            })
+            if __cache_ttl_seconds == 0 {
+                ::source_generator_runtime::log_cache_degraded(
+                    &__cache_method_key,
+                    "configuration",
+                    &"ttl_seconds 必须大于 0",
+                );
+                return (async #body).await;
+            }
+
+            match __cache.get_json::<#ok_ty>(&__cache_key).await {
+                ::core::result::Result::Ok(::core::option::Option::Some(value)) => {
+                    return ::core::result::Result::Ok(value);
+                }
+                ::core::result::Result::Ok(::core::option::Option::None) => {}
+                ::core::result::Result::Err(error) => {
+                    ::source_generator_runtime::log_cache_degraded(
+                        &__cache_method_key,
+                        "read",
+                        &error,
+                    );
+                }
+            }
+
+            #lock_behavior
+
+            let __cache_value = match (async #body).await {
+                ::core::result::Result::Ok(value) => value,
+                ::core::result::Result::Err(error) => {
+                    return ::core::result::Result::Err(error);
+                }
+            };
+
+            if let ::core::result::Result::Err(error) = __cache
+                .set_json(&__cache_key, &__cache_value, __cache_ttl_seconds)
+                .await
+            {
+                ::source_generator_runtime::log_cache_degraded(
+                    &__cache_method_key,
+                    "write",
+                    &error,
+                );
+            }
+
+            ::core::result::Result::Ok(__cache_value)
 
         }
     };
@@ -902,12 +1200,19 @@ fn expand_concurrency_limit(args: ConcurrencyLimitArgs, input: ItemFn) -> syn::R
     }
 
     let (_, error_ty) = extract_result_types(sig)?;
+    if !has_receiver(sig) && args.key_scope.is_none() {
+        return Err(syn::Error::new_spanned(
+            sig,
+            "无 self 接收者的 #[concurrency_limit] 函数必须配置唯一的 key_scope",
+        ));
+    }
+
     let arg_tuple = build_argument_tuple(sig)?;
+    let method_key = build_scoped_method_key(sig, args.key_scope.as_ref());
 
     let attrs = &input.attrs;
     let vis = &input.vis;
     let body = &input.block;
-    let fn_name_str = sig.ident.to_string();
     let lock_expr = args.lock;
     let is_use_parameter = args.is_use_parameter;
     let is_block = args.is_block;
@@ -919,11 +1224,7 @@ fn expand_concurrency_limit(args: ConcurrencyLimitArgs, input: ItemFn) -> syn::R
             __lock_service
                 .try_lock(&__lock_key, __lock_expiry, __lock_semaphore)
                 .await
-                .map_err(|_| {
-                    <#error_ty as ::core::convert::From<::std::string::String>>::from(
-                        "操作频繁，请稍后再试".to_string(),
-                    )
-                })?
+                .map_err(<#error_ty as ::core::convert::From<::source_generator_runtime::LockError>>::from)?
                 .ok_or_else(|| {
                     <#error_ty as ::core::convert::From<::std::string::String>>::from(
                         "请勿频繁操作".to_string(),
@@ -933,11 +1234,7 @@ fn expand_concurrency_limit(args: ConcurrencyLimitArgs, input: ItemFn) -> syn::R
             __lock_service
                 .lock(&__lock_key, __lock_expiry, __lock_semaphore)
                 .await
-                .map_err(|_| {
-                    <#error_ty as ::core::convert::From<::std::string::String>>::from(
-                        "操作频繁，请稍后再试".to_string(),
-                    )
-                })?
+                .map_err(<#error_ty as ::core::convert::From<::source_generator_runtime::LockError>>::from)?
         };
     };
 
@@ -945,15 +1242,39 @@ fn expand_concurrency_limit(args: ConcurrencyLimitArgs, input: ItemFn) -> syn::R
         #(#attrs)*
         #vis #sig {
 
+            let __lock_method_key = #method_key;
+            let __lock_use_parameter: bool = #is_use_parameter;
+            let __lock_arguments_key = if __lock_use_parameter {
+                match ::source_generator_runtime::arguments_key(&#arg_tuple) {
+                    ::core::result::Result::Ok(key) => ::core::option::Option::Some(key),
+                    ::core::result::Result::Err(error) => {
+                        return ::core::result::Result::Err(
+                            <#error_ty as ::core::convert::From<::std::string::String>>::from(
+                                ::std::format!("并发限制参数键生成失败: {error}"),
+                            ),
+                        );
+                    }
+                }
+            } else {
+                ::core::option::Option::None
+            };
             let __lock_key = ::source_generator_runtime::concurrency_limit_key(
-                ::std::module_path!(),
-                #fn_name_str,
-                #is_use_parameter,
-                &#arg_tuple,
+                &__lock_method_key,
+                __lock_arguments_key.as_deref(),
             );
             let __lock_service = ::source_generator_runtime::distributed_lock_ref(&(#lock_expr));
-            let __lock_semaphore = ::source_generator_runtime::normalize_concurrency_limit_semaphore((#semaphore) as u32);
-            let __lock_expiry = ::std::time::Duration::from_secs((#expiry_seconds) as u64);
+            let __lock_semaphore: u32 = #semaphore;
+
+            if __lock_semaphore == 0 {
+                return ::core::result::Result::Err(
+                    <#error_ty as ::core::convert::From<::std::string::String>>::from(
+                        "并发限制 semaphore 必须大于 0".to_string(),
+                    ),
+                );
+            }
+
+            let __lock_expiry_seconds: u64 = #expiry_seconds;
+            let __lock_expiry = ::std::time::Duration::from_secs(__lock_expiry_seconds);
             #acquire_lock
 
             let __result = (async #body).await;
@@ -1019,7 +1340,7 @@ fn extract_result_types(sig: &syn::Signature) -> syn::Result<(&Type, &Type)> {
     Ok((ok_ty, err_ty))
 }
 
-/// 将方法参数整理为可序列化元组
+/// 将方法参数类型与参数引用整理为可序列化元组
 fn build_argument_tuple(sig: &syn::Signature) -> syn::Result<TokenStream2> {
     let mut args = Vec::new();
 
@@ -1029,13 +1350,127 @@ fn build_argument_tuple(sig: &syn::Signature) -> syn::Result<TokenStream2> {
                 return Err(syn::Error::new_spanned(&typed.pat, "仅支持标识符参数"));
             };
             let ident = &pat_ident.ident;
-            args.push(quote! { &#ident });
+            args.push(quote! {
+                (::std::any::type_name_of_val(&#ident), &#ident)
+            });
         }
     }
 
     if args.is_empty() {
         Ok(quote! { () })
     } else {
-        Ok(quote! { ( #(#args),* ) })
+        Ok(quote! { ( #(#args,)* ) })
+    }
+}
+
+/// 生成包含模块、实现类型、方法名和完整签名的方法标识表达式
+fn build_method_key(sig: &syn::Signature) -> TokenStream2 {
+    let fn_name = sig.ident.to_string();
+    let has_receiver = has_receiver(sig);
+    let parameters = sig
+        .inputs
+        .iter()
+        .map(|input| quote! { #input }.to_string())
+        .collect::<Vec<_>>()
+        .join(",");
+    let generics = &sig.generics;
+    let output = &sig.output;
+    let signature = format!(
+        "{}({}){}",
+        quote! { #generics },
+        parameters,
+        quote! { #output }
+    );
+
+    if has_receiver {
+        quote! {
+            ::source_generator_runtime::method_key(
+                ::std::module_path!(),
+                ::core::option::Option::Some(::std::any::type_name::<Self>()),
+                #fn_name,
+                #signature,
+            )
+        }
+    } else {
+        quote! {
+            ::source_generator_runtime::method_key(
+                ::std::module_path!(),
+                ::core::option::Option::None,
+                #fn_name,
+                #signature,
+            )
+        }
+    }
+}
+
+/// 生成带可选显式作用域的方法标识表达式
+fn build_scoped_method_key(sig: &syn::Signature, key_scope: Option<&syn::LitStr>) -> TokenStream2 {
+    let method_key = build_method_key(sig);
+
+    if let Some(key_scope) = key_scope {
+        quote! { ::std::format!("{}|{}", #key_scope, #method_key) }
+    } else {
+        method_key
+    }
+}
+
+/// 解析并校验稳定键作用域字符串
+fn parse_key_scope_literal(value: &Expr) -> syn::Result<syn::LitStr> {
+    let Expr::Lit(expr_lit) = value else {
+        return Err(syn::Error::new_spanned(
+            value,
+            "key_scope 必须是非空字符串字面量",
+        ));
+    };
+    let syn::Lit::Str(value) = &expr_lit.lit else {
+        return Err(syn::Error::new_spanned(
+            value,
+            "key_scope 必须是非空字符串字面量",
+        ));
+    };
+
+    if value.value().trim().is_empty() {
+        return Err(syn::Error::new_spanned(
+            value,
+            "key_scope 不能为空或只包含空白",
+        ));
+    }
+
+    Ok(value.clone())
+}
+
+/// 判断方法签名是否包含 self 接收者
+fn has_receiver(sig: &syn::Signature) -> bool {
+    sig.inputs
+        .iter()
+        .any(|input| matches!(input, syn::FnArg::Receiver(_)))
+}
+
+/// 判断类型是否直接或嵌套包含可变引用
+fn contains_mutable_reference(ty: &Type) -> bool {
+    match ty {
+        Type::Reference(reference) => {
+            reference.mutability.is_some() || contains_mutable_reference(&reference.elem)
+        }
+        Type::Array(array) => contains_mutable_reference(&array.elem),
+        Type::Group(group) => contains_mutable_reference(&group.elem),
+        Type::Paren(paren) => contains_mutable_reference(&paren.elem),
+        Type::Ptr(pointer) => {
+            pointer.mutability.is_some() || contains_mutable_reference(&pointer.elem)
+        }
+        Type::Slice(slice) => contains_mutable_reference(&slice.elem),
+        Type::Tuple(tuple) => tuple.elems.iter().any(contains_mutable_reference),
+        Type::Path(path) => path.path.segments.iter().any(|segment| {
+            let PathArguments::AngleBracketed(arguments) = &segment.arguments else {
+                return false;
+            };
+
+            arguments.args.iter().any(|argument| match argument {
+                GenericArgument::Type(ty) => contains_mutable_reference(ty),
+                GenericArgument::AssocType(binding) => contains_mutable_reference(&binding.ty),
+                _ => false,
+            })
+        }),
+        _ => false,
     }
 }

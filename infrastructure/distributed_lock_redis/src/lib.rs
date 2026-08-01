@@ -1,14 +1,8 @@
 use async_trait::async_trait;
 use distributed_lock::{DistributedLock, LockError, LockGuard};
 use md5::{Digest, Md5};
-use redis::{AsyncCommands, aio::ConnectionManager};
+use redis::aio::ConnectionManager;
 use std::time::Duration;
-
-/// Redis 锁的标识值
-///
-/// 所有锁操作使用相同的固定值，通过 Redis 的 SET NX 原子性保证同一 key 同时只有一个持有者
-/// 续期 Lua 脚本通过比对此值来确认操作方是当前持有者
-const LOCK_VALUE: &str = "1";
 
 /// Redis 锁续期用的 Lua 脚本
 ///
@@ -22,6 +16,17 @@ const LOCK_VALUE: &str = "1";
 const RENEW_SCRIPT: &str = r#"
     if redis.call('get', KEYS[1]) == ARGV[1] then
         return redis.call('pexpire', KEYS[1], ARGV[2])
+    else
+        return 0
+    end
+"#;
+
+/// Redis 锁释放用的 Lua 脚本
+///
+/// 仅当 key 当前值仍等于持有者令牌时才删除，防止已过期的旧句柄误删后继持有者的锁
+const RELEASE_SCRIPT: &str = r#"
+    if redis.call('get', KEYS[1]) == ARGV[1] then
+        return redis.call('del', KEYS[1])
     else
         return 0
     end
@@ -84,13 +89,14 @@ impl RedisLock {
     /// - NX：key 不存在时才写入，保证互斥
     /// - PX：写入时同时设置过期时间（毫秒），防止持有者崩溃后锁永久泄漏
     ///
-    /// 返回 `true` 表示写入成功（锁已获取），`false` 表示 key 已存在或命令执行失败
+    /// 返回 `true` 表示写入成功（锁已获取），`false` 表示 key 已存在
+    /// Redis 命令或网络故障会作为内部错误返回，避免伪装成锁竞争并等待到超时
     async fn try_acquire_slot(
         conn: &mut ConnectionManager,
         redis_key: &str,
         value: &str,
         expiry_ms: u64,
-    ) -> bool {
+    ) -> Result<bool, LockError> {
         // Redis 在 SET NX 成功时返回 "+OK"，失败时返回 nil（即 None）
         let result: Option<String> = redis::cmd("SET")
             .arg(redis_key)
@@ -100,32 +106,51 @@ impl RedisLock {
             .arg(expiry_ms)
             .query_async(conn)
             .await
-            .unwrap_or(None);
+            .map_err(|error| LockError::InternalError(error.to_string()))?;
 
-        result.is_some()
+        Ok(result.is_some())
+    }
+
+    /// 将锁时长安全转换为 Redis 使用的正整数毫秒数
+    fn expiry_millis(expiry: Duration) -> Result<u64, LockError> {
+        let millis = expiry.as_millis();
+
+        if millis == 0 || millis > i64::MAX as u128 {
+            return Err(LockError::InvalidArgument {
+                message: "expiry 必须处于 1 毫秒到 i64::MAX 毫秒之间".into(),
+            });
+        }
+
+        Ok(millis as u64)
     }
 
     /// 构建 Redis 锁句柄
     ///
-    /// 注入 fire-and-forget 风格的释放回调：drop 时在后台任务中发送 DEL 命令
-    /// 不等待 DEL 结果，以避免在 `Drop` 中阻塞当前任务
+    /// 注入 fire-and-forget 风格的释放回调：drop 时在后台任务中执行所有权校验和删除
+    /// 不等待脚本结果，以避免在 `Drop` 中阻塞当前任务
     ///
     /// Redis 锁的续期由 `RedisLock::renew` 通过连接执行，句柄本身不持有续期回调
     fn build_guard(&self, redis_key: String, value: String) -> LockGuard {
         // 克隆 ConnectionManager（Arc 克隆，开销极低），供释放回调捕获
         let conn = self.conn_mgr.clone();
         let key_for_drop = redis_key.clone();
+        let value_for_drop = value.clone();
 
         let release_fn = move || {
             let mut c = conn.clone();
             let k = key_for_drop.clone();
+            let v = value_for_drop.clone();
 
-            // 在 tokio 后台任务中执行 DEL，不阻塞当前线程
-            // 若持有者正常释放（未超期），DEL 成功删除 key，槽位立即可被新竞争者获取
-            // 若锁已超期（key 已被 Redis 自动删除），DEL 对不存在的 key 为空操作
-            tokio::spawn(async move {
-                let _: Result<i64, _> = c.del(&k).await;
-            });
+            // Drop 可能发生在 Tokio 运行时之外，此时依赖 Redis TTL 完成兜底清理
+            if let Ok(runtime) = tokio::runtime::Handle::try_current() {
+                runtime.spawn(async move {
+                    let _: Result<i64, _> = redis::Script::new(RELEASE_SCRIPT)
+                        .key(k)
+                        .arg(v)
+                        .invoke_async(&mut c)
+                        .await;
+                });
+            }
         };
 
         LockGuard::new(redis_key, value, Box::new(release_fn), None)
@@ -161,9 +186,14 @@ impl DistributedLock for RedisLock {
         } else {
             expiry
         };
-        // as_millis 返回 u128，截断为 u64；实际使用中不会传入超过 584 亿年的超时值
-        let expiry_ms = expiry.as_millis() as u64;
-        let deadline = tokio::time::Instant::now() + expiry;
+        let expiry_ms = Self::expiry_millis(expiry)?;
+        let now = tokio::time::Instant::now();
+        let deadline = now
+            .checked_add(expiry)
+            .ok_or_else(|| LockError::InvalidArgument {
+                message: "expiry 超出 Tokio Instant 可表示范围".into(),
+            })?;
+        let lock_value = uuid::Uuid::new_v4().to_string();
 
         loop {
             // 每轮克隆一次连接（Arc 克隆，开销极低），保持各轮独立
@@ -172,8 +202,8 @@ impl DistributedLock for RedisLock {
             for i in 0..semaphore {
                 let redis_key = self.make_key(key, i);
 
-                if Self::try_acquire_slot(&mut conn, &redis_key, LOCK_VALUE, expiry_ms).await {
-                    return Ok(self.build_guard(redis_key, LOCK_VALUE.to_string()));
+                if Self::try_acquire_slot(&mut conn, &redis_key, &lock_value, expiry_ms).await? {
+                    return Ok(self.build_guard(redis_key, lock_value));
                 }
             }
 
@@ -184,8 +214,9 @@ impl DistributedLock for RedisLock {
                 });
             }
 
-            // 等待 100ms 再重试，与 NetEngine 保持一致
-            tokio::time::sleep(Duration::from_millis(100)).await;
+            // 最后一轮只等待剩余时间，避免固定轮询间隔造成无谓超时漂移
+            let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+            tokio::time::sleep(remaining.min(Duration::from_millis(100))).await;
         }
     }
 
@@ -216,14 +247,15 @@ impl DistributedLock for RedisLock {
         } else {
             expiry
         };
-        let expiry_ms = expiry.as_millis() as u64;
+        let expiry_ms = Self::expiry_millis(expiry)?;
         let mut conn = self.conn_mgr.clone();
+        let lock_value = uuid::Uuid::new_v4().to_string();
 
         for i in 0..semaphore {
             let redis_key = self.make_key(key, i);
 
-            if Self::try_acquire_slot(&mut conn, &redis_key, LOCK_VALUE, expiry_ms).await {
-                return Ok(Some(self.build_guard(redis_key, LOCK_VALUE.to_string())));
+            if Self::try_acquire_slot(&mut conn, &redis_key, &lock_value, expiry_ms).await? {
+                return Ok(Some(self.build_guard(redis_key, lock_value)));
             }
         }
 
@@ -243,18 +275,17 @@ impl DistributedLock for RedisLock {
         } else {
             expiry
         };
-        let expiry_ms = expiry.as_millis() as u64;
+        let expiry_ms = Self::expiry_millis(expiry)?;
         let mut conn = self.conn_mgr.clone();
 
         // invoke_async 在 Redis 中以 EVAL 方式原子执行脚本
-        // 脚本执行异常或网络错误时 unwrap_or(0) 视为续期失败
         let result: i64 = redis::Script::new(RENEW_SCRIPT)
             .key(&handle.lock_key)
             .arg(&handle.lock_value)
             .arg(expiry_ms)
             .invoke_async(&mut conn)
             .await
-            .unwrap_or(0);
+            .map_err(|error| LockError::InternalError(error.to_string()))?;
 
         Ok(result == 1)
     }

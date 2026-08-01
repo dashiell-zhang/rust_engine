@@ -1377,6 +1377,7 @@ dependencies = [
  "md-5 0.11.0",
  "redis",
  "tokio",
+ "uuid",
 ]
 
 [[package]]

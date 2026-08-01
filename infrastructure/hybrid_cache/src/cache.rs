@@ -51,27 +51,103 @@ impl HybridCache {
         F: FnOnce() -> Fut,
         Fut: Future<Output = Result<T, HybridCacheError>>,
     {
-        // L1 命中：直接反序列化并返回
-        if let Some(bytes) = self.l1.get(key).await {
-            return Ok(serde_json::from_slice::<T>(&bytes)?);
-        }
-
-        // L2 命中：回填 L1 后返回
-        if let Some(bytes) = self.l2.get_bytes(key).await? {
-            let value: T = serde_json::from_slice(&bytes)?;
-            self.l1.insert(key.to_string(), bytes).await;
+        if let Some(value) = self.get_json(key).await? {
             return Ok(value);
         }
 
-        // L1 与 L2 均未命中：调用工厂方法，结果同时写入 L1 与 L2
         let value = factory().await?;
-        let bytes = serde_json::to_vec(&value)?;
+        self.set_json(key, &value, l2_ttl_seconds).await?;
+
+        Ok(value)
+    }
+
+    /// 尝试从 L1 或 L2 读取 JSON 缓存值
+    ///
+    /// L1 内容损坏时会清除本地副本并继续读取 L2
+    /// L2 内容损坏时会尽力删除坏数据并返回反序列化错误
+    pub async fn get_json<T>(&self, key: &str) -> Result<Option<T>, HybridCacheError>
+    where
+        T: DeserializeOwned,
+    {
+        if let Some(bytes) = self.l1.get(key).await {
+            match serde_json::from_slice::<T>(&bytes) {
+                Ok(value) => return Ok(Some(value)),
+                Err(_) => self.l1.invalidate(key).await,
+            }
+        }
+
+        let Some(bytes) = self.l2.get_bytes(key).await? else {
+            return Ok(None);
+        };
+
+        match serde_json::from_slice::<T>(&bytes) {
+            Ok(value) => {
+                self.l1.insert(key.to_string(), bytes).await;
+                Ok(Some(value))
+            }
+            Err(error) => {
+                self.l1.invalidate(key).await;
+                let _ = self.l2.remove(key).await;
+                Err(error.into())
+            }
+        }
+    }
+
+    /// 将 JSON 值写入 L2 并在成功后回填 L1
+    ///
+    /// 写入前会执行一次序列化与反序列化往返校验，避免缓存命中后返回语义不同的值
+    pub async fn set_json<T>(
+        &self,
+        key: &str,
+        value: &T,
+        l2_ttl_seconds: u64,
+    ) -> Result<(), HybridCacheError>
+    where
+        T: Serialize + DeserializeOwned,
+    {
+        const MAX_DEPTH: usize = 64;
+        const MAX_ITEMS: usize = 10_000;
+        const MAX_BYTES: usize = 1024 * 1024;
+
+        if l2_ttl_seconds == 0 {
+            return Err(HybridCacheError::L2("L2 缓存有效期必须大于 0".to_string()));
+        }
+
+        let bytes = serde_json::to_vec(value)?;
+
+        if bytes.len() > MAX_BYTES {
+            return Err(HybridCacheError::ValueLimit(format!(
+                "JSON 超过 {MAX_BYTES} 字节限制"
+            )));
+        }
+
+        let round_trip: T = serde_json::from_slice(&bytes)?;
+        let mut original_items = 0usize;
+        let original = canonicalize_json(
+            serde_json::to_value(value)?,
+            0,
+            &mut original_items,
+            MAX_DEPTH,
+            MAX_ITEMS,
+        )?;
+        let mut restored_items = 0usize;
+        let restored = canonicalize_json(
+            serde_json::to_value(&round_trip)?,
+            0,
+            &mut restored_items,
+            MAX_DEPTH,
+            MAX_ITEMS,
+        )?;
+
+        if original != restored {
+            return Err(HybridCacheError::RoundTrip);
+        }
 
         let l2_options = CacheEntryOptions::relative(Duration::from_secs(l2_ttl_seconds));
         self.l2.set_bytes(key, bytes.clone(), l2_options).await?;
         self.l1.insert(key.to_string(), bytes).await;
 
-        Ok(value)
+        Ok(())
     }
 
     /// 仅从 L1 中获取缓存值，不触发 L2 查询与工厂方法
@@ -98,5 +174,52 @@ impl HybridCache {
         }
 
         Ok(())
+    }
+}
+
+/// 递归规范化 JSON 对象字段顺序并限制结构复杂度
+fn canonicalize_json(
+    value: serde_json::Value,
+    depth: usize,
+    item_count: &mut usize,
+    max_depth: usize,
+    max_items: usize,
+) -> Result<serde_json::Value, HybridCacheError> {
+    if depth > max_depth {
+        return Err(HybridCacheError::ValueLimit(format!(
+            "JSON 超过 {max_depth} 层深度限制"
+        )));
+    }
+
+    *item_count = item_count
+        .checked_add(1)
+        .ok_or_else(|| HybridCacheError::ValueLimit("JSON 项目计数溢出".to_string()))?;
+
+    if *item_count > max_items {
+        return Err(HybridCacheError::ValueLimit(format!(
+            "JSON 超过 {max_items} 项限制"
+        )));
+    }
+
+    match value {
+        serde_json::Value::Array(values) => values
+            .into_iter()
+            .map(|value| canonicalize_json(value, depth + 1, item_count, max_depth, max_items))
+            .collect::<Result<Vec<_>, _>>()
+            .map(serde_json::Value::Array),
+        serde_json::Value::Object(values) => {
+            let mut entries = values.into_iter().collect::<Vec<_>>();
+            entries.sort_unstable_by(|left, right| left.0.cmp(&right.0));
+
+            entries
+                .into_iter()
+                .map(|(key, value)| {
+                    canonicalize_json(value, depth + 1, item_count, max_depth, max_items)
+                        .map(|value| (key, value))
+                })
+                .collect::<Result<serde_json::Map<_, _>, _>>()
+                .map(serde_json::Value::Object)
+        }
+        value => Ok(value),
     }
 }

@@ -1589,8 +1589,7 @@ impl<'a> PayService<'a> {
 
     /// 从微信支付平台拉取证书列表并解密
     ///
-    /// 证书用于验证微信响应和回调的签名，每次都从 API 实时拉取，不做本地缓存
-    #[retry(max_attempts = 3, delay_ms = 200)]
+    /// 证书用于验证微信响应和回调的签名，优先读取缓存并在未命中时加锁回源
     async fn fetch_wx_pay_certificates(
         &self,
         settings: &WxPaySettings,
@@ -1623,7 +1622,7 @@ impl<'a> PayService<'a> {
     /// 从微信支付平台拉取证书列表并解密
     ///
     /// 证书用于验证微信响应和回调的签名，缓存未命中时才会实际请求微信接口
-    #[retry(max_attempts = 3, delay_ms = 200)]
+    #[retry(max_retries = 3, delay_ms = 200)]
     async fn request_wx_pay_certificates(
         &self,
         settings: &WxPaySettings,

@@ -14,6 +14,14 @@ pub enum HybridCacheError {
     /// 工厂方法执行失败
     #[error("工厂方法执行失败: {0}")]
     Factory(String),
+
+    /// 缓存值序列化后无法无损还原
+    #[error("缓存值无法无损完成 JSON 往返序列化")]
+    RoundTrip,
+
+    /// 缓存值超过安全复杂度边界
+    #[error("缓存值超过安全限制: {0}")]
+    ValueLimit(String),
 }
 
 impl From<CacheError> for HybridCacheError {

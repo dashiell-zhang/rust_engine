@@ -619,7 +619,7 @@ impl<'a> AuthorizeService<'a> {
     /// 通过 AppId + Code 获取微信小程序 openId
     ///
     /// 从 AppSetting 表读取对应 AppSecret，调用微信 jscode2session 接口
-    #[retry(max_attempts = 3, delay_ms = 200)]
+    #[retry(max_retries = 3, delay_ms = 200)]
     async fn get_wx_mini_app_open_id(&self, app_id: &str, code: &str) -> Result<String, AppError> {
         // 按 Module=WeiXinMiniApp, Key=AppId, Value=app_id 查分组
         let app_id_setting = app_setting::Entity::find()
@@ -676,7 +676,7 @@ impl<'a> AuthorizeService<'a> {
     }
 
     /// 通过 AppId + Code 获取微信公众号 AccessToken 与 OpenId
-    #[retry(max_attempts = 3, delay_ms = 200)]
+    #[retry(max_retries = 3, delay_ms = 200)]
     async fn get_wx_app_access_token_and_open_id(
         &self,
         app_id: &str,

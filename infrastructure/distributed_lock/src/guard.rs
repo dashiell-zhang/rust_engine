@@ -9,17 +9,17 @@ use std::time::Duration;
 ///
 /// `Drop` 实现会调用构造时注入的 `release` 回调，具体行为由各实现决定：
 /// - `InMemoryLock`：同步归还信号量名额
-/// - `RedisLock`：fire-and-forget 方式发送 DEL 命令
+/// - `RedisLock`：fire-and-forget 方式校验持有者令牌后删除锁
 pub struct LockGuard {
     /// 锁的 Key
     ///
-    /// Redis 实现中为含前缀和槽位序号的完整 key，格式为 `{prefix}:{key}:{slot}`
+    /// Redis 实现中为含前缀、摘要和槽位序号的完整 key，格式为 `{prefix}{md5(key)} {slot}`
     /// 内存实现中为调用方传入的原始 key
     pub lock_key: String,
 
     /// 锁的标识值
     ///
-    /// 固定为 `"1"`，供 Redis 续期 Lua 脚本校验所有权时使用
+    /// Redis 实现中为每次成功获取锁时生成的唯一令牌，供续期与释放 Lua 脚本校验所有权
     /// 内存锁不依赖此字段，值为 `"in-memory"`
     pub lock_value: String,
 
