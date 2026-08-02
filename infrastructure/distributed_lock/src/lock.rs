@@ -1,5 +1,6 @@
 use crate::{LockError, LockGuard};
 use async_trait::async_trait;
+use std::sync::Arc;
 use std::time::Duration;
 
 /// 分布式锁的统一操作接口
@@ -60,4 +61,66 @@ pub trait DistributedLock: Send + Sync {
     /// - `handle`：由 `lock` 或 `try_lock` 返回的句柄
     /// - `expiry`：新的失效时长；传 `Duration::ZERO` 时默认 60 秒
     async fn renew(&self, handle: &LockGuard, expiry: Duration) -> Result<bool, LockError>;
+}
+
+#[async_trait]
+impl<T> DistributedLock for Arc<T>
+where
+    T: DistributedLock + ?Sized,
+{
+    /// 将阻塞式获取转发给 Arc 内部的锁实现
+    async fn lock(
+        &self,
+        key: &str,
+        expiry: Duration,
+        semaphore: u32,
+    ) -> Result<LockGuard, LockError> {
+        self.as_ref().lock(key, expiry, semaphore).await
+    }
+
+    /// 将非阻塞式获取转发给 Arc 内部的锁实现
+    async fn try_lock(
+        &self,
+        key: &str,
+        expiry: Duration,
+        semaphore: u32,
+    ) -> Result<Option<LockGuard>, LockError> {
+        self.as_ref().try_lock(key, expiry, semaphore).await
+    }
+
+    /// 将续期操作转发给 Arc 内部的锁实现
+    async fn renew(&self, handle: &LockGuard, expiry: Duration) -> Result<bool, LockError> {
+        self.as_ref().renew(handle, expiry).await
+    }
+}
+
+#[async_trait]
+impl<T> DistributedLock for &T
+where
+    T: DistributedLock + ?Sized,
+{
+    /// 将阻塞式获取转发给引用指向的锁实现
+    async fn lock(
+        &self,
+        key: &str,
+        expiry: Duration,
+        semaphore: u32,
+    ) -> Result<LockGuard, LockError> {
+        (**self).lock(key, expiry, semaphore).await
+    }
+
+    /// 将非阻塞式获取转发给引用指向的锁实现
+    async fn try_lock(
+        &self,
+        key: &str,
+        expiry: Duration,
+        semaphore: u32,
+    ) -> Result<Option<LockGuard>, LockError> {
+        (**self).try_lock(key, expiry, semaphore).await
+    }
+
+    /// 将续期操作转发给引用指向的锁实现
+    async fn renew(&self, handle: &LockGuard, expiry: Duration) -> Result<bool, LockError> {
+        (**self).renew(handle, expiry).await
+    }
 }

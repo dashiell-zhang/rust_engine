@@ -105,9 +105,55 @@ impl HybridCache {
     where
         T: Serialize + DeserializeOwned,
     {
+        self.set_json_with_round_trip_validator(
+            key,
+            value,
+            l2_ttl_seconds,
+            |original_value, round_trip_value| {
+                const MAX_DEPTH: usize = 64;
+                const MAX_ITEMS: usize = 10_000;
+
+                let mut original_items = 0usize;
+                let original = canonicalize_json(
+                    serde_json::to_value(original_value)?,
+                    0,
+                    &mut original_items,
+                    MAX_DEPTH,
+                    MAX_ITEMS,
+                )?;
+                let mut restored_items = 0usize;
+                let restored = canonicalize_json(
+                    serde_json::to_value(round_trip_value)?,
+                    0,
+                    &mut restored_items,
+                    MAX_DEPTH,
+                    MAX_ITEMS,
+                )?;
+
+                Ok(original == restored)
+            },
+        )
+        .await
+    }
+
+    /// 使用调用方提供的语义校验器写入 JSON 值
+    ///
+    /// 校验器会收到原值和 JSON 往返后的值，适用于需要识别无序集合等类型语义的调用方
+    /// 字节数、结构深度与节点数量限制始终由缓存层统一检查，不能由校验器绕过
+    pub async fn set_json_with_round_trip_validator<T, F>(
+        &self,
+        key: &str,
+        value: &T,
+        l2_ttl_seconds: u64,
+        validator: F,
+    ) -> Result<(), HybridCacheError>
+    where
+        T: Serialize + DeserializeOwned,
+        F: FnOnce(&T, &T) -> Result<bool, HybridCacheError>,
+    {
+        const MAX_BYTES: usize = 1024 * 1024;
         const MAX_DEPTH: usize = 64;
         const MAX_ITEMS: usize = 10_000;
-        const MAX_BYTES: usize = 1024 * 1024;
 
         if l2_ttl_seconds == 0 {
             return Err(HybridCacheError::L2("L2 缓存有效期必须大于 0".to_string()));
@@ -121,25 +167,17 @@ impl HybridCache {
             )));
         }
 
-        let round_trip: T = serde_json::from_slice(&bytes)?;
-        let mut original_items = 0usize;
-        let original = canonicalize_json(
-            serde_json::to_value(value)?,
+        let mut serialized_items = 0usize;
+        canonicalize_json(
+            serde_json::from_slice(&bytes)?,
             0,
-            &mut original_items,
-            MAX_DEPTH,
-            MAX_ITEMS,
-        )?;
-        let mut restored_items = 0usize;
-        let restored = canonicalize_json(
-            serde_json::to_value(&round_trip)?,
-            0,
-            &mut restored_items,
+            &mut serialized_items,
             MAX_DEPTH,
             MAX_ITEMS,
         )?;
 
-        if original != restored {
+        let round_trip: T = serde_json::from_slice(&bytes)?;
+        if !validator(value, &round_trip)? {
             return Err(HybridCacheError::RoundTrip);
         }
 
