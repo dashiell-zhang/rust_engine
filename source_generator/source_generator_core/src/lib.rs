@@ -204,9 +204,9 @@ fn expand_logging(args: LoggingArgs, mut input: ItemFn) -> syn::Result<TokenStre
 ///
 /// # 使用限制
 ///
-/// 适合方法参数为 `Copy` 类型或引用（`&str`、`&T`）的场景。
-/// 若方法体内在 `.await` 点前后移动了 owned 参数的所有权（如将 `String` 传入消耗所有权的调用），
-/// 编译器会报错——这类方法本身即不适合重试，应修改为传引用或在调用侧管理重试逻辑。
+/// receiver 只支持不可变引用，其他参数必须实现 `Copy`，且不支持可变绑定、可变引用或可变裸指针。
+/// 需要在单次尝试中修改参数时，应在方法体内从不可变原参数创建局部副本或克隆，
+/// 使该局部值能够在每次重试执行方法体时重新初始化。
 ///
 /// # 示例
 /// ```ignore
@@ -899,20 +899,26 @@ impl Parse for RetryArgs {
 /// 展开 #[retry] 宏，生成包含重试循环的完整方法体
 fn expand_retry(args: RetryArgs, mut input: ItemFn) -> syn::Result<TokenStream> {
     bind_wildcard_impl_trait_parameters(&mut input);
-    let sig = &input.sig;
     let runtime = runtime_crate_path()?;
 
     // 仅支持 async fn，同步方法不适用此宏
-    if sig.asyncness.is_none() {
-        return Err(syn::Error::new_spanned(sig, "#[retry] 只能用于 async fn"));
+    if input.sig.asyncness.is_none() {
+        return Err(syn::Error::new_spanned(
+            &input.sig,
+            "#[retry] 只能用于 async fn",
+        ));
     }
 
-    if !has_receiver(sig) && args.key_include_self.is_some() {
+    if !has_receiver(&input.sig) && args.key_include_self.is_some() {
         return Err(syn::Error::new_spanned(
-            sig,
+            &input.sig,
             "无 self 接收者的 #[retry] 函数不能配置 key_include_self",
         ));
     }
+
+    validate_retry_parameters(&input.sig)?;
+    let sig = &input.sig;
+    let retry_copy_assertions = build_retry_copy_assertions(sig, &runtime)?;
 
     let attrs = &input.attrs;
     let vis = &input.vis;
@@ -942,7 +948,6 @@ fn expand_retry(args: RetryArgs, mut input: ItemFn) -> syn::Result<TokenStream> 
             quote! { #runtime::retry_delay_ms_from_seconds(#value) }
         }
     };
-
     let expanded: TokenStream2 = quote! {
 
         #(#attrs)*
@@ -950,6 +955,7 @@ fn expand_retry(args: RetryArgs, mut input: ItemFn) -> syn::Result<TokenStream> 
 
             let __retry_max: u32 = #max_retries;
             let __retry_delay_ms: u64 = #delay_ms;
+            #(#retry_copy_assertions)*
 
             if __retry_max == 0 {
                 return (async #body).await;
@@ -963,7 +969,7 @@ fn expand_retry(args: RetryArgs, mut input: ItemFn) -> syn::Result<TokenStream> 
             loop {
 
                 // 每次迭代重新创建 async 块，使方法体可多次执行
-                // 使用 async（非 async move）以借用方式捕获参数，避免首次执行后参数被消耗
+                // 参数签名保持不可变，需要修改时由方法体为当前尝试创建局部副本
                 let __retry_result = (async #body).await;
 
                 match __retry_result {
@@ -1008,6 +1014,107 @@ fn expand_retry(args: RetryArgs, mut input: ItemFn) -> syn::Result<TokenStream> 
     };
 
     Ok(expanded.into())
+}
+
+/// 校验重试方法参数不会在多次尝试之间保留签名级可变状态
+fn validate_retry_parameters(sig: &syn::Signature) -> syn::Result<()> {
+    for argument in &sig.inputs {
+        match argument {
+            syn::FnArg::Receiver(receiver) => {
+                if !matches!(receiver.ty.as_ref(), Type::Reference(reference) if reference.mutability.is_none())
+                {
+                    return Err(syn::Error::new_spanned(
+                        receiver,
+                        "#[retry] 的 receiver 必须是不可变引用，避免重试之间共享可变 receiver 状态",
+                    ));
+                }
+            }
+            syn::FnArg::Typed(argument) => {
+                if pattern_contains_mutable_binding(argument.pat.as_ref()) {
+                    return Err(syn::Error::new_spanned(
+                        &argument.pat,
+                        "#[retry] 不支持可变参数绑定，请使用不可变参数并在方法体内为单次尝试创建局部副本",
+                    ));
+                }
+
+                if contains_mutable_reference(&argument.ty) {
+                    return Err(syn::Error::new_spanned(
+                        &argument.ty,
+                        "#[retry] 不支持可变引用或可变裸指针参数，避免重试之间共享可变参数状态",
+                    ));
+                }
+            }
+        }
+    }
+
+    Ok(())
+}
+
+/// 生成非 receiver 参数必须实现 Copy 的编译期约束
+fn build_retry_copy_assertions(
+    sig: &syn::Signature,
+    runtime: &TokenStream2,
+) -> syn::Result<Vec<TokenStream2>> {
+    sig.inputs
+        .iter()
+        .filter_map(|argument| {
+            let syn::FnArg::Typed(argument) = argument else {
+                return None;
+            };
+
+            if matches!(argument.ty.as_ref(), Type::ImplTrait(_)) {
+                let Pat::Ident(pattern) = argument.pat.as_ref() else {
+                    return Some(Err(syn::Error::new_spanned(
+                        &argument.pat,
+                        "#[retry] 的 impl Trait 参数必须使用标识符或通配符模式",
+                    )));
+                };
+                let ident = &pattern.ident;
+                let value = if pattern.by_ref.is_some() {
+                    quote! { &*#ident }
+                } else {
+                    quote! { &#ident }
+                };
+
+                return Some(Ok(quote! {
+                    #runtime::assert_retry_parameter_copy(#value);
+                }));
+            }
+
+            let ty = &argument.ty;
+            Some(Ok(quote! {
+                #runtime::assert_retry_parameter_type_copy::<#ty>();
+            }))
+        })
+        .collect()
+}
+
+/// 判断参数模式是否直接或嵌套包含可变绑定
+fn pattern_contains_mutable_binding(pattern: &Pat) -> bool {
+    match pattern {
+        Pat::Ident(pattern) => {
+            pattern.mutability.is_some()
+                || pattern
+                    .subpat
+                    .as_ref()
+                    .is_some_and(|(_, pattern)| pattern_contains_mutable_binding(pattern))
+        }
+        Pat::Or(pattern) => pattern.cases.iter().any(pattern_contains_mutable_binding),
+        Pat::Paren(pattern) => pattern_contains_mutable_binding(&pattern.pat),
+        Pat::Reference(pattern) => {
+            pattern.mutability.is_some() || pattern_contains_mutable_binding(&pattern.pat)
+        }
+        Pat::Slice(pattern) => pattern.elems.iter().any(pattern_contains_mutable_binding),
+        Pat::Struct(pattern) => pattern
+            .fields
+            .iter()
+            .any(|field| pattern_contains_mutable_binding(&field.pat)),
+        Pat::Tuple(pattern) => pattern.elems.iter().any(pattern_contains_mutable_binding),
+        Pat::TupleStruct(pattern) => pattern.elems.iter().any(pattern_contains_mutable_binding),
+        Pat::Type(pattern) => pattern_contains_mutable_binding(&pattern.pat),
+        Pat::Macro(_) | Pat::Verbatim(_) => true,
+        _ => false,
+    }
 }
 
 /// #[cacheable] 的属性参数

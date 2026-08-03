@@ -302,6 +302,20 @@ impl<'a> AuthorizeService<'a> {
 - `delay_ms`
 - `delay_seconds`
 
+`#[retry]` 的 receiver 必须是不可变引用，其他参数必须实现 `Copy`，并且不能使用签名级 `mut`、`ref mut`、可变引用或可变裸指针，避免某次失败尝试对参数的修改泄漏到下一次重试。需要在单次尝试内修改参数时，应从不可变原参数创建局部副本；该局部值会随方法体在每次尝试时重新初始化
+
+```rust
+#[retry(max_retries = 3)]
+async fn execute(value: u32) -> Result<u32, AppError> {
+    let mut attempt_value = value;
+    attempt_value += 1;
+    // 使用仅属于当前尝试的 attempt_value
+    Ok(attempt_value)
+}
+```
+
+`String`、`Vec<T>` 等非 `Copy` 参数应改为不可变引用，需要拥有值时再在方法体内通过引用为当前尝试显式克隆。直接使用非 `Copy` 参数，或者在签名中写成 `mut value: T`，都会得到编译期诊断
+
 `#[retry]` 同样支持 `key_scope`、`key_types(...)`、`key_consts(...)` 和 receiver 方法的 `key_include_self`。这些参数只调整 scheduled/exhausted 日志里的 `method` 字段，不改变重试次数、等待时间或错误返回。为已有静态关联函数补充显式 scope 后，其日志 method 字段会发生一次有意迁移
 
 ```rust
