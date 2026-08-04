@@ -268,7 +268,7 @@ impl<'a> UserService<'a> {
 }
 ```
 
-这个宏会自动记录 `executing`、`executed`、`exception` 三类结构化日志，适合挂在查询、外部调用和关键写操作入口。
+这个宏会自动记录 `executing`、`executed`、`exception` 三类结构化日志，适合挂在查询、外部调用和关键写操作入口。异常错误摘要只会在 ERROR 日志实际启用时格式化；`#[retry]` 的 scheduled 和 exhausted 错误摘要也分别受 WARN 与 ERROR 级别门控
 
 同一模块内名称和签名相同的静态关联函数需要显式配置唯一 `key_scope`，否则过程宏无法看到外围 `impl` 类型，日志中的 `method` 字段仍会相同。外围类型泛型和 const 泛型可以通过 `key_types(...)`、`key_consts(...)` 加入标识
 

@@ -14,7 +14,7 @@ use serde::{
     },
 };
 use sha2::{Digest, Sha256};
-use std::fmt::{self, Display, Formatter};
+use std::fmt::{self, Debug, Display, Formatter};
 use std::io::{self, Write};
 use std::sync::Arc;
 
@@ -196,6 +196,23 @@ pub fn log_exception(method: &str, trace_id: &str, duration_ms: u128, error: &st
     tracing::error!(trace_id, method, duration_ms, error, event = "exception",);
 }
 
+/// 在异常日志启用时格式化并记录方法调用错误
+pub fn log_exception_debug(method: &str, trace_id: &str, duration_ms: u128, error: &impl Debug) {
+    if !tracing::event_enabled!(
+        tracing::Level::ERROR,
+        trace_id,
+        method,
+        duration_ms,
+        error,
+        event
+    ) {
+        return;
+    }
+
+    let error = error_summary(error);
+    log_exception(method, trace_id, duration_ms, &error);
+}
+
 /// 重试间隔等待
 ///
 /// delay_ms 为 0 时直接返回，不产生任何调度开销
@@ -322,6 +339,32 @@ pub fn log_retry_scheduled(
     );
 }
 
+/// 在警告日志启用时格式化并记录即将执行的下一次重试
+pub fn log_retry_scheduled_debug(
+    method: &str,
+    trace_id: &str,
+    retry: u64,
+    delay_ms: u64,
+    error: &impl Debug,
+) {
+    if !tracing::event_enabled!(
+        tracing::Level::WARN,
+        method,
+        trace_id,
+        retry,
+        delay_ms,
+        error_type,
+        error,
+        event
+    ) {
+        return;
+    }
+
+    let error_type = std::any::type_name_of_val(error);
+    let error = retry_error_summary(error);
+    log_retry_scheduled(method, trace_id, retry, delay_ms, error_type, &error);
+}
+
 /// 记录重试次数已经耗尽
 pub fn log_retry_exhausted(
     method: &str,
@@ -338,6 +381,25 @@ pub fn log_retry_exhausted(
         error,
         event = "retry_exhausted"
     );
+}
+
+/// 在错误日志启用时格式化并记录重试次数耗尽错误
+pub fn log_retry_exhausted_debug(method: &str, trace_id: &str, retries: u64, error: &impl Debug) {
+    if !tracing::event_enabled!(
+        tracing::Level::ERROR,
+        method,
+        trace_id,
+        retries,
+        error_type,
+        error,
+        event
+    ) {
+        return;
+    }
+
+    let error_type = std::any::type_name_of_val(error);
+    let error = retry_error_summary(error);
+    log_retry_exhausted(method, trace_id, retries, error_type, &error);
 }
 
 /// 记录缓存读取、写入或防击穿锁故障并继续执行业务

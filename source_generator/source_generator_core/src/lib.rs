@@ -174,11 +174,11 @@ fn expand_logging(args: LoggingArgs, mut input: ItemFn) -> syn::Result<TokenStre
                     #runtime::log_executed(&__log_method, &__log_trace_id, __log_duration_ms);
                 }
                 ::core::result::Result::Err(__log_err) => {
-                    #runtime::log_exception(
+                    #runtime::log_exception_debug(
                         &__log_method,
                         &__log_trace_id,
                         __log_duration_ms,
-                        &#runtime::error_summary(__log_err),
+                        __log_err,
                     );
                 }
             }
@@ -987,26 +987,22 @@ fn expand_retry(args: RetryArgs, mut input: ItemFn) -> syn::Result<TokenStream> 
                         let __retry_context = __retry_context.get_or_insert_with(|| {
                             (#method_key, #runtime::new_trace_id())
                         });
-                        let __retry_error_type = ::std::any::type_name_of_val(&__err);
-                        let __retry_error = #runtime::error_summary(&__err);
                         if __retry_count >= __retry_max {
-                            #runtime::log_retry_exhausted(
+                            #runtime::log_retry_exhausted_debug(
                                 &__retry_context.0,
                                 &__retry_context.1,
                                 __retry_count,
-                                __retry_error_type,
-                                &__retry_error,
+                                &__err,
                             );
                             return ::core::result::Result::Err(__err);
                         }
                         __retry_count += 1;
-                        #runtime::log_retry_scheduled(
+                        #runtime::log_retry_scheduled_debug(
                             &__retry_context.0,
                             &__retry_context.1,
                             __retry_count,
                             __retry_delay_ms,
-                            __retry_error_type,
-                            &__retry_error,
+                            &__err,
                         );
                         // 等待指定间隔后进行下一次重试，delay_ms 为 0 时直接跳过
                         #runtime::retry_sleep(__retry_delay_ms).await;
