@@ -242,7 +242,8 @@ pub fn retry(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// - key_include_self：显式 scope 是否包含 Self，receiver 方法默认 true
 ///
 /// 仅支持返回 Result<T, E> 的 async fn，T 需实现 Serialize 与 DeserializeOwned
-/// 不建议用于 Result<(), E> 命令方法，不支持 &mut self 或包含可变引用的参数
+/// receiver 必须是不可变引用，其他参数只支持不带子模式的标识符绑定
+/// 不建议用于 Result<(), E> 命令方法，不支持包含可变引用的参数
 #[proc_macro_attribute]
 pub fn cacheable(attr: TokenStream, item: TokenStream) -> TokenStream {
     let args = parse_macro_input!(attr as CacheableArgs);
@@ -923,6 +924,10 @@ fn expand_retry(args: RetryArgs, mut input: ItemFn) -> syn::Result<TokenStream> 
     let attrs = &input.attrs;
     let vis = &input.vis;
     let body = &input.block;
+    let retry_body = format_ident!(
+        "__source_generator_retry_body",
+        span = proc_macro2::Span::mixed_site()
+    );
     let method_key = build_scoped_method_key(
         sig,
         args.key_scope.as_ref(),
@@ -956,9 +961,10 @@ fn expand_retry(args: RetryArgs, mut input: ItemFn) -> syn::Result<TokenStream> 
             let __retry_max: u32 = #max_retries;
             let __retry_delay_ms: u64 = #delay_ms;
             #(#retry_copy_assertions)*
+            let #retry_body = async || #body;
 
             if __retry_max == 0 {
-                return (async #body).await;
+                return #retry_body().await;
             }
 
             // 记录已经执行的重试次数，首次执行前为 0
@@ -970,7 +976,7 @@ fn expand_retry(args: RetryArgs, mut input: ItemFn) -> syn::Result<TokenStream> 
 
                 // 每次迭代重新创建 async 块，使方法体可多次执行
                 // 参数签名保持不可变，需要修改时由方法体为当前尝试创建局部副本
-                let __retry_result = (async #body).await;
+                let __retry_result = #retry_body().await;
 
                 match __retry_result {
                     ::core::result::Result::Ok(__val) => {
@@ -1616,6 +1622,17 @@ fn expand_cacheable(args: CacheableArgs, mut input: ItemFn) -> syn::Result<Token
         ));
     }
 
+    if let Some(receiver) = sig.inputs.iter().find_map(|input| match input {
+        syn::FnArg::Receiver(receiver) => Some(receiver),
+        syn::FnArg::Typed(_) => None,
+    }) && !matches!(receiver.ty.as_ref(), Type::Reference(reference) if reference.mutability.is_none())
+    {
+        return Err(syn::Error::new_spanned(
+            receiver,
+            "#[cacheable] 的 receiver 必须是不可变引用，避免方法体闭包提前移动或独占 receiver",
+        ));
+    }
+
     if let Some(input) = sig.inputs.iter().find(|input| match input {
         syn::FnArg::Receiver(receiver) => contains_trait_object(&receiver.ty),
         syn::FnArg::Typed(typed) => contains_trait_object(&typed.ty),
@@ -1674,6 +1691,12 @@ fn expand_cacheable(args: CacheableArgs, mut input: ItemFn) -> syn::Result<Token
     let attrs = &input.attrs;
     let vis = &input.vis;
     let body = &input.block;
+    let cache_body = format_ident!(
+        "__source_generator_cache_body",
+        span = proc_macro2::Span::mixed_site()
+    );
+    let (cache_body_declaration, cache_body_arguments) =
+        build_cacheable_body_declaration(sig, body, &cache_body)?;
     let cache_expr = args.cache;
     let ttl_seconds = args.ttl_seconds.map_or_else(
         || quote! { #runtime::CacheableOptions::default().ttl_seconds },
@@ -1735,14 +1758,16 @@ fn expand_cacheable(args: CacheableArgs, mut input: ItemFn) -> syn::Result<Token
         #(#attrs)*
         #vis #sig {
 
+            #cache_body_declaration
+
             if !#runtime::cacheable_parameter_types_are_safe(
                 &[#(#parameter_types),*],
             ) {
-                return (async #body).await;
+                return #cache_body(#(#cache_body_arguments),*).await;
             }
 
             if #runtime::cacheable_return_is_unit::<#return_type>() {
-                return (async #body).await;
+                return #cache_body(#(#cache_body_arguments),*).await;
             }
 
             let __cache_method_key = #method_key;
@@ -1756,7 +1781,7 @@ fn expand_cacheable(args: CacheableArgs, mut input: ItemFn) -> syn::Result<Token
                         "arguments_key",
                         &error,
                     );
-                    return (async #body).await;
+                    return #cache_body(#(#cache_body_arguments),*).await;
                 }
             };
             let __cache_key = #runtime::cacheable_key(
@@ -1773,7 +1798,7 @@ fn expand_cacheable(args: CacheableArgs, mut input: ItemFn) -> syn::Result<Token
                     "configuration",
                     &"ttl_seconds 必须大于 0",
                 );
-                return (async #body).await;
+                return #cache_body(#(#cache_body_arguments),*).await;
             }
 
             match __cache.get_json(&__cache_key).await {
@@ -1792,7 +1817,7 @@ fn expand_cacheable(args: CacheableArgs, mut input: ItemFn) -> syn::Result<Token
 
             #lock_behavior
 
-            let __cache_value = match (async #body).await {
+            let __cache_value = match #cache_body(#(#cache_body_arguments),*).await {
                 ::core::result::Result::Ok(value) => value,
                 ::core::result::Result::Err(error) => {
                     return ::core::result::Result::Err(error);
@@ -1819,6 +1844,101 @@ fn expand_cacheable(args: CacheableArgs, mut input: ItemFn) -> syn::Result<Token
     };
 
     Ok(expanded.into())
+}
+
+/// 生成只包含一份 cacheable 原方法体的异步闭包声明
+fn build_cacheable_body_declaration(
+    sig: &syn::Signature,
+    body: &syn::Block,
+    cache_body: &syn::Ident,
+) -> syn::Result<(TokenStream2, Vec<TokenStream2>)> {
+    let mut parameters = Vec::new();
+    let mut arguments = Vec::new();
+    let mut outer_parameter_uses = Vec::new();
+
+    for input in &sig.inputs {
+        let syn::FnArg::Typed(typed) = input else {
+            continue;
+        };
+        let Pat::Ident(pattern) = typed.pat.as_ref() else {
+            return Err(syn::Error::new_spanned(
+                &typed.pat,
+                "#[cacheable] 只支持标识符参数",
+            ));
+        };
+        if pattern.subpat.is_some() {
+            return Err(syn::Error::new_spanned(
+                &typed.pat,
+                "#[cacheable] 不支持带子模式的参数绑定",
+            ));
+        }
+
+        let attrs = &pattern.attrs;
+        let mutability = if pattern.by_ref.is_none() {
+            pattern.mutability.as_ref()
+        } else {
+            None
+        };
+        let ident = &pattern.ident;
+        parameters.push(quote! { #(#attrs)* #mutability #ident });
+        arguments.push(quote! { #ident });
+        if pattern.by_ref.is_none() && pattern.mutability.is_some() {
+            outer_parameter_uses.push(quote! { let _ = &mut #ident; });
+        }
+    }
+
+    if arguments.is_empty() {
+        return Ok((
+            quote! {
+                let #cache_body = async || #body;
+            },
+            arguments,
+        ));
+    }
+
+    let constrain_body = format_ident!(
+        "__source_generator_constrain_cache_body",
+        span = proc_macro2::Span::mixed_site()
+    );
+    let function_type = format_ident!(
+        "__SourceGeneratorCacheBody",
+        span = proc_macro2::Span::mixed_site()
+    );
+    let output_type = format_ident!(
+        "__SourceGeneratorCacheOutput",
+        span = proc_macro2::Span::mixed_site()
+    );
+    let argument_types = (0..arguments.len())
+        .map(|index| {
+            format_ident!(
+                "__SourceGeneratorCacheArgument{index}",
+                span = proc_macro2::Span::mixed_site()
+            )
+        })
+        .collect::<Vec<_>>();
+
+    let declaration = quote! {
+        #(#outer_parameter_uses)*
+        fn #constrain_body<#(#argument_types,)* #function_type, #output_type>(
+            _: (#(&#argument_types,)*),
+            function: #function_type,
+        ) -> #function_type
+        where
+            #function_type: ::core::ops::AsyncFn(#(#argument_types),*) -> #output_type,
+        {
+            function
+        }
+
+        let #cache_body = #constrain_body(
+            (#(&#arguments,)*),
+            async |#(#parameters),*| {
+                #(let _ = &#arguments;)*
+                #body
+            },
+        );
+    };
+
+    Ok((declaration, arguments))
 }
 
 /// 展开 #[concurrency_limit] 宏，生成分布式锁包装逻辑

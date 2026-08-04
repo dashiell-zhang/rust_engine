@@ -352,6 +352,8 @@ impl<'a> DemoService<'a> {
 }
 ```
 
+`#[cacheable]` 的 receiver 必须是不可变引用，其他参数使用不带子模式的标识符绑定。宏只生成一份原方法体，并由缓存旁路或正常回源路径调用同一个异步闭包，因此局部 `static`、`OnceLock` 和局部函数项不会因运行时分支而分裂
+
 `#[concurrency_limit]` 的 `is_use_parameter`、`is_block` 只接受布尔字面量，`semaphore`、`expiry_seconds` 只接受无符号整数字面量，避免同一个锁键的并发策略随单次调用参数变化。未启用 `is_use_parameter` 时不会序列化方法参数，因此参数无需实现 `Serialize`
 
 自由函数或静态关联函数必须通过 `key_scope` 提供稳定基础作用域。方法泛型、const 泛型和参数位置的 `impl Trait` 会自动在作用域后加入运行时实例维度。receiver 方法使用显式 scope 时默认始终加入 `Self`，因此 trait 默认方法、数组和元组等不同具体类型也不会共享缓存键或锁键。升级后，所有显式配置 `key_scope` 的 receiver 方法会发生一次有意的键迁移
