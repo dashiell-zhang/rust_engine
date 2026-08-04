@@ -270,7 +270,9 @@ impl<'a> UserService<'a> {
 
 这个宏会自动记录 `executing`、`executed`、`exception` 三类结构化日志，适合挂在查询、外部调用和关键写操作入口。异常错误摘要只会在 ERROR 日志实际启用时格式化；`#[retry]` 的 scheduled 和 exhausted 错误摘要也分别受 WARN 与 ERROR 级别门控
 
-同一模块内名称和签名相同的静态关联函数需要显式配置唯一 `key_scope`，否则过程宏无法看到外围 `impl` 类型，日志中的 `method` 字段仍会相同。外围类型泛型和 const 泛型可以通过 `key_types(...)`、`key_consts(...)` 加入标识
+无 receiver 的静态关联函数会通过宏生成的局部声明标记自动识别外围类型，因此同一模块内不同类型的同名同签名函数也会得到不同的默认方法键。普通模块自由函数与 receiver 方法的默认键保持兼容；已有静态关联函数的默认日志 `method` 字段会发生一次有意迁移
+
+需要跨重命名保持固定标识，或需要显式纳入外围类型泛型和 const 泛型时，仍可配置 `key_scope`、`key_types(...)` 和 `key_consts(...)`
 
 ```rust
 impl StaticWorker {
@@ -316,7 +318,7 @@ async fn execute(value: u32) -> Result<u32, AppError> {
 
 `String`、`Vec<T>` 等非 `Copy` 参数应改为不可变引用，需要拥有值时再在方法体内通过引用为当前尝试显式克隆。直接使用非 `Copy` 参数，或者在签名中写成 `mut value: T`，都会得到编译期诊断
 
-`#[retry]` 同样支持 `key_scope`、`key_types(...)`、`key_consts(...)` 和 receiver 方法的 `key_include_self`。这些参数只调整 scheduled/exhausted 日志里的 `method` 字段，不改变重试次数、等待时间或错误返回。为已有静态关联函数补充显式 scope 后，其日志 method 字段会发生一次有意迁移
+`#[retry]` 同样支持 `key_scope`、`key_types(...)`、`key_consts(...)` 和 receiver 方法的 `key_include_self`。这些参数只调整 scheduled/exhausted 日志里的 `method` 字段，不改变重试次数、等待时间或错误返回。无 receiver 的静态关联函数未配置显式 scope 时，也会自动将外围类型加入默认方法键
 
 ```rust
 impl<T, const N: usize> GenericWorker<T, N> {

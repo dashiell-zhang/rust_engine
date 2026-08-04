@@ -541,6 +541,35 @@ pub fn method_key(
     key
 }
 
+/// 根据局部声明标记恢复无 receiver 函数的声明作用域并生成方法标识
+///
+/// 普通模块自由函数保持原有方法键，静态关联函数自动加入外围类型
+#[doc(hidden)]
+pub fn method_key_with_declaration_scope(
+    module: &str,
+    declaration_scope_marker: &str,
+    fn_name: &str,
+    parameter_types: &[&str],
+    generic_types: &[&str],
+    const_generics: &[String],
+) -> String {
+    let method_segment = format!("::{fn_name}::");
+    let declaration_scope = declaration_scope_marker
+        .rfind(&method_segment)
+        .map(|index| &declaration_scope_marker[..index])
+        .unwrap_or(declaration_scope_marker);
+    let declaration_type = (declaration_scope != module).then_some(declaration_scope);
+
+    method_key(
+        module,
+        declaration_type,
+        fn_name,
+        parameter_types,
+        generic_types,
+        const_generics,
+    )
+}
+
 /// 在显式稳定作用域后追加泛型实例维度
 ///
 /// 非泛型作用域原样返回，确保普通缓存键和锁键保持兼容

@@ -33,6 +33,7 @@ fn runtime_crate_path() -> syn::Result<TokenStream2> {
 /// 发生异常时记录 exception 日志（含耗时与错误描述）
 ///
 /// 仅支持返回 Result<T, E> 的 async fn，E 需实现 Debug
+/// 无 receiver 的静态关联函数会自动将声明类型加入默认方法键
 ///
 /// # 示例
 /// ```ignore
@@ -205,6 +206,7 @@ fn expand_logging(args: LoggingArgs, mut input: ItemFn) -> syn::Result<TokenStre
 /// # 使用限制
 ///
 /// receiver 只支持不可变引用，其他参数必须实现 `Copy`，且不支持可变绑定、可变引用或可变裸指针。
+/// 无 receiver 的静态关联函数会自动将声明类型加入默认方法键。
 /// 需要在单次尝试中修改参数时，应在方法体内从不可变原参数创建局部副本或克隆，
 /// 使该局部值能够在每次重试执行方法体时重新初始化。
 ///
@@ -2241,6 +2243,10 @@ fn path_arguments_contain_trait_object(arguments: &PathArguments) -> bool {
 fn build_method_key(sig: &syn::Signature, runtime: &TokenStream2) -> TokenStream2 {
     let fn_name = sig.ident.to_string();
     let has_receiver = has_receiver(sig);
+    let declaration_scope_marker = format_ident!(
+        "__SourceGeneratorMethodScope",
+        span = proc_macro2::Span::mixed_site()
+    );
     let parameter_types = sig
         .inputs
         .iter()
@@ -2305,14 +2311,19 @@ fn build_method_key(sig: &syn::Signature, runtime: &TokenStream2) -> TokenStream
         }
     } else {
         quote! {
-            #runtime::method_key(
-                ::std::module_path!(),
-                ::core::option::Option::None,
-                #fn_name,
-                &[#(#parameter_types),*],
-                &[#(#generic_types),*],
-                &[#(#const_generics),*],
-            )
+            {
+                // 局部类型的完整路径包含外围 impl 类型，可区分同模块内的同名静态关联函数
+                struct #declaration_scope_marker;
+
+                #runtime::method_key_with_declaration_scope(
+                    ::std::module_path!(),
+                    ::std::any::type_name::<#declaration_scope_marker>(),
+                    #fn_name,
+                    &[#(#parameter_types),*],
+                    &[#(#generic_types),*],
+                    &[#(#const_generics),*],
+                )
+            }
         }
     }
 }
