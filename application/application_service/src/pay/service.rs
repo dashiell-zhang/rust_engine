@@ -1622,7 +1622,11 @@ impl<'a> PayService<'a> {
     /// 从微信支付平台拉取证书列表并解密
     ///
     /// 证书用于验证微信响应和回调的签名，缓存未命中时才会实际请求微信接口
-    #[retry(max_retries = 3, delay_ms = 200)]
+    #[retry(
+        max_retries = 3,
+        delay_ms = 200,
+        key_scope = "application.pay.request-wx-pay-certificates"
+    )]
     async fn request_wx_pay_certificates(
         &self,
         settings: &WxPaySettings,

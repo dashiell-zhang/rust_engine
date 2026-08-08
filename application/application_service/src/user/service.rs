@@ -156,7 +156,7 @@ impl<'a> UserService<'a> {
     }
 
     /// 获取单个用户
-    #[logging]
+    #[logging(key_scope = "application.user.get-user")]
     pub async fn get_user(&self, target_id: i64) -> Result<Option<UserDto>, AppError> {
         Self::validate_user_id(target_id)?;
 

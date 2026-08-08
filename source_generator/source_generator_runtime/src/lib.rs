@@ -1,11 +1,12 @@
 use std::cell::Cell;
-use std::collections::HashSet;
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet, LinkedList, VecDeque};
+use std::hash::BuildHasher;
+use std::rc::Rc;
 use std::time::Duration;
 
 use distributed_lock::DistributedLock;
 use hybrid_cache::{HybridCache, HybridCacheError};
 use serde::{
-    Serialize,
     de::DeserializeOwned,
     ser::{
         Error as SerializeError, SerializeMap, SerializeSeq, SerializeStruct,
@@ -20,6 +21,10 @@ use std::sync::Arc;
 
 /// 重新导出分布式锁错误，供属性宏在调用方保留底层错误类型
 pub use distributed_lock::LockError;
+
+/// 重新导出参数键序列化约束，供属性宏生成针对性编译诊断
+#[doc(hidden)]
+pub use serde::Serialize;
 
 /// 缓存防击穿锁的默认有效期秒数
 pub const DEFAULT_CACHEABLE_LOCK_EXPIRY_SECONDS: u64 = 60;
@@ -126,6 +131,257 @@ impl Default for ConcurrencyLimitOptions {
             semaphore: DEFAULT_CONCURRENCY_LIMIT_SEMAPHORE,
         }
     }
+}
+
+/// 为参与稳定方法键的类型提供显式且跨构建可维护的标签
+pub trait StableKeyType {
+    /// 返回类型对应的稳定标签
+    fn stable_key_type() -> String;
+}
+
+/// 获取类型显式声明的稳定标签
+pub fn stable_key_type<T>() -> String
+where
+    T: StableKeyType + ?Sized,
+{
+    T::stable_key_type()
+}
+
+/// 将无序集合显式包装为按规范 JSON 排序的参数键值
+pub struct UnorderedKey<I> {
+    values: I,
+}
+
+/// 创建用于参数键生成的无序集合包装
+pub fn unordered_key<I>(values: I) -> UnorderedKey<I> {
+    UnorderedKey { values }
+}
+
+impl<I> Serialize for UnorderedKey<I>
+where
+    I: Clone + IntoIterator,
+    I::Item: Serialize,
+{
+    /// 按元素的规范 JSON 排序后序列化无序集合
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        const MAX_ITEMS: usize = 10_000;
+        const MAX_BYTES: usize = 1024 * 1024;
+
+        let mut values = Vec::new();
+        let mut total_bytes = 0usize;
+
+        for value in self.values.clone() {
+            if values.len() >= MAX_ITEMS {
+                return Err(S::Error::custom(format!(
+                    "无序参数集合超过 {MAX_ITEMS} 项限制"
+                )));
+            }
+
+            let key = arguments_key(&value).map_err(S::Error::custom)?;
+            total_bytes = total_bytes
+                .checked_add(key.len())
+                .filter(|length| *length <= MAX_BYTES)
+                .ok_or_else(|| {
+                    S::Error::custom(format!("无序参数集合超过 {MAX_BYTES} 字节限制"))
+                })?;
+            let value = serde_json::from_str::<serde_json::Value>(&key)
+                .map_err(|error| S::Error::custom(format!("无序参数元素无法解析: {error}")))?;
+            values.push((key, value));
+        }
+
+        values.sort_unstable_by(|left, right| left.0.cmp(&right.0));
+        let mut sequence = serializer.serialize_seq(Some(values.len()))?;
+        for (_, value) in values {
+            sequence.serialize_element(&value)?;
+        }
+        sequence.end()
+    }
+}
+
+macro_rules! impl_stable_key_type {
+    ($($type:ty => $tag:literal),+ $(,)?) => {
+        $(
+            impl StableKeyType for $type {
+                fn stable_key_type() -> String {
+                    $tag.to_string()
+                }
+            }
+        )+
+    };
+}
+
+impl_stable_key_type!(
+    () => "rust:unit",
+    bool => "rust:bool",
+    char => "rust:char",
+    i8 => "rust:i8",
+    i16 => "rust:i16",
+    i32 => "rust:i32",
+    i64 => "rust:i64",
+    i128 => "rust:i128",
+    isize => "rust:isize",
+    u8 => "rust:u8",
+    u16 => "rust:u16",
+    u32 => "rust:u32",
+    u64 => "rust:u64",
+    u128 => "rust:u128",
+    usize => "rust:usize",
+    f32 => "rust:f32",
+    f64 => "rust:f64",
+    str => "rust:str",
+    String => "rust:string",
+    serde_json::Value => "serde-json:value",
+    uuid::Uuid => "uuid:uuid",
+);
+
+impl<T> StableKeyType for &T
+where
+    T: StableKeyType + ?Sized,
+{
+    /// 返回不可变引用的稳定类型标签
+    fn stable_key_type() -> String {
+        compose_stable_type_tag("rust:ref", &[T::stable_key_type()])
+    }
+}
+
+impl<T> StableKeyType for &mut T
+where
+    T: StableKeyType + ?Sized,
+{
+    /// 返回可变引用的稳定类型标签
+    fn stable_key_type() -> String {
+        compose_stable_type_tag("rust:ref-mut", &[T::stable_key_type()])
+    }
+}
+
+macro_rules! impl_stable_key_wrapper {
+    ($type:ident, $tag:literal) => {
+        impl<T> StableKeyType for $type<T>
+        where
+            T: StableKeyType,
+        {
+            fn stable_key_type() -> String {
+                compose_stable_type_tag($tag, &[T::stable_key_type()])
+            }
+        }
+    };
+}
+
+impl_stable_key_wrapper!(Option, "rust:option");
+impl_stable_key_wrapper!(Box, "rust:box");
+impl_stable_key_wrapper!(Rc, "rust:rc");
+impl_stable_key_wrapper!(Arc, "rust:arc");
+impl_stable_key_wrapper!(Vec, "rust:vec");
+impl_stable_key_wrapper!(VecDeque, "rust:vec-deque");
+impl_stable_key_wrapper!(LinkedList, "rust:linked-list");
+impl_stable_key_wrapper!(BTreeSet, "rust:btree-set");
+
+impl<T, S> StableKeyType for HashSet<T, S>
+where
+    T: StableKeyType,
+    S: BuildHasher,
+{
+    /// 返回哈希集合的稳定类型标签
+    fn stable_key_type() -> String {
+        compose_stable_type_tag("rust:hash-set", &[T::stable_key_type()])
+    }
+}
+
+impl<K, V> StableKeyType for BTreeMap<K, V>
+where
+    K: StableKeyType,
+    V: StableKeyType,
+{
+    /// 返回有序字典的稳定类型标签
+    fn stable_key_type() -> String {
+        compose_stable_type_tag(
+            "rust:btree-map",
+            &[K::stable_key_type(), V::stable_key_type()],
+        )
+    }
+}
+
+impl<K, V, S> StableKeyType for HashMap<K, V, S>
+where
+    K: StableKeyType,
+    V: StableKeyType,
+    S: BuildHasher,
+{
+    /// 返回哈希字典的稳定类型标签
+    fn stable_key_type() -> String {
+        compose_stable_type_tag(
+            "rust:hash-map",
+            &[K::stable_key_type(), V::stable_key_type()],
+        )
+    }
+}
+
+impl<T, E> StableKeyType for Result<T, E>
+where
+    T: StableKeyType,
+    E: StableKeyType,
+{
+    /// 返回结果类型的稳定标签
+    fn stable_key_type() -> String {
+        compose_stable_type_tag("rust:result", &[T::stable_key_type(), E::stable_key_type()])
+    }
+}
+
+impl<T, const N: usize> StableKeyType for [T; N]
+where
+    T: StableKeyType,
+{
+    /// 返回固定长度数组的稳定类型标签
+    fn stable_key_type() -> String {
+        compose_stable_type_tag("rust:array", &[T::stable_key_type(), format!("length:{N}")])
+    }
+}
+
+impl<T> StableKeyType for [T]
+where
+    T: StableKeyType,
+{
+    /// 返回切片的稳定类型标签
+    fn stable_key_type() -> String {
+        compose_stable_type_tag("rust:slice", &[T::stable_key_type()])
+    }
+}
+
+macro_rules! impl_stable_key_tuple {
+    ($tag:literal; $($type:ident),+) => {
+        impl<$($type),+> StableKeyType for ($($type,)+)
+        where
+            $($type: StableKeyType),+
+        {
+            fn stable_key_type() -> String {
+                compose_stable_type_tag($tag, &[$($type::stable_key_type()),+])
+            }
+        }
+    };
+}
+
+impl_stable_key_tuple!("rust:tuple1"; T1);
+impl_stable_key_tuple!("rust:tuple2"; T1, T2);
+impl_stable_key_tuple!("rust:tuple3"; T1, T2, T3);
+impl_stable_key_tuple!("rust:tuple4"; T1, T2, T3, T4);
+impl_stable_key_tuple!("rust:tuple5"; T1, T2, T3, T4, T5);
+impl_stable_key_tuple!("rust:tuple6"; T1, T2, T3, T4, T5, T6);
+impl_stable_key_tuple!("rust:tuple7"; T1, T2, T3, T4, T5, T6, T7);
+impl_stable_key_tuple!("rust:tuple8"; T1, T2, T3, T4, T5, T6, T7, T8);
+
+/// 使用长度前缀组合稳定类型标签
+fn compose_stable_type_tag(prefix: &str, parts: &[String]) -> String {
+    let mut tag = format!("{}:{prefix}", prefix.len());
+    for part in parts {
+        tag.push('|');
+        tag.push_str(&part.len().to_string());
+        tag.push(':');
+        tag.push_str(part);
+    }
+    tag
 }
 
 /// 为 async fn 方法自动注入结构化调用日志的属性宏
@@ -510,102 +766,25 @@ where
     lock.as_distributed_lock_ref()
 }
 
-/// 生成包含模块、实现类型、方法名和运行时类型的稳定方法标识
-pub fn method_key(
-    module: &str,
-    self_type: Option<&str>,
-    fn_name: &str,
-    parameter_types: &[&str],
-    generic_types: &[&str],
-    const_generics: &[String],
-) -> String {
-    let mut key = match self_type {
-        Some(self_type) => format!("{module}|{self_type}::{fn_name}"),
-        None => format!("{module}|{fn_name}"),
-    };
-
-    key.push('(');
-    key.push_str(&parameter_types.join(","));
-    key.push(')');
-
-    if !generic_types.is_empty() {
-        key.push_str("|generic=");
-        key.push_str(&generic_types.join(","));
-    }
-
-    if !const_generics.is_empty() {
-        key.push_str("|const=");
-        key.push_str(&const_generics.join(","));
-    }
-
-    key
-}
-
-/// 根据局部声明标记恢复无 receiver 函数的声明作用域并生成方法标识
-///
-/// 普通模块自由函数保持原有方法键，静态关联函数自动加入外围类型
-#[doc(hidden)]
-pub fn method_key_with_declaration_scope(
-    module: &str,
-    declaration_scope_marker: &str,
-    fn_name: &str,
-    parameter_types: &[&str],
-    generic_types: &[&str],
-    const_generics: &[String],
-) -> String {
-    let method_segment = format!("::{fn_name}::");
-    let declaration_scope = declaration_scope_marker
-        .rfind(&method_segment)
-        .map(|index| &declaration_scope_marker[..index])
-        .unwrap_or(declaration_scope_marker);
-    let declaration_type = (declaration_scope != module).then_some(declaration_scope);
-
-    method_key(
-        module,
-        declaration_type,
-        fn_name,
-        parameter_types,
-        generic_types,
-        const_generics,
-    )
-}
-
-/// 在显式稳定作用域后追加泛型实例维度
-///
-/// 非泛型作用域原样返回，确保普通缓存键和锁键保持兼容
-pub fn scoped_method_key(scope: &str, generic_types: &[&str], const_generics: &[String]) -> String {
-    let mut key = encode_scoped_key_scope(scope);
-    if generic_types.is_empty() && const_generics.is_empty() {
-        return key;
-    }
-
-    append_scoped_key_dimension(&mut key, "generic", generic_types.iter().copied());
-    append_scoped_key_dimension(&mut key, "const", const_generics.iter().map(String::as_str));
-    key
-}
-
-/// 在显式稳定作用域后追加 Self 与方法泛型实例维度
-#[doc(hidden)]
-pub fn scoped_method_key_with_self(
+/// 根据显式作用域与稳定类型标签生成方法标识
+pub fn stable_method_key(
     scope: &str,
     self_type: Option<&str>,
-    generic_types: &[&str],
+    generic_types: &[String],
     const_generics: &[String],
 ) -> String {
-    let mut key = scoped_method_key(scope, generic_types, const_generics);
+    let mut key = format!("source-generator|scope={}:{}", scope.len(), scope);
+
     if let Some(self_type) = self_type {
         append_scoped_key_dimension(&mut key, "self", [self_type]);
     }
+    append_scoped_key_dimension(
+        &mut key,
+        "generic",
+        generic_types.iter().map(String::as_str),
+    );
+    append_scoped_key_dimension(&mut key, "const", const_generics.iter().map(String::as_str));
     key
-}
-
-/// 对包含控制字符的公开作用域使用无歧义的长度前缀编码
-fn encode_scoped_key_scope(scope: &str) -> String {
-    if !scope.chars().any(char::is_control) {
-        return scope.to_string();
-    }
-
-    format!("\0scope=v2;{}:{scope}", scope.len())
 }
 
 /// 使用数量和长度前缀追加一组作用域键维度
@@ -615,7 +794,7 @@ fn append_scoped_key_dimension<'a>(
     values: impl IntoIterator<Item = &'a str>,
 ) {
     let values = values.into_iter().collect::<Vec<_>>();
-    key.push('\0');
+    key.push('|');
     key.push_str(label);
     key.push('=');
     key.push_str(&values.len().to_string());
@@ -628,123 +807,20 @@ fn append_scoped_key_dimension<'a>(
     }
 }
 
-/// 判断参数运行时类型是否能够生成包含具体类型语义的稳定键
-pub fn parameter_types_support_stable_key(parameter_types: &[&str]) -> bool {
-    parameter_types.iter().all(|type_name| {
-        !contains_runtime_trait_object(type_name) && !contains_runtime_blocking_lock(type_name)
-    })
-}
-
-/// 判断缓存参数的运行时类型是否适合参与缓存键生成
-pub fn cacheable_parameter_types_are_safe(parameter_types: &[&str]) -> bool {
-    parameter_types_support_stable_key(parameter_types)
-        && parameter_types
-            .iter()
-            .all(|type_name| !contains_runtime_mutable_type(type_name))
-}
-
-/// 获取参数声明类型名称并消除模式绑定额外引入的一层引用
-#[doc(hidden)]
-pub fn parameter_type_name<T>(value: &T, binding_by_reference: bool) -> &'static str
-where
-    T: ?Sized,
-{
-    let type_name = std::any::type_name_of_val(value);
-    if !binding_by_reference {
-        return type_name;
-    }
-
-    strip_one_reference_type(type_name)
-}
-
-/// 按 Rust 类型标记边界查找可变引用与可变裸指针
-fn contains_runtime_mutable_type(type_name: &str) -> bool {
-    let bytes = type_name.as_bytes();
-    let mut index = 0usize;
-
-    while index < bytes.len() {
-        if matches!(bytes[index], b'&' | b'*') {
-            let mut marker_index = index + 1;
-            while bytes.get(marker_index).is_some_and(u8::is_ascii_whitespace) {
-                marker_index += 1;
-            }
-
-            if bytes.get(marker_index..marker_index + 3) == Some(b"mut")
-                && bytes
-                    .get(marker_index + 3)
-                    .is_some_and(u8::is_ascii_whitespace)
-            {
-                return true;
-            }
-        }
-
-        index += 1;
-    }
-
-    false
-}
-
-/// 按 Rust 标识符边界查找运行时类型名称中的 dyn 关键字
-fn contains_runtime_trait_object(type_name: &str) -> bool {
-    let bytes = type_name.as_bytes();
-    let mut index = 0usize;
-
-    while index + 3 <= bytes.len() {
-        if bytes.get(index..index + 3) == Some(b"dyn") {
-            let before_is_identifier = index
-                .checked_sub(1)
-                .and_then(|position| bytes.get(position))
-                .is_some_and(|byte| byte.is_ascii_alphanumeric() || *byte == b'_');
-            let followed_by_trait_name = bytes.get(index + 3).is_some_and(u8::is_ascii_whitespace);
-            if !before_is_identifier && followed_by_trait_name {
-                return true;
-            }
-        }
-
-        index += 1;
-    }
-
-    false
-}
-
-/// 判断运行时类型中是否包含序列化时会同步阻塞的标准锁
-fn contains_runtime_blocking_lock(type_name: &str) -> bool {
-    const BLOCKING_LOCK_PATHS: [&str; 7] = [
-        "std::sync::Mutex<",
-        "std::sync::RwLock<",
-        "std::sync::poison::mutex::Mutex<",
-        "std::sync::poison::rwlock::RwLock<",
-        "lock_api::mutex::Mutex<",
-        "lock_api::rwlock::RwLock<",
-        "lock_api::remutex::ReentrantMutex<",
-    ];
-
-    BLOCKING_LOCK_PATHS.iter().any(|lock_path| {
-        type_name.match_indices(lock_path).any(|(index, _)| {
-            type_name[..index]
-                .chars()
-                .next_back()
-                .is_none_or(|character| {
-                    !character.is_alphanumeric() && !matches!(character, '_' | ':')
-                })
-        })
-    })
-}
-
 /// 将调用参数序列化为有边界的规范 JSON
 ///
-/// 标准 HashSet 及其位于派生结构和标准容器中的嵌套值会按规范化内容排序
+/// 无序集合必须通过 unordered_key 显式包装后参与参数键生成
 /// 非有限浮点数会被拒绝，正负零会被规范化为相同数值
 /// 自定义 Serialize 实现需要自行保证内部无序集合的输出顺序稳定
 pub fn arguments_key(args: &impl Serialize) -> Result<String, InvocationKeyError> {
-    serialize_arguments_key(args, false, false)
+    serialize_arguments_key(args)
 }
 
-/// 宏生成的参数类型和值元组包装
+/// 宏生成的参数值包装
 #[doc(hidden)]
 pub struct InvocationArguments<T>(pub T);
 
-/// 将宏生成的参数类型和值元组序列化为有边界的规范 JSON
+/// 将宏生成的参数值序列化为有边界的规范 JSON
 #[doc(hidden)]
 pub fn invocation_arguments_key<T>(
     args: &InvocationArguments<T>,
@@ -752,7 +828,7 @@ pub fn invocation_arguments_key<T>(
 where
     T: Serialize,
 {
-    serialize_arguments_key(&args.0, true, false)
+    serialize_arguments_key(&args.0)
 }
 
 /// 将宏生成的缓存参数元组序列化为有边界的规范 JSON
@@ -763,53 +839,21 @@ pub fn cacheable_invocation_arguments_key<T>(
 where
     T: Serialize,
 {
-    serialize_arguments_key(&args.0, true, true)
+    serialize_arguments_key(&args.0)
 }
 
 /// 按指定参数语义生成规范 JSON
-fn serialize_arguments_key(
-    args: &impl Serialize,
-    contains_type_metadata: bool,
-    reject_mutable_types: bool,
-) -> Result<String, InvocationKeyError> {
+fn serialize_arguments_key(args: &impl Serialize) -> Result<String, InvocationKeyError> {
     const MAX_DEPTH: usize = 64;
     const MAX_TRAVERSAL_DEPTH: usize = 128;
     const MAX_ITEMS: usize = 10_000;
     const MAX_BYTES: usize = 1024 * 1024;
 
-    let argument_type = std::any::type_name_of_val(args);
-    if contains_runtime_blocking_lock(argument_type) {
-        return Err(InvocationKeyError::new(
-            "参数包含序列化时可能阻塞的同步锁类型",
-        ));
-    }
-    if contains_type_metadata && contains_runtime_trait_object(argument_type) {
-        return Err(InvocationKeyError::new(
-            "参数包含无法生成稳定键的 trait object",
-        ));
-    }
-    if reject_mutable_types && contains_runtime_mutable_type(argument_type) {
-        return Err(InvocationKeyError::new("缓存参数包含可变引用或可变裸指针"));
-    }
-
     let mut writer = LimitedJsonWriter::new(MAX_BYTES);
     let mut serializer = serde_json::Serializer::new(&mut writer);
-    let budget = SerializationBudget::new(
-        MAX_DEPTH,
-        MAX_TRAVERSAL_DEPTH,
-        MAX_ITEMS,
-        MAX_BYTES,
-        contains_type_metadata,
-        reject_mutable_types,
-    );
-    let sort_sequence = TypeShape::parse(argument_type).serializes_as_unordered_set();
-    if let Err(error) = args.serialize(CanonicalJsonSerializer::new(
-        &mut serializer,
-        &budget,
-        0,
-        0,
-        sort_sequence,
-    )) {
+    let budget = SerializationBudget::new(MAX_DEPTH, MAX_TRAVERSAL_DEPTH, MAX_ITEMS);
+    if let Err(error) = args.serialize(CanonicalJsonSerializer::new(&mut serializer, &budget, 0, 0))
+    {
         if writer.exceeded() {
             return Err(InvocationKeyError::new(format!(
                 "参数 JSON 超过 {MAX_BYTES} 字节限制"
@@ -827,19 +871,7 @@ fn serialize_arguments_key(
     let value = serde_json::from_slice(writer.as_bytes())
         .map_err(|error| InvocationKeyError::new(format!("参数 JSON 无法解析: {error}")))?;
     let mut item_count = 0usize;
-    let value = if contains_type_metadata {
-        canonicalize_arguments_json(value, 0, &mut item_count, MAX_DEPTH, MAX_ITEMS)?
-    } else {
-        let shape = TypeShape::parse(std::any::type_name_of_val(args));
-        canonicalize_json(
-            value,
-            Some(&shape),
-            0,
-            &mut item_count,
-            MAX_DEPTH,
-            MAX_ITEMS,
-        )?
-    };
+    let value = canonicalize_json(value, 0, &mut item_count, MAX_DEPTH, MAX_ITEMS)?;
     let json = serde_json::to_string(&value)
         .map_err(|error| InvocationKeyError::new(format!("参数 JSON 无法编码: {error}")))?;
 
@@ -858,29 +890,16 @@ struct SerializationBudget {
     max_depth: usize,
     max_traversal_depth: usize,
     max_items: usize,
-    max_bytes: usize,
-    reject_trait_objects: bool,
-    reject_mutable_types: bool,
 }
 
 impl SerializationBudget {
     /// 创建已经包含根节点的序列化预算
-    fn new(
-        max_depth: usize,
-        max_traversal_depth: usize,
-        max_items: usize,
-        max_bytes: usize,
-        reject_trait_objects: bool,
-        reject_mutable_types: bool,
-    ) -> Self {
+    fn new(max_depth: usize, max_traversal_depth: usize, max_items: usize) -> Self {
         Self {
             item_count: Cell::new(1),
             max_depth,
             max_traversal_depth,
             max_items,
-            max_bytes,
-            reject_trait_objects,
-            reject_mutable_types,
         }
     }
 
@@ -946,7 +965,6 @@ struct CanonicalJsonSerializer<'a, S> {
     budget: &'a SerializationBudget,
     depth: usize,
     traversal_depth: usize,
-    sort_sequence: bool,
 }
 
 impl<'a, S> CanonicalJsonSerializer<'a, S> {
@@ -956,14 +974,12 @@ impl<'a, S> CanonicalJsonSerializer<'a, S> {
         budget: &'a SerializationBudget,
         depth: usize,
         traversal_depth: usize,
-        sort_sequence: bool,
     ) -> Self {
         Self {
             serializer,
             budget,
             depth,
             traversal_depth,
-            sort_sequence,
         }
     }
 }
@@ -1004,24 +1020,11 @@ where
     {
         self.budget
             .check_traversal::<S::Error>(self.traversal_depth)?;
-        let type_name = std::any::type_name::<T>();
-        if contains_runtime_blocking_lock(type_name) {
-            return Err(S::Error::custom("参数包含序列化时可能阻塞的同步锁类型"));
-        }
-        if self.budget.reject_trait_objects && contains_runtime_trait_object(type_name) {
-            return Err(S::Error::custom("参数包含无法生成稳定键的 trait object"));
-        }
-        if self.budget.reject_mutable_types && contains_runtime_mutable_type(type_name) {
-            return Err(S::Error::custom("缓存参数包含可变引用或可变裸指针"));
-        }
-
-        let sort_sequence = TypeShape::parse(type_name).serializes_as_unordered_set();
         self.value.serialize(CanonicalJsonSerializer::new(
             serializer,
             self.budget,
             self.depth,
             self.traversal_depth,
-            sort_sequence,
         ))
     }
 }
@@ -1228,13 +1231,7 @@ where
         let child_depth = self.depth.saturating_add(1);
         let child_traversal_depth = self.traversal_depth.saturating_add(1);
         self.serializer.serialize_seq(len).map(|sequence| {
-            CanonicalSerializeSeq::new(
-                sequence,
-                self.budget,
-                child_depth,
-                child_traversal_depth,
-                self.sort_sequence,
-            )
+            CanonicalSerializeSeq::new(sequence, self.budget, child_depth, child_traversal_depth)
         })
     }
 
@@ -1359,9 +1356,6 @@ struct CanonicalSerializeSeq<'a, S> {
     budget: &'a SerializationBudget,
     child_depth: usize,
     child_traversal_depth: usize,
-    sort_elements: bool,
-    buffered_bytes: usize,
-    buffered_values: Vec<(String, serde_json::Value)>,
 }
 
 impl<'a, S> CanonicalSerializeSeq<'a, S> {
@@ -1371,16 +1365,12 @@ impl<'a, S> CanonicalSerializeSeq<'a, S> {
         budget: &'a SerializationBudget,
         child_depth: usize,
         child_traversal_depth: usize,
-        sort_elements: bool,
     ) -> Self {
         Self {
             sequence,
             budget,
             child_depth,
             child_traversal_depth,
-            sort_elements,
-            buffered_bytes: 0,
-            buffered_values: Vec::new(),
         }
     }
 }
@@ -1398,66 +1388,6 @@ where
         T: Serialize + ?Sized,
     {
         self.budget.enter::<Self::Error>(self.child_depth)?;
-        if self.sort_elements {
-            let remaining_bytes = self
-                .budget
-                .max_bytes
-                .checked_sub(self.buffered_bytes)
-                .ok_or_else(|| Self::Error::custom("参数 JSON 超过字节限制"))?;
-            let mut writer = LimitedJsonWriter::new(remaining_bytes);
-            let mut serializer = serde_json::Serializer::new(&mut writer);
-            let type_name = std::any::type_name::<T>();
-            if contains_runtime_blocking_lock(type_name) {
-                return Err(Self::Error::custom("参数包含序列化时可能阻塞的同步锁类型"));
-            }
-            if self.budget.reject_trait_objects && contains_runtime_trait_object(type_name) {
-                return Err(Self::Error::custom("参数包含无法生成稳定键的 trait object"));
-            }
-            if self.budget.reject_mutable_types && contains_runtime_mutable_type(type_name) {
-                return Err(Self::Error::custom("缓存参数包含可变引用或可变裸指针"));
-            }
-            let sort_sequence = TypeShape::parse(type_name).serializes_as_unordered_set();
-            if let Err(error) = value.serialize(CanonicalJsonSerializer::new(
-                &mut serializer,
-                self.budget,
-                self.child_depth,
-                self.child_traversal_depth,
-                sort_sequence,
-            )) {
-                if writer.exceeded() {
-                    return Err(Self::Error::custom(format!(
-                        "参数 JSON 超过 {} 字节限制",
-                        self.budget.max_bytes
-                    )));
-                }
-
-                return Err(Self::Error::custom(display_summary(&error)));
-            }
-
-            validate_json_complexity(
-                writer.as_bytes(),
-                self.budget.max_depth,
-                self.budget.max_items,
-            )
-            .map_err(|error| Self::Error::custom(error.to_string()))?;
-            let buffered_value: serde_json::Value = serde_json::from_slice(writer.as_bytes())
-                .map_err(|error| Self::Error::custom(format!("参数 JSON 无法解析: {error}")))?;
-            let sort_key = canonical_json_sort_key(&buffered_value);
-            let buffered_len = sort_key.len();
-            self.buffered_bytes = self
-                .buffered_bytes
-                .checked_add(buffered_len)
-                .filter(|length| *length <= self.budget.max_bytes)
-                .ok_or_else(|| {
-                    Self::Error::custom(format!(
-                        "参数 JSON 超过 {} 字节限制",
-                        self.budget.max_bytes
-                    ))
-                })?;
-            self.buffered_values.push((sort_key, buffered_value));
-            return Ok(());
-        }
-
         self.sequence.serialize_element(&CanonicalJsonValue::new(
             value,
             self.budget,
@@ -1467,15 +1397,7 @@ where
     }
 
     /// 结束数组序列化
-    fn end(mut self) -> Result<Self::Ok, Self::Error> {
-        if self.sort_elements {
-            self.buffered_values
-                .sort_unstable_by(|left, right| left.0.cmp(&right.0));
-            for (_, value) in &self.buffered_values {
-                self.sequence.serialize_element(value)?;
-            }
-        }
-
+    fn end(self) -> Result<Self::Ok, Self::Error> {
         self.sequence.end()
     }
 }
@@ -2172,267 +2094,21 @@ pub fn concurrency_limit_key(method_key: &str, arguments_key: Option<&str>) -> S
     )
 }
 
-/// 判断 cacheable 方法的 Result 成功值是否为单元类型
-///
-/// 通过运行时完整类型名称判断，可兼容 Result 返回类型别名
-pub fn cacheable_return_is_unit<R>() -> bool {
-    let type_name = std::any::type_name::<R>();
-    let Some((outer, arguments)) = split_outer_generics(type_name) else {
-        return false;
-    };
-
-    outer == "core::result::Result"
-        && split_top_level(arguments, ',')
-            .first()
-            .is_some_and(|argument| argument.trim() == "()")
-}
-
-/// 参数值在 JSON 中需要保留的集合语义
-enum TypeShape {
-    /// 无序集合
-    Set(Box<TypeShape>),
-
-    /// 有序序列
-    Sequence(Box<TypeShape>),
-
-    /// 字典值
-    Map(Box<TypeShape>),
-
-    /// 元组元素
-    Tuple(Vec<TypeShape>),
-
-    /// 透明包装
-    Transparent(Box<TypeShape>),
-
-    /// Result 的成功与失败值
-    Result(Box<TypeShape>, Box<TypeShape>),
-
-    /// 不需要特殊集合处理的类型
-    Other,
-}
-
-impl TypeShape {
-    /// 根据 Rust 运行时类型名称解析标准集合结构
-    fn parse(type_name: &str) -> Self {
-        let type_name = strip_reference_type(type_name.trim());
-
-        if let Some(inner) = type_name
-            .strip_prefix('(')
-            .and_then(|value| value.strip_suffix(')'))
-        {
-            if inner.is_empty() {
-                return Self::Other;
-            }
-
-            return Self::Tuple(
-                split_top_level(inner, ',')
-                    .into_iter()
-                    .filter(|value| !value.trim().is_empty())
-                    .map(Self::parse)
-                    .collect(),
-            );
-        }
-
-        if let Some(inner) = type_name
-            .strip_prefix('[')
-            .and_then(|value| value.strip_suffix(']'))
-        {
-            let element_type = split_top_level(inner, ';')
-                .into_iter()
-                .next()
-                .unwrap_or(inner);
-            return Self::Sequence(Box::new(Self::parse(element_type)));
-        }
-
-        let Some((outer, arguments)) = split_outer_generics(type_name) else {
-            return Self::Other;
-        };
-        let arguments = split_top_level(arguments, ',');
-        match outer {
-            "std::collections::hash::set::HashSet" => arguments
-                .first()
-                .map(|argument| Self::Set(Box::new(Self::parse(argument))))
-                .unwrap_or(Self::Other),
-            "alloc::vec::Vec"
-            | "alloc::collections::vec_deque::VecDeque"
-            | "alloc::collections::linked_list::LinkedList" => arguments
-                .first()
-                .map(|argument| Self::Sequence(Box::new(Self::parse(argument))))
-                .unwrap_or(Self::Other),
-            "std::collections::hash::map::HashMap" | "alloc::collections::btree::map::BTreeMap" => {
-                arguments
-                    .get(1)
-                    .map(|argument| Self::Map(Box::new(Self::parse(argument))))
-                    .unwrap_or(Self::Other)
-            }
-            "alloc::borrow::Cow" => arguments
-                .last()
-                .map(|argument| Self::Transparent(Box::new(Self::parse(argument))))
-                .unwrap_or(Self::Other),
-            "core::option::Option"
-            | "alloc::boxed::Box"
-            | "alloc::rc::Rc"
-            | "alloc::sync::Arc"
-            | "core::cell::Cell"
-            | "core::cell::RefCell"
-            | "core::cmp::Reverse"
-            | "core::num::wrapping::Wrapping"
-            | "core::num::saturating::Saturating" => arguments
-                .first()
-                .map(|argument| Self::Transparent(Box::new(Self::parse(argument))))
-                .unwrap_or(Self::Other),
-            "core::result::Result" if arguments.len() >= 2 => Self::Result(
-                Box::new(Self::parse(arguments[0])),
-                Box::new(Self::parse(arguments[1])),
-            ),
-            _ => Self::Other,
-        }
-    }
-
-    /// 判断当前类型最终是否直接序列化为无序集合序列
-    fn serializes_as_unordered_set(&self) -> bool {
-        match self {
-            Self::Set(_) => true,
-            Self::Transparent(inner) => inner.serializes_as_unordered_set(),
-            _ => false,
-        }
-    }
-}
-
-/// 规范化宏生成的参数元组并保留标准集合类型语义
-fn canonicalize_arguments_json(
-    value: serde_json::Value,
-    depth: usize,
-    item_count: &mut usize,
-    max_depth: usize,
-    max_items: usize,
-) -> Result<serde_json::Value, InvocationKeyError> {
-    let serde_json::Value::Array(arguments) = value else {
-        return canonicalize_json(value, None, depth, item_count, max_depth, max_items);
-    };
-
-    check_json_limits(depth, item_count, max_depth, max_items)?;
-    arguments
-        .into_iter()
-        .map(|argument| {
-            let serde_json::Value::Array(mut pair) = argument else {
-                return canonicalize_json(
-                    argument,
-                    None,
-                    depth + 1,
-                    item_count,
-                    max_depth,
-                    max_items,
-                );
-            };
-
-            if pair.len() != 2 || !pair[0].is_string() {
-                return canonicalize_json(
-                    serde_json::Value::Array(pair),
-                    None,
-                    depth + 1,
-                    item_count,
-                    max_depth,
-                    max_items,
-                );
-            }
-
-            check_json_limits(depth + 1, item_count, max_depth, max_items)?;
-            let value = pair.pop().expect("参数键元组必须包含参数值");
-            let type_value = pair.pop().expect("参数键元组必须包含类型名称");
-            let type_name = type_value.as_str().unwrap_or_default();
-            let shape = TypeShape::parse(type_name);
-            let type_value = canonicalize_json(
-                type_value,
-                None,
-                depth + 2,
-                item_count,
-                max_depth,
-                max_items,
-            )?;
-            let value = canonicalize_json(
-                value,
-                Some(&shape),
-                depth + 2,
-                item_count,
-                max_depth,
-                max_items,
-            )?;
-
-            Ok(serde_json::Value::Array(vec![type_value, value]))
-        })
-        .collect::<Result<Vec<_>, _>>()
-        .map(serde_json::Value::Array)
-}
-
-/// 递归规范化 JSON 对象字段和无序集合并限制输入复杂度
+/// 递归规范化 JSON 对象字段并限制输入复杂度
 fn canonicalize_json(
     value: serde_json::Value,
-    shape: Option<&TypeShape>,
     depth: usize,
     item_count: &mut usize,
     max_depth: usize,
     max_items: usize,
 ) -> Result<serde_json::Value, InvocationKeyError> {
     check_json_limits(depth, item_count, max_depth, max_items)?;
-    canonicalize_json_value(value, shape, depth, item_count, max_depth, max_items)
-}
-
-/// 按照已经计数的当前节点递归规范化 JSON 内容
-fn canonicalize_json_value(
-    value: serde_json::Value,
-    shape: Option<&TypeShape>,
-    depth: usize,
-    item_count: &mut usize,
-    max_depth: usize,
-    max_items: usize,
-) -> Result<serde_json::Value, InvocationKeyError> {
-    if let Some(TypeShape::Transparent(inner)) = shape {
-        return canonicalize_json_value(
-            value,
-            Some(inner),
-            depth,
-            item_count,
-            max_depth,
-            max_items,
-        );
-    }
-
     match value {
-        serde_json::Value::Array(values) => {
-            let element_shape = match shape {
-                Some(TypeShape::Set(inner) | TypeShape::Sequence(inner)) => Some(inner.as_ref()),
-                _ => None,
-            };
-            let tuple_shapes = match shape {
-                Some(TypeShape::Tuple(shapes)) => Some(shapes.as_slice()),
-                _ => None,
-            };
-            let mut values = values
-                .into_iter()
-                .enumerate()
-                .map(|(index, value)| {
-                    let shape = tuple_shapes
-                        .and_then(|shapes| shapes.get(index))
-                        .or(element_shape);
-                    canonicalize_json(value, shape, depth + 1, item_count, max_depth, max_items)
-                })
-                .collect::<Result<Vec<_>, _>>()?;
-
-            if matches!(shape, Some(TypeShape::Set(_))) {
-                let mut sortable_values = values
-                    .into_iter()
-                    .map(|value| (canonical_json_sort_key(&value), value))
-                    .collect::<Vec<_>>();
-                sortable_values.sort_unstable_by(|left, right| left.0.cmp(&right.0));
-                values = sortable_values
-                    .into_iter()
-                    .map(|(_, value)| value)
-                    .collect();
-            }
-
-            Ok(serde_json::Value::Array(values))
-        }
+        serde_json::Value::Array(values) => values
+            .into_iter()
+            .map(|value| canonicalize_json(value, depth + 1, item_count, max_depth, max_items))
+            .collect::<Result<Vec<_>, _>>()
+            .map(serde_json::Value::Array),
         serde_json::Value::Object(values) => {
             let mut entries = values.into_iter().collect::<Vec<_>>();
             entries.sort_unstable_by(|left, right| left.0.cmp(&right.0));
@@ -2440,21 +2116,8 @@ fn canonicalize_json_value(
             entries
                 .into_iter()
                 .map(|(key, value)| {
-                    let value_shape = match shape {
-                        Some(TypeShape::Map(inner)) => Some(inner.as_ref()),
-                        Some(TypeShape::Result(ok, _)) if key == "Ok" => Some(ok.as_ref()),
-                        Some(TypeShape::Result(_, error)) if key == "Err" => Some(error.as_ref()),
-                        _ => None,
-                    };
-                    canonicalize_json(
-                        value,
-                        value_shape,
-                        depth + 1,
-                        item_count,
-                        max_depth,
-                        max_items,
-                    )
-                    .map(|value| (key, value))
+                    canonicalize_json(value, depth + 1, item_count, max_depth, max_items)
+                        .map(|value| (key, value))
                 })
                 .collect::<Result<serde_json::Map<_, _>, _>>()
                 .map(serde_json::Value::Object)
@@ -2489,77 +2152,6 @@ fn check_json_limits(
     Ok(())
 }
 
-/// 生成规范化 JSON 值的排序文本
-fn canonical_json_sort_key(value: &serde_json::Value) -> String {
-    serde_json::to_string(value).unwrap_or_default()
-}
-
-/// 去除运行时类型名称开头的引用包装
-fn strip_reference_type(mut type_name: &str) -> &str {
-    loop {
-        let trimmed = type_name.trim_start();
-        if let Some(value) = trimmed.strip_prefix("&mut ") {
-            type_name = value;
-            continue;
-        }
-        if let Some(value) = trimmed.strip_prefix('&') {
-            type_name = value;
-            continue;
-        }
-
-        return trimmed;
-    }
-}
-
-/// 去除运行时类型名称开头的一层引用包装
-fn strip_one_reference_type(type_name: &'static str) -> &'static str {
-    let trimmed = type_name.trim_start();
-    if let Some(value) = trimmed.strip_prefix("&mut ") {
-        return value;
-    }
-    if let Some(value) = trimmed.strip_prefix('&') {
-        return value.trim_start();
-    }
-
-    trimmed
-}
-
-/// 拆分类型名称最外层的泛型参数
-fn split_outer_generics(type_name: &str) -> Option<(&str, &str)> {
-    let start = type_name.find('<')?;
-    let inner = type_name.get(start + 1..)?.strip_suffix('>')?;
-    Some((&type_name[..start], inner))
-}
-
-/// 按指定分隔符拆分不在嵌套类型内部的文本
-fn split_top_level(value: &str, separator: char) -> Vec<&str> {
-    let mut parts = Vec::new();
-    let mut start = 0usize;
-    let mut angle_depth = 0usize;
-    let mut round_depth = 0usize;
-    let mut square_depth = 0usize;
-
-    for (index, character) in value.char_indices() {
-        match character {
-            '<' => angle_depth += 1,
-            '>' => angle_depth = angle_depth.saturating_sub(1),
-            '(' => round_depth += 1,
-            ')' => round_depth = round_depth.saturating_sub(1),
-            '[' => square_depth += 1,
-            ']' => square_depth = square_depth.saturating_sub(1),
-            _ => {}
-        }
-
-        if character == separator && angle_depth == 0 && round_depth == 0 && square_depth == 0 {
-            parts.push(value[start..index].trim());
-            start = index + character.len_utf8();
-        }
-    }
-
-    parts.push(value[start..].trim());
-    parts
-}
-
 /// 计算方法标识与可选参数快照组成的调用摘要
 fn compose_invocation_hash(method_key: &str, arguments_key: Option<&str>) -> String {
     if method_key.chars().any(char::is_control) {
@@ -2579,7 +2171,7 @@ fn compose_invocation_hash(method_key: &str, arguments_key: Option<&str>) -> Str
 /// 对包含控制字符的方法键使用无歧义的长度前缀编码
 fn compose_structured_invocation_hash(method_key: &str, arguments_key: Option<&str>) -> String {
     let mut hasher = Sha256::new();
-    hasher.update(b"source_generator_invocation_key_v2\0");
+    hasher.update(b"source_generator_invocation_key\0");
     hasher.update(
         u64::try_from(method_key.len())
             .unwrap_or(u64::MAX)

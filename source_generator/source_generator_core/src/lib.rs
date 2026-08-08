@@ -1,7 +1,7 @@
 use proc_macro::TokenStream;
 use proc_macro_crate::{FoundCrate, crate_name};
 use proc_macro2::TokenStream as TokenStream2;
-use quote::{format_ident, quote};
+use quote::{format_ident, quote, quote_spanned};
 use syn::{
     Expr, GenericArgument, Ident, ItemFn, MetaNameValue, Pat, Path, PathArguments, Token, Type,
     braced, parenthesized,
@@ -33,14 +33,14 @@ fn runtime_crate_path() -> syn::Result<TokenStream2> {
 /// 发生异常时记录 exception 日志（含耗时与错误描述）
 ///
 /// 仅支持返回 Result<T, E> 的 async fn，E 需实现 Debug
-/// 无 receiver 的静态关联函数会自动将声明类型加入默认方法键
+/// 必须通过 key_scope 声明跨构建稳定且全局唯一的方法标识
 ///
 /// # 示例
 /// ```ignore
 /// use source_generator_runtime::logging;
 ///
 /// impl MyService {
-///     #[logging]
+///     #[logging(key_scope = "application.my-service.get-user")]
 ///     pub async fn get_user(&self, id: i64) -> Result<UserDto, AppError> {
 ///         // 方法体
 ///     }
@@ -139,9 +139,12 @@ fn expand_logging(args: LoggingArgs, mut input: ItemFn) -> syn::Result<TokenStre
     let attrs = &input.attrs;
     let vis = &input.vis;
     let body = &input.block;
+    let key_scope = args
+        .key_scope
+        .as_ref()
+        .ok_or_else(|| syn::Error::new_spanned(sig, "缺少必填参数 key_scope"))?;
     let method_key = build_scoped_method_key(
-        sig,
-        args.key_scope.as_ref(),
+        key_scope,
         &args.key_types,
         &args.key_consts,
         args.key_include_self,
@@ -206,7 +209,7 @@ fn expand_logging(args: LoggingArgs, mut input: ItemFn) -> syn::Result<TokenStre
 /// # 使用限制
 ///
 /// receiver 只支持不可变引用，其他参数必须实现 `Copy`，且不支持可变绑定、可变引用或可变裸指针。
-/// 无 receiver 的静态关联函数会自动将声明类型加入默认方法键。
+/// 必须通过 key_scope 声明跨构建稳定且全局唯一的方法标识。
 /// 需要在单次尝试中修改参数时，应在方法体内从不可变原参数创建局部副本或克隆，
 /// 使该局部值能够在每次重试执行方法体时重新初始化。
 ///
@@ -216,7 +219,11 @@ fn expand_logging(args: LoggingArgs, mut input: ItemFn) -> syn::Result<TokenStre
 ///
 /// impl MyService {
 ///     // 参数均为 Copy 类型或引用，适合使用 retry
-///     #[retry(max_retries = 3, delay_seconds = 1)]
+///     #[retry(
+///         max_retries = 3,
+///         delay_seconds = 1,
+///         key_scope = "application.my-service.call-external"
+///     )]
 ///     pub async fn call_external(&self, id: i64) -> Result<String, AppError> {
 ///         // 外部调用可能失败
 ///     }
@@ -232,16 +239,22 @@ pub fn retry(attr: TokenStream, item: TokenStream) -> TokenStream {
 
 /// 为 async fn 方法开启缓存包装，命中缓存时直接返回序列化结果
 ///
-/// 参数格式与 #[retry] 保持一致
-///
 /// - cache：缓存实例表达式，支持 Arc<HybridCache> 或 &HybridCache
 /// - ttl_seconds：L2 缓存有效期秒数，默认 60
 /// - lock：可选的分布式锁实例表达式，用于缓存回源防击穿
 /// - lock_expiry_seconds：防击穿锁有效期秒数，默认 60
-/// - key_scope：显式稳定方法键，无 self 接收者时必填
-/// - key_types(...)：显式加入外围类型泛型等宏不可见的类型键维度
+/// - key_scope：必填的稳定方法键
+/// - key_types(...)：加入实现 StableKeyType 的类型键维度
 /// - key_consts(...)：显式加入外围 const 泛型等宏不可见的常量键维度
-/// - key_include_self：显式 scope 是否包含 Self，receiver 方法默认 true
+/// - key_include_self：是否通过 StableKeyType 将 Self 加入键，默认 false
+/// - key：可选的显式参数键表达式，包含所有业务相关参数且不得移动方法参数
+/// - cache_value：返回类型别名等无法静态分析时，显式声明是否缓存成功值
+///
+/// 显式参数键应优先写成 `key = (&id, &tenant_id)`，无序集合应使用
+/// `key = source_generator_runtime::unordered_key(&ids)` 明确声明集合语义
+/// 未配置 key 时，除 receiver 外的全部参数都必须实现 Serialize
+/// 配置 key 后只要求该表达式实现 Serialize，调用方负责包含所有影响结果的稳定业务维度
+/// 参数实现 Serialize 但运行时序列化失败时会记录降级日志并绕过缓存
 ///
 /// 仅支持返回 Result<T, E> 的 async fn，T 需实现 Serialize 与 DeserializeOwned
 /// receiver 必须是不可变引用，其他参数只支持不带子模式的标识符绑定
@@ -256,17 +269,21 @@ pub fn cacheable(attr: TokenStream, item: TokenStream) -> TokenStream {
 
 /// 为 async fn 方法开启并发限制包装，使用分布式锁控制同 key 并发数
 ///
-/// 参数格式与 #[retry] 保持一致
-///
 /// - lock：必填的分布式锁实例表达式
 /// - is_use_parameter：是否将参数加入锁 key，仅接受布尔字面量
 /// - is_block：获取不到锁时是否立即返回错误，仅接受布尔字面量
 /// - semaphore：允许的最大并发数，默认 1，仅接受整数值字面量
 /// - expiry_seconds：锁过期秒数，默认 0 表示使用锁实现默认值，仅接受整数值字面量
-/// - key_scope：显式稳定方法键，无 self 接收者时必填
-/// - key_types(...)：显式加入外围类型泛型等宏不可见的类型键维度
+/// - key_scope：必填的稳定方法键
+/// - key_types(...)：加入实现 StableKeyType 的类型键维度
 /// - key_consts(...)：显式加入外围 const 泛型等宏不可见的常量键维度
-/// - key_include_self：显式 scope 是否包含 Self，receiver 方法默认 true
+/// - key_include_self：是否通过 StableKeyType 将 Self 加入键，默认 false
+/// - key：is_use_parameter 为 true 时可使用的显式参数键表达式
+///
+/// 显式参数键应包含全部会影响并发隔离的业务维度，并通过引用避免移动方法参数
+/// 无序集合应使用 source_generator_runtime::unordered_key 显式声明集合语义
+/// 未配置 key 时，除 receiver 外的全部参数都必须实现 Serialize
+/// 参数序列化失败时会返回错误，禁止绕过锁继续执行
 ///
 /// 仅支持返回 Result<T, E> 的 async fn，E 需实现 From<String> 与 From<LockError>
 #[proc_macro_attribute]
@@ -930,9 +947,12 @@ fn expand_retry(args: RetryArgs, mut input: ItemFn) -> syn::Result<TokenStream> 
         "__source_generator_retry_body",
         span = proc_macro2::Span::mixed_site()
     );
+    let key_scope = args
+        .key_scope
+        .as_ref()
+        .ok_or_else(|| syn::Error::new_spanned(sig, "缺少必填参数 key_scope"))?;
     let method_key = build_scoped_method_key(
-        sig,
-        args.key_scope.as_ref(),
+        key_scope,
         &args.key_types,
         &args.key_consts,
         args.key_include_self,
@@ -1146,6 +1166,12 @@ struct CacheableArgs {
 
     /// 显式作用域是否包含 receiver 的 Self 类型
     key_include_self: Option<bool>,
+
+    /// 显式参与缓存键生成的参数表达式
+    key: Option<Expr>,
+
+    /// 无法静态分析返回类型时显式声明是否缓存成功值
+    cache_value: Option<bool>,
 }
 
 impl Parse for CacheableArgs {
@@ -1161,10 +1187,14 @@ impl Parse for CacheableArgs {
         let mut key_types: Option<Vec<Type>> = None;
         let mut key_consts: Option<Vec<Expr>> = None;
         let mut key_include_self = None;
+        let mut key = None;
+        let mut cache_value = None;
         let mut has_cache = false;
         let mut has_ttl_seconds = false;
         let mut has_lock = false;
         let mut has_lock_expiry_seconds = false;
+        let mut has_key = false;
+        let mut has_cache_value = false;
 
         for meta in &metas {
             let name = meta
@@ -1218,6 +1248,29 @@ impl Parse for CacheableArgs {
                             .clone(),
                     );
                 }
+                "key" => {
+                    if has_key {
+                        return Err(syn::Error::new_spanned(
+                            meta.path(),
+                            "参数 key 不能重复配置",
+                        ));
+                    }
+                    has_key = true;
+                    key = Some(require_name_value(meta, "key")?.value.clone());
+                }
+                "cache_value" => {
+                    if has_cache_value {
+                        return Err(syn::Error::new_spanned(
+                            meta.path(),
+                            "参数 cache_value 不能重复配置",
+                        ));
+                    }
+                    has_cache_value = true;
+                    cache_value = Some(parse_bool_literal(
+                        &require_name_value(meta, "cache_value")?.value,
+                        "cache_value",
+                    )?);
+                }
                 other => {
                     if !parse_scoped_key_meta(
                         meta,
@@ -1230,7 +1283,7 @@ impl Parse for CacheableArgs {
                         return Err(syn::Error::new_spanned(
                             meta.path(),
                             format!(
-                                "未知参数 `{other}`，支持 cache / ttl_seconds / lock / lock_expiry_seconds / key_scope / key_types(...) / key_consts(...) / key_include_self"
+                                "未知参数 `{other}`，支持 cache / ttl_seconds / lock / lock_expiry_seconds / key_scope / key_types(...) / key_consts(...) / key_include_self / key / cache_value"
                             ),
                         ));
                     }
@@ -1264,6 +1317,8 @@ impl Parse for CacheableArgs {
             key_types: key_types.unwrap_or_default(),
             key_consts: key_consts.unwrap_or_default(),
             key_include_self,
+            key,
+            cache_value,
         })
     }
 }
@@ -1296,6 +1351,9 @@ struct ConcurrencyLimitArgs {
 
     /// 显式作用域是否包含 receiver 的 Self 类型
     key_include_self: Option<bool>,
+
+    /// 显式参与锁键生成的参数表达式
+    key: Option<Expr>,
 }
 
 impl Parse for ConcurrencyLimitArgs {
@@ -1311,11 +1369,13 @@ impl Parse for ConcurrencyLimitArgs {
         let mut key_types: Option<Vec<Type>> = None;
         let mut key_consts: Option<Vec<Expr>> = None;
         let mut key_include_self = None;
+        let mut key = None;
         let mut has_lock = false;
         let mut has_is_use_parameter = false;
         let mut has_is_block = false;
         let mut has_semaphore = false;
         let mut has_expiry_seconds = false;
+        let mut has_key = false;
 
         for meta in &metas {
             let name = meta
@@ -1387,6 +1447,16 @@ impl Parse for ConcurrencyLimitArgs {
                         "expiry_seconds",
                     )?);
                 }
+                "key" => {
+                    if has_key {
+                        return Err(syn::Error::new_spanned(
+                            meta.path(),
+                            "参数 key 不能重复配置",
+                        ));
+                    }
+                    has_key = true;
+                    key = Some(require_name_value(meta, "key")?.value.clone());
+                }
                 other => {
                     if !parse_scoped_key_meta(
                         meta,
@@ -1399,7 +1469,7 @@ impl Parse for ConcurrencyLimitArgs {
                         return Err(syn::Error::new_spanned(
                             meta.path(),
                             format!(
-                                "未知参数 `{other}`，支持 lock / is_use_parameter / is_block / semaphore / expiry_seconds / key_scope / key_types(...) / key_consts(...) / key_include_self"
+                                "未知参数 `{other}`，支持 lock / is_use_parameter / is_block / semaphore / expiry_seconds / key_scope / key_types(...) / key_consts(...) / key_include_self / key"
                             ),
                         ));
                     }
@@ -1417,6 +1487,13 @@ impl Parse for ConcurrencyLimitArgs {
             key_include_self,
         )?;
 
+        if key.is_some() && !is_use_parameter.unwrap_or(false) {
+            return Err(syn::Error::new(
+                input.span(),
+                "配置 key 时必须同时设置 is_use_parameter = true",
+            ));
+        }
+
         Ok(Self {
             lock,
             is_use_parameter,
@@ -1427,6 +1504,7 @@ impl Parse for ConcurrencyLimitArgs {
             key_types: key_types.unwrap_or_default(),
             key_consts: key_consts.unwrap_or_default(),
             key_include_self,
+            key,
         })
     }
 }
@@ -1535,20 +1613,18 @@ fn parse_scoped_key_meta(
     Ok(true)
 }
 
-/// 校验附加键维度只能与显式作用域一起使用
+/// 校验稳定键必须提供显式作用域
 fn validate_scoped_key_options(
     input: ParseStream,
     key_scope: Option<&syn::LitStr>,
-    key_types: Option<&[Type]>,
-    key_consts: Option<&[Expr]>,
-    key_include_self: Option<bool>,
+    _key_types: Option<&[Type]>,
+    _key_consts: Option<&[Expr]>,
+    _key_include_self: Option<bool>,
 ) -> syn::Result<()> {
-    if key_scope.is_none()
-        && (key_types.is_some() || key_consts.is_some() || key_include_self.is_some())
-    {
+    if key_scope.is_none() {
         return Err(syn::Error::new(
             input.span(),
-            "key_types、key_consts 和 key_include_self 必须与 key_scope 一起配置",
+            "必须配置跨构建稳定且全局唯一的 key_scope",
         ));
     }
 
@@ -1631,13 +1707,15 @@ fn expand_cacheable(args: CacheableArgs, mut input: ItemFn) -> syn::Result<Token
         ));
     }
 
-    if let Some(input) = sig.inputs.iter().find(|input| match input {
-        syn::FnArg::Receiver(receiver) => contains_trait_object(&receiver.ty),
-        syn::FnArg::Typed(typed) => contains_trait_object(&typed.ty),
-    }) {
+    if args.key.is_none()
+        && let Some(input) = sig.inputs.iter().find(|input| match input {
+            syn::FnArg::Receiver(_) => false,
+            syn::FnArg::Typed(typed) => contains_trait_object(&typed.ty),
+        })
+    {
         return Err(syn::Error::new_spanned(
             input,
-            "#[cacheable] 不支持包含 dyn Trait 的参数，请改用带稳定类型标签的枚举或包装类型",
+            "#[cacheable] 的默认参数键不支持包含 dyn Trait 的参数，请配置 key = (...) 只选择稳定且可序列化的业务参数",
         ));
     }
 
@@ -1661,13 +1739,6 @@ fn expand_cacheable(args: CacheableArgs, mut input: ItemFn) -> syn::Result<Token
         ));
     }
 
-    if !has_receiver(sig) && args.key_scope.is_none() {
-        return Err(syn::Error::new_spanned(
-            sig,
-            "无 self 接收者的 #[cacheable] 函数必须配置唯一的 key_scope",
-        ));
-    }
-
     if !has_receiver(sig) && args.key_include_self.is_some() {
         return Err(syn::Error::new_spanned(
             sig,
@@ -1675,11 +1746,26 @@ fn expand_cacheable(args: CacheableArgs, mut input: ItemFn) -> syn::Result<Token
         ));
     }
 
-    let arg_tuple = build_argument_tuple(sig, &runtime)?;
-    let parameter_types = build_cacheable_safety_type_names(sig, &runtime);
-    let method_key = build_scoped_method_key(
+    let uses_explicit_key = args.key.is_some();
+    let argument_value = build_argument_value(sig, args.key.as_ref())?;
+    let argument_value_ident = format_ident!(
+        "__source_generator_cache_argument_value",
+        span = proc_macro2::Span::mixed_site()
+    );
+    let argument_serialization_assertions = build_argument_serialization_assertions(
         sig,
-        args.key_scope.as_ref(),
+        uses_explicit_key,
+        &runtime,
+        "cache",
+        &argument_value_ident,
+    )?;
+    let cache_value = resolve_cache_value(return_type, args.cache_value)?;
+    let key_scope = args
+        .key_scope
+        .as_ref()
+        .ok_or_else(|| syn::Error::new_spanned(sig, "缺少必填参数 key_scope"))?;
+    let method_key = build_scoped_method_key(
+        key_scope,
         &args.key_types,
         &args.key_consts,
         args.key_include_self,
@@ -1758,19 +1844,16 @@ fn expand_cacheable(args: CacheableArgs, mut input: ItemFn) -> syn::Result<Token
 
             #cache_body_declaration
 
-            if !#runtime::cacheable_parameter_types_are_safe(
-                &[#(#parameter_types),*],
-            ) {
+            if !#cache_value {
                 return #cache_body(#(#cache_body_arguments),*).await;
             }
 
-            if #runtime::cacheable_return_is_unit::<#return_type>() {
-                return #cache_body(#(#cache_body_arguments),*).await;
-            }
+            let #argument_value_ident = #argument_value;
+            #argument_serialization_assertions
 
             let __cache_method_key = #method_key;
             let __cache_arguments_key = match #runtime::cacheable_invocation_arguments_key(
-                &#runtime::InvocationArguments(#arg_tuple),
+                &#runtime::InvocationArguments(#argument_value_ident),
             ) {
                 ::core::result::Result::Ok(key) => key,
                 ::core::result::Result::Err(error) => {
@@ -1957,21 +2040,15 @@ fn expand_concurrency_limit(
     }
 
     if use_arguments_key
+        && args.key.is_none()
         && let Some(input) = sig.inputs.iter().find(|input| match input {
-            syn::FnArg::Receiver(receiver) => contains_trait_object(&receiver.ty),
+            syn::FnArg::Receiver(_) => false,
             syn::FnArg::Typed(typed) => contains_trait_object(&typed.ty),
         })
     {
         return Err(syn::Error::new_spanned(
             input,
-            "#[concurrency_limit(is_use_parameter = true)] 不支持包含 dyn Trait 的参数，请改用带稳定类型标签的枚举或包装类型",
-        ));
-    }
-
-    if !has_receiver(sig) && args.key_scope.is_none() {
-        return Err(syn::Error::new_spanned(
-            sig,
-            "无 self 接收者的 #[concurrency_limit] 函数必须配置唯一的 key_scope",
+            "#[concurrency_limit(is_use_parameter = true)] 的默认参数键不支持包含 dyn Trait 的参数，请配置 key = (...) 只选择稳定且可序列化的业务参数",
         ));
     }
 
@@ -1982,15 +2059,24 @@ fn expand_concurrency_limit(
         ));
     }
 
+    let key_scope = args
+        .key_scope
+        .as_ref()
+        .ok_or_else(|| syn::Error::new_spanned(sig, "缺少必填参数 key_scope"))?;
     let method_key = build_scoped_method_key(
-        sig,
-        args.key_scope.as_ref(),
+        key_scope,
         &args.key_types,
         &args.key_consts,
         args.key_include_self,
         &runtime,
     );
 
+    let uses_explicit_key = args.key.is_some();
+    let argument_value = if use_arguments_key {
+        Some(build_argument_value(sig, args.key.as_ref())?)
+    } else {
+        None
+    };
     let attrs = &input.attrs;
     let vis = &input.vis;
     let body = &input.block;
@@ -2029,28 +2115,28 @@ fn expand_concurrency_limit(
         },
         |value| quote! { #value },
     );
-    let parameter_safety_behavior = if use_arguments_key {
-        let parameter_types = build_cacheable_safety_type_names(sig, &runtime);
-        quote! {
-            if !#runtime::parameter_types_support_stable_key(
-                &[#(#parameter_types),*],
-            ) {
-                return ::core::result::Result::Err(
-                    "并发限制参数键生成失败: 参数包含无法安全生成稳定键的类型"
-                        .to_string()
-                        .into()
-                );
-            }
-        }
-    } else {
-        quote! {}
-    };
     let arguments_key_behavior = if use_arguments_key {
-        let arg_tuple = build_argument_tuple(sig, &runtime)?;
+        let argument_value = argument_value
+            .as_ref()
+            .ok_or_else(|| syn::Error::new_spanned(sig, "启用参数锁键时必须生成参数表达式"))?;
+        let argument_value_ident = format_ident!(
+            "__source_generator_lock_argument_value",
+            span = proc_macro2::Span::mixed_site()
+        );
+        let argument_serialization_assertions = build_argument_serialization_assertions(
+            sig,
+            uses_explicit_key,
+            &runtime,
+            "lock",
+            &argument_value_ident,
+        )?;
         quote! {
 
+            let #argument_value_ident = #argument_value;
+            #argument_serialization_assertions
+
             let __lock_arguments_key = match #runtime::invocation_arguments_key(
-                &#runtime::InvocationArguments(#arg_tuple),
+                &#runtime::InvocationArguments(#argument_value_ident),
             ) {
                 ::core::result::Result::Ok(key) => ::core::option::Option::Some(key),
                 ::core::result::Result::Err(error) => {
@@ -2090,7 +2176,6 @@ fn expand_concurrency_limit(
         #vis #sig {
 
             #default_use_parameter_assertion
-            #parameter_safety_behavior
             let __lock_semaphore: u32 = #semaphore;
 
             if __lock_semaphore == 0 {
@@ -2121,8 +2206,15 @@ fn expand_concurrency_limit(
     Ok(expanded.into())
 }
 
-/// 将方法参数类型与参数引用整理为可序列化元组
-fn build_argument_tuple(sig: &syn::Signature, runtime: &TokenStream2) -> syn::Result<TokenStream2> {
+/// 生成显式参数键表达式或默认参数引用元组
+fn build_argument_value(
+    sig: &syn::Signature,
+    explicit_key: Option<&Expr>,
+) -> syn::Result<TokenStream2> {
+    if let Some(explicit_key) = explicit_key {
+        return Ok(quote! { &(#explicit_key) });
+    }
+
     let mut args = Vec::new();
 
     for input in &sig.inputs {
@@ -2131,58 +2223,131 @@ fn build_argument_tuple(sig: &syn::Signature, runtime: &TokenStream2) -> syn::Re
                 return Err(syn::Error::new_spanned(&typed.pat, "仅支持标识符参数"));
             };
             let ident = &pat_ident.ident;
-            let binding_by_reference = pat_ident.by_ref.is_some();
-            args.push(quote! {
-                (
-                    #runtime::parameter_type_name(
-                        &#ident,
-                        #binding_by_reference,
-                    ),
-                    &#ident,
-                )
-            });
+            args.push(quote! { &#ident });
         }
     }
 
     if args.is_empty() {
-        Ok(quote! { () })
+        Ok(quote! { &() })
     } else {
-        Ok(quote! { ( #(#args,)* ) })
+        Ok(quote! { &( #(#args,)* ) })
     }
 }
 
-/// 生成缓存安全门控使用的运行时类型名称表达式
-fn build_cacheable_safety_type_names(
+/// 为默认参数或显式键生成可定位到调用参数的 Serialize 约束
+fn build_argument_serialization_assertions(
     sig: &syn::Signature,
+    uses_explicit_key: bool,
     runtime: &TokenStream2,
-) -> Vec<TokenStream2> {
-    sig.inputs
-        .iter()
-        .filter_map(|input| match input {
-            syn::FnArg::Receiver(receiver) if receiver.colon_token.is_some() => Some(quote! {
-                ::std::any::type_name_of_val(&self)
-            }),
-            syn::FnArg::Receiver(_) => None,
-            syn::FnArg::Typed(typed) => {
-                if let Pat::Ident(pat_ident) = typed.pat.as_ref() {
-                    let ident = &pat_ident.ident;
-                    let binding_by_reference = pat_ident.by_ref.is_some();
-                    Some(quote! {
-                        #runtime::parameter_type_name(
-                            &#ident,
-                            #binding_by_reference,
-                        )
-                    })
-                } else if matches!(typed.ty.as_ref(), Type::ImplTrait(_)) {
-                    let ty = &typed.ty;
-                    Some(quote! { ::core::stringify!(#ty) })
-                } else {
-                    let ty = &typed.ty;
-                    Some(quote! { ::std::any::type_name::<#ty>() })
+    context: &str,
+    argument_value_ident: &Ident,
+) -> syn::Result<TokenStream2> {
+    if uses_explicit_key {
+        let helper = format_ident!(
+            "__source_generator_{}_explicit_key_must_implement_serialize",
+            context,
+            span = proc_macro2::Span::mixed_site()
+        );
+        return Ok(quote! {
+            {
+                fn #helper<T>(_: &T)
+                where
+                    T: #runtime::Serialize + ?Sized,
+                {
                 }
+
+                #helper(#argument_value_ident);
             }
-        })
-        .collect()
+        });
+    }
+
+    let mut assertions = Vec::new();
+    for (index, input) in sig.inputs.iter().enumerate() {
+        let syn::FnArg::Typed(typed) = input else {
+            continue;
+        };
+        let Pat::Ident(pat_ident) = typed.pat.as_ref() else {
+            return Err(syn::Error::new_spanned(&typed.pat, "仅支持标识符参数"));
+        };
+        let ident = &pat_ident.ident;
+        let parameter_name = ident.to_string();
+        let parameter_name = parameter_name.trim_start_matches("r#");
+        let helper = format_ident!(
+            "__source_generator_{}_key_parameter_{}_{}_must_implement_serialize_or_configure_key",
+            context,
+            index,
+            parameter_name,
+            span = ident.span()
+        );
+        assertions.push(quote_spanned! {ident.span()=>
+            {
+                fn #helper<T>(_: &T)
+                where
+                    T: #runtime::Serialize + ?Sized,
+                {
+                }
+
+                #helper(&#ident);
+            }
+        });
+    }
+
+    Ok(quote! { #(#assertions)* })
+}
+
+/// 根据返回类型语法与显式配置决定是否缓存成功值
+fn resolve_cache_value(return_type: &Type, configured: Option<bool>) -> syn::Result<bool> {
+    let Some(success_type) = extract_result_success_type(return_type) else {
+        return configured.ok_or_else(|| {
+            syn::Error::new_spanned(
+                return_type,
+                "无法静态识别 Result 成功类型，请通过 cache_value = true 或 false 明确声明",
+            )
+        });
+    };
+
+    let is_unit = type_is_unit(success_type);
+    if is_unit && configured == Some(true) {
+        return Err(syn::Error::new_spanned(
+            success_type,
+            "Result<(), E> 命令方法不能配置 cache_value = true",
+        ));
+    }
+
+    Ok(configured.unwrap_or(!is_unit))
+}
+
+/// 提取 Result 返回类型的成功值类型
+fn extract_result_success_type(return_type: &Type) -> Option<&Type> {
+    match return_type {
+        Type::Group(group) => extract_result_success_type(&group.elem),
+        Type::Paren(paren) => extract_result_success_type(&paren.elem),
+        Type::Path(path) => {
+            let segment = path.path.segments.last()?;
+            if segment.ident != "Result" {
+                return None;
+            }
+
+            let PathArguments::AngleBracketed(arguments) = &segment.arguments else {
+                return None;
+            };
+            arguments.args.iter().find_map(|argument| match argument {
+                GenericArgument::Type(ty) => Some(ty),
+                _ => None,
+            })
+        }
+        _ => None,
+    }
+}
+
+/// 判断类型语法是否为单元类型
+fn type_is_unit(ty: &Type) -> bool {
+    match ty {
+        Type::Group(group) => type_is_unit(&group.elem),
+        Type::Paren(paren) => type_is_unit(&paren.elem),
+        Type::Tuple(tuple) => tuple.elems.is_empty(),
+        _ => false,
+    }
 }
 
 /// 判断声明类型是否直接或嵌套包含 trait object
@@ -2239,188 +2404,45 @@ fn path_arguments_contain_trait_object(arguments: &PathArguments) -> bool {
     }
 }
 
-/// 生成包含模块、实现类型、方法名和运行时类型的方法标识表达式
-fn build_method_key(sig: &syn::Signature, runtime: &TokenStream2) -> TokenStream2 {
-    let fn_name = sig.ident.to_string();
-    let has_receiver = has_receiver(sig);
-    let declaration_scope_marker = format_ident!(
-        "__SourceGeneratorMethodScope",
-        span = proc_macro2::Span::mixed_site()
-    );
-    let parameter_types = sig
-        .inputs
-        .iter()
-        .filter_map(|input| match input {
-            syn::FnArg::Receiver(_) => None,
-            syn::FnArg::Typed(typed) => {
-                if let Pat::Ident(pat_ident) = typed.pat.as_ref() {
-                    let ident = &pat_ident.ident;
-                    let binding_by_reference = pat_ident.by_ref.is_some();
-                    Some(quote! {
-                        #runtime::parameter_type_name(
-                            &#ident,
-                            #binding_by_reference,
-                        )
-                    })
-                } else if matches!(typed.ty.as_ref(), Type::ImplTrait(_)) {
-                    let ty = &typed.ty;
-                    Some(quote! { ::core::stringify!(#ty) })
-                } else {
-                    let ty = &typed.ty;
-                    Some(quote! { ::std::any::type_name::<#ty>() })
-                }
-            }
-        })
-        .collect::<Vec<_>>();
-    let generic_types = sig
-        .generics
-        .params
-        .iter()
-        .filter_map(|parameter| match parameter {
-            syn::GenericParam::Type(parameter) => {
-                let ident = &parameter.ident;
-                Some(quote! { ::std::any::type_name::<#ident>() })
-            }
-            _ => None,
-        })
-        .collect::<Vec<_>>();
-    let const_generics = sig
-        .generics
-        .params
-        .iter()
-        .filter_map(|parameter| match parameter {
-            syn::GenericParam::Const(parameter) => {
-                let ident = &parameter.ident;
-                let name = ident.to_string();
-                Some(quote! { ::std::format!("{}={:?}", #name, #ident) })
-            }
-            _ => None,
-        })
-        .collect::<Vec<_>>();
-
-    if has_receiver {
-        quote! {
-            #runtime::method_key(
-                ::std::module_path!(),
-                ::core::option::Option::Some(::std::any::type_name::<Self>()),
-                #fn_name,
-                &[#(#parameter_types),*],
-                &[#(#generic_types),*],
-                &[#(#const_generics),*],
-            )
-        }
-    } else {
-        quote! {
-            {
-                // 局部类型的完整路径包含外围 impl 类型，可区分同模块内的同名静态关联函数
-                struct #declaration_scope_marker;
-
-                #runtime::method_key_with_declaration_scope(
-                    ::std::module_path!(),
-                    ::std::any::type_name::<#declaration_scope_marker>(),
-                    #fn_name,
-                    &[#(#parameter_types),*],
-                    &[#(#generic_types),*],
-                    &[#(#const_generics),*],
-                )
-            }
-        }
-    }
-}
-
-/// 生成带可选显式稳定作用域的方法标识表达式
+/// 根据显式作用域和稳定类型标签生成方法标识表达式
 fn build_scoped_method_key(
-    sig: &syn::Signature,
-    key_scope: Option<&syn::LitStr>,
+    key_scope: &syn::LitStr,
     explicit_key_types: &[Type],
     explicit_key_consts: &[Expr],
     key_include_self: Option<bool>,
     runtime: &TokenStream2,
 ) -> TokenStream2 {
-    if let Some(key_scope) = key_scope {
-        let mut generic_types = sig
-            .generics
-            .params
-            .iter()
-            .filter_map(|parameter| match parameter {
-                syn::GenericParam::Type(parameter) => {
-                    let ident = &parameter.ident;
-                    Some(quote! { ::std::any::type_name::<#ident>() })
-                }
-                _ => None,
-            })
-            .collect::<Vec<_>>();
-        generic_types.extend(build_impl_trait_type_names(sig, runtime));
-        generic_types.extend(
-            explicit_key_types
-                .iter()
-                .map(|value| quote! { ::std::any::type_name::<#value>() }),
-        );
-        let mut const_generics = sig
-            .generics
-            .params
-            .iter()
-            .filter_map(|parameter| match parameter {
-                syn::GenericParam::Const(parameter) => {
-                    let ident = &parameter.ident;
-                    let name = ident.to_string();
-                    Some(quote! { ::std::format!("{}={:?}", #name, #ident) })
-                }
-                _ => None,
-            })
-            .collect::<Vec<_>>();
-        const_generics.extend(explicit_key_consts.iter().map(|value| {
-            quote! {
-                ::std::format!("{}={:?}", ::std::stringify!(#value), (#value))
-            }
-        }));
-
-        let include_self = has_receiver(sig) && key_include_self.unwrap_or(true);
-        let self_type = if include_self {
-            quote! { ::core::option::Option::Some(::std::any::type_name::<Self>()) }
-        } else {
-            quote! { ::core::option::Option::None }
-        };
-
-        if generic_types.is_empty() && const_generics.is_empty() && !include_self {
-            quote! { ::std::string::String::from(#key_scope) }
-        } else {
-            quote! {
-                #runtime::scoped_method_key_with_self(
-                    #key_scope,
-                    #self_type,
-                    &[#(#generic_types),*],
-                    &[#(#const_generics),*],
-                )
-            }
-        }
-    } else {
-        build_method_key(sig, runtime)
-    }
-}
-
-/// 生成参数位置 impl Trait 匿名泛型的运行时类型名称
-fn build_impl_trait_type_names(sig: &syn::Signature, runtime: &TokenStream2) -> Vec<TokenStream2> {
-    sig.inputs
+    let stable_types = explicit_key_types
         .iter()
-        .filter_map(|input| {
-            let syn::FnArg::Typed(typed) = input else {
-                return None;
-            };
-            if !matches!(typed.ty.as_ref(), Type::ImplTrait(_)) {
-                return None;
+        .map(|value| quote! { #runtime::stable_key_type::<#value>() })
+        .collect::<Vec<_>>();
+    let stable_consts = explicit_key_consts
+        .iter()
+        .map(|value| {
+            quote! {
+                ::std::format!("{}", (#value))
             }
-
-            let Pat::Ident(pat_ident) = typed.pat.as_ref() else {
-                return None;
-            };
-            let ident = &pat_ident.ident;
-            let binding_by_reference = pat_ident.by_ref.is_some();
-            Some(quote! {
-                #runtime::parameter_type_name(&#ident, #binding_by_reference)
-            })
         })
-        .collect()
+        .collect::<Vec<_>>();
+    let self_type = if key_include_self.unwrap_or(false) {
+        quote! { ::core::option::Option::Some(#runtime::stable_key_type::<Self>()) }
+    } else {
+        quote! { ::core::option::Option::<::std::string::String>::None }
+    };
+
+    quote! {
+        {
+            let __source_generator_stable_types = ::std::vec![#(#stable_types),*];
+            let __source_generator_stable_consts = ::std::vec![#(#stable_consts),*];
+            let __source_generator_self_type = #self_type;
+            #runtime::stable_method_key(
+                #key_scope,
+                __source_generator_self_type.as_deref(),
+                &__source_generator_stable_types,
+                &__source_generator_stable_consts,
+            )
+        }
+    }
 }
 
 /// 解析并校验稳定键作用域字符串
