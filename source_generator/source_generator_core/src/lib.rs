@@ -1780,6 +1780,31 @@ fn expand_cacheable(args: CacheableArgs, mut input: ItemFn) -> syn::Result<Token
     );
     let (cache_body_declaration, cache_body_arguments) =
         build_cacheable_body_declaration(sig, body, &cache_body)?;
+    let parameter_safety_checks = sig
+        .inputs
+        .iter()
+        .filter_map(|input| {
+            let syn::FnArg::Typed(typed) = input else {
+                return None;
+            };
+            let Pat::Ident(pattern) = typed.pat.as_ref() else {
+                return None;
+            };
+            let ident = &pattern.ident;
+            Some(quote! {
+                if let ::core::result::Result::Err(error) =
+                    #runtime::validate_cacheable_parameter_type(&#ident)
+                {
+                    #runtime::log_cache_degraded(
+                        &__cache_method_key,
+                        "parameter_type",
+                        &error,
+                    );
+                    return #cache_body(#(#cache_body_arguments),*).await;
+                }
+            })
+        })
+        .collect::<Vec<_>>();
     let cache_expr = args.cache;
     let ttl_seconds = args.ttl_seconds.map_or_else(
         || quote! { #runtime::CacheableOptions::default().ttl_seconds },
@@ -1843,10 +1868,12 @@ fn expand_cacheable(args: CacheableArgs, mut input: ItemFn) -> syn::Result<Token
 
             #cache_body_declaration
 
+            let __cache_method_key = #method_key;
+            #(#parameter_safety_checks)*
+
             let #argument_value_ident = #argument_value;
             #argument_serialization_assertions
 
-            let __cache_method_key = #method_key;
             let __cache_arguments_key = match #runtime::cacheable_invocation_arguments_key(
                 &#runtime::InvocationArguments(#argument_value_ident),
             ) {

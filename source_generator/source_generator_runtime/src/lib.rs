@@ -47,6 +47,15 @@ const SERDE_JSON_NUMBER_TOKEN: &str = "$serde_json::private::Number";
 /// serde_json 原始 JSON 值使用的透明 Serde 结构名称
 const SERDE_JSON_RAW_VALUE_TOKEN: &str = "$serde_json::private::RawValue";
 
+/// 参数类型包含序列化时可能阻塞的同步锁
+const BLOCKING_LOCK_PARAMETER_ERROR: &str = "参数包含序列化时可能阻塞的同步锁类型";
+
+/// 缓存参数类型包含可变引用或可变裸指针
+const MUTABLE_CACHE_PARAMETER_ERROR: &str = "缓存参数包含可变引用或可变裸指针";
+
+/// 参数类型包含无法生成稳定键的 trait object
+const TRAIT_OBJECT_PARAMETER_ERROR: &str = "参数包含无法生成稳定键的 trait object";
+
 /// 参数键生成失败
 #[derive(Debug)]
 pub struct InvocationKeyError {
@@ -812,13 +821,27 @@ fn append_scoped_key_dimension<'a>(
 /// 无序集合必须通过 unordered_key 显式包装后参与参数键生成
 /// 非有限浮点数会被拒绝，正负零会被规范化为相同数值
 /// 自定义 Serialize 实现需要自行保证内部无序集合的输出顺序稳定
-pub fn arguments_key(args: &impl Serialize) -> Result<String, InvocationKeyError> {
-    serialize_arguments_key(args)
+pub fn arguments_key<T>(args: &T) -> Result<String, InvocationKeyError>
+where
+    T: Serialize + ?Sized,
+{
+    serialize_arguments_key(args, ParameterKeySafetyPolicy::default())
 }
 
 /// 宏生成的参数值包装
 #[doc(hidden)]
 pub struct InvocationArguments<T>(pub T);
+
+/// 校验缓存方法原始参数类型不会因缓存命中丢失可变副作用
+#[doc(hidden)]
+pub fn validate_cacheable_parameter_type<T>(_: &T) -> Result<(), InvocationKeyError>
+where
+    T: ?Sized,
+{
+    ParameterKeySafetyPolicy::cacheable_parameter()
+        .validate::<T>()
+        .map_err(InvocationKeyError::new)
+}
 
 /// 将宏生成的参数值序列化为有边界的规范 JSON
 #[doc(hidden)]
@@ -828,7 +851,7 @@ pub fn invocation_arguments_key<T>(
 where
     T: Serialize,
 {
-    serialize_arguments_key(&args.0)
+    serialize_arguments_key(&args.0, ParameterKeySafetyPolicy::invocation_key())
 }
 
 /// 将宏生成的缓存参数元组序列化为有边界的规范 JSON
@@ -839,19 +862,29 @@ pub fn cacheable_invocation_arguments_key<T>(
 where
     T: Serialize,
 {
-    serialize_arguments_key(&args.0)
+    serialize_arguments_key(&args.0, ParameterKeySafetyPolicy::cacheable_key())
 }
 
 /// 按指定参数语义生成规范 JSON
-fn serialize_arguments_key(args: &impl Serialize) -> Result<String, InvocationKeyError> {
+fn serialize_arguments_key<T>(
+    args: &T,
+    safety_policy: ParameterKeySafetyPolicy,
+) -> Result<String, InvocationKeyError>
+where
+    T: Serialize + ?Sized,
+{
     const MAX_DEPTH: usize = 64;
     const MAX_TRAVERSAL_DEPTH: usize = 128;
     const MAX_ITEMS: usize = 10_000;
     const MAX_BYTES: usize = 1024 * 1024;
 
+    safety_policy
+        .validate::<T>()
+        .map_err(InvocationKeyError::new)?;
+
     let mut writer = LimitedJsonWriter::new(MAX_BYTES);
     let mut serializer = serde_json::Serializer::new(&mut writer);
-    let budget = SerializationBudget::new(MAX_DEPTH, MAX_TRAVERSAL_DEPTH, MAX_ITEMS);
+    let budget = SerializationBudget::new(MAX_DEPTH, MAX_TRAVERSAL_DEPTH, MAX_ITEMS, safety_policy);
     if let Err(error) = args.serialize(CanonicalJsonSerializer::new(&mut serializer, &budget, 0, 0))
     {
         if writer.exceeded() {
@@ -884,22 +917,170 @@ fn serialize_arguments_key(args: &impl Serialize) -> Result<String, InvocationKe
     Ok(json)
 }
 
+/// 参数键序列化前需要执行的类型安全策略
+#[derive(Clone, Copy)]
+struct ParameterKeySafetyPolicy {
+    reject_blocking_locks: bool,
+    reject_mutable_types: bool,
+    reject_trait_objects: bool,
+}
+
+impl ParameterKeySafetyPolicy {
+    /// 创建宏调用参数键使用的类型安全策略
+    fn invocation_key() -> Self {
+        Self {
+            reject_blocking_locks: true,
+            reject_mutable_types: false,
+            reject_trait_objects: true,
+        }
+    }
+
+    /// 创建缓存键参数使用的类型安全策略
+    fn cacheable_key() -> Self {
+        Self {
+            reject_blocking_locks: true,
+            reject_mutable_types: true,
+            reject_trait_objects: true,
+        }
+    }
+
+    /// 创建缓存方法原始参数使用的类型安全策略
+    fn cacheable_parameter() -> Self {
+        Self {
+            reject_blocking_locks: false,
+            reject_mutable_types: true,
+            reject_trait_objects: false,
+        }
+    }
+
+    /// 检查指定参数类型是否可以安全进入同步序列化流程
+    fn validate<T>(self) -> Result<(), &'static str>
+    where
+        T: ?Sized,
+    {
+        if self.reject_blocking_locks && contains_runtime_blocking_lock(std::any::type_name::<T>())
+        {
+            return Err(BLOCKING_LOCK_PARAMETER_ERROR);
+        }
+        if self.reject_trait_objects && contains_runtime_trait_object(std::any::type_name::<T>()) {
+            return Err(TRAIT_OBJECT_PARAMETER_ERROR);
+        }
+        if self.reject_mutable_types && contains_runtime_mutable_type(std::any::type_name::<T>()) {
+            return Err(MUTABLE_CACHE_PARAMETER_ERROR);
+        }
+
+        Ok(())
+    }
+}
+
+impl Default for ParameterKeySafetyPolicy {
+    /// 默认拒绝会在 Serde 阶段同步等待的锁类型
+    fn default() -> Self {
+        Self {
+            reject_blocking_locks: true,
+            reject_mutable_types: false,
+            reject_trait_objects: false,
+        }
+    }
+}
+
+/// 按 Rust 类型标记边界查找可变引用与可变裸指针
+fn contains_runtime_mutable_type(type_name: &str) -> bool {
+    let bytes = type_name.as_bytes();
+    let mut index = 0usize;
+
+    while index < bytes.len() {
+        if matches!(bytes[index], b'&' | b'*') {
+            let mut marker_index = index + 1;
+            while bytes.get(marker_index).is_some_and(u8::is_ascii_whitespace) {
+                marker_index += 1;
+            }
+
+            if bytes.get(marker_index..marker_index + 3) == Some(b"mut")
+                && bytes
+                    .get(marker_index + 3)
+                    .is_some_and(u8::is_ascii_whitespace)
+            {
+                return true;
+            }
+        }
+
+        index += 1;
+    }
+
+    false
+}
+
+/// 按 Rust 标识符边界查找运行时类型名称中的 dyn 关键字
+fn contains_runtime_trait_object(type_name: &str) -> bool {
+    let bytes = type_name.as_bytes();
+    let mut index = 0usize;
+
+    while index + 3 <= bytes.len() {
+        if bytes.get(index..index + 3) == Some(b"dyn") {
+            let before_is_identifier = index
+                .checked_sub(1)
+                .and_then(|position| bytes.get(position))
+                .is_some_and(|byte| byte.is_ascii_alphanumeric() || *byte == b'_');
+            let followed_by_trait_name = bytes.get(index + 3).is_some_and(u8::is_ascii_whitespace);
+            if !before_is_identifier && followed_by_trait_name {
+                return true;
+            }
+        }
+
+        index += 1;
+    }
+
+    false
+}
+
+/// 判断运行时类型中是否包含序列化时会同步阻塞的锁
+fn contains_runtime_blocking_lock(type_name: &str) -> bool {
+    const BLOCKING_LOCK_PATHS: [&str; 7] = [
+        "std::sync::Mutex<",
+        "std::sync::RwLock<",
+        "std::sync::poison::mutex::Mutex<",
+        "std::sync::poison::rwlock::RwLock<",
+        "lock_api::mutex::Mutex<",
+        "lock_api::rwlock::RwLock<",
+        "lock_api::remutex::ReentrantMutex<",
+    ];
+
+    BLOCKING_LOCK_PATHS.iter().any(|lock_path| {
+        type_name.match_indices(lock_path).any(|(index, _)| {
+            type_name[..index]
+                .chars()
+                .next_back()
+                .is_none_or(|character| {
+                    !character.is_alphanumeric() && !matches!(character, '_' | ':')
+                })
+        })
+    })
+}
+
 /// 限制首次参数序列化允许访问的 JSON 深度和项目数量
 struct SerializationBudget {
     item_count: Cell<usize>,
     max_depth: usize,
     max_traversal_depth: usize,
     max_items: usize,
+    safety_policy: ParameterKeySafetyPolicy,
 }
 
 impl SerializationBudget {
     /// 创建已经包含根节点的序列化预算
-    fn new(max_depth: usize, max_traversal_depth: usize, max_items: usize) -> Self {
+    fn new(
+        max_depth: usize,
+        max_traversal_depth: usize,
+        max_items: usize,
+        safety_policy: ParameterKeySafetyPolicy,
+    ) -> Self {
         Self {
             item_count: Cell::new(1),
             max_depth,
             max_traversal_depth,
             max_items,
+            safety_policy,
         }
     }
 
@@ -1020,6 +1201,10 @@ where
     {
         self.budget
             .check_traversal::<S::Error>(self.traversal_depth)?;
+        self.budget
+            .safety_policy
+            .validate::<T>()
+            .map_err(S::Error::custom)?;
         self.value.serialize(CanonicalJsonSerializer::new(
             serializer,
             self.budget,
