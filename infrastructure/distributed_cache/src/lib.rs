@@ -9,7 +9,7 @@ mod error;
 mod extensions;
 pub mod options;
 
-pub use cache::DistributedCache;
+pub use cache::{DistributedCache, DistributedCacheEntry};
 pub use error::CacheError;
 pub use extensions::DistributedCacheExt;
 pub use options::{CacheEntryOptions, CacheExpiry};

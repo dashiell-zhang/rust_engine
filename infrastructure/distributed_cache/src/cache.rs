@@ -1,6 +1,17 @@
+use crate::options::CacheMetadata;
 use crate::{CacheEntryOptions, CacheError};
 use async_trait::async_trait;
 use std::sync::Arc;
+
+/// 分布式缓存读取结果
+#[derive(Debug, Clone)]
+pub struct DistributedCacheEntry {
+    /// 缓存值
+    pub value: Vec<u8>,
+
+    /// 缓存元数据
+    pub metadata: CacheMetadata,
+}
 
 /// 分布式缓存的统一操作接口
 #[async_trait]
@@ -15,11 +26,16 @@ pub trait DistributedCache: Send + Sync {
         options: CacheEntryOptions,
     ) -> Result<(), CacheError>;
 
-    /// 获取字节缓存
+    /// 获取包含元数据的字节缓存
     ///
     /// 若缓存不存在或已过期则返回 `None`
     /// 滑动过期的缓存会在读取成功后自动续期
-    async fn get_bytes(&self, key: &str) -> Result<Option<Vec<u8>>, CacheError>;
+    async fn get_entry(&self, key: &str) -> Result<Option<DistributedCacheEntry>, CacheError>;
+
+    /// 获取字节缓存
+    async fn get_bytes(&self, key: &str) -> Result<Option<Vec<u8>>, CacheError> {
+        Ok(self.get_entry(key).await?.map(|entry| entry.value))
+    }
 
     /// 删除缓存
     async fn remove(&self, key: &str) -> Result<(), CacheError>;
@@ -48,9 +64,9 @@ where
         self.as_ref().set_bytes(key, value, options).await
     }
 
-    /// 转发获取字节缓存调用
-    async fn get_bytes(&self, key: &str) -> Result<Option<Vec<u8>>, CacheError> {
-        self.as_ref().get_bytes(key).await
+    /// 转发包含元数据的字节缓存读取调用
+    async fn get_entry(&self, key: &str) -> Result<Option<DistributedCacheEntry>, CacheError> {
+        self.as_ref().get_entry(key).await
     }
 
     /// 转发删除缓存调用
@@ -79,9 +95,9 @@ where
         (*self).set_bytes(key, value, options).await
     }
 
-    /// 转发获取字节缓存调用
-    async fn get_bytes(&self, key: &str) -> Result<Option<Vec<u8>>, CacheError> {
-        (*self).get_bytes(key).await
+    /// 转发包含元数据的字节缓存读取调用
+    async fn get_entry(&self, key: &str) -> Result<Option<DistributedCacheEntry>, CacheError> {
+        (*self).get_entry(key).await
     }
 
     /// 转发删除缓存调用

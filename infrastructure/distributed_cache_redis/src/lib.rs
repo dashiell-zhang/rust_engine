@@ -1,6 +1,6 @@
 use async_trait::async_trait;
 use distributed_cache::options::{CacheMetadata, duration_to_u64_ms, validate_key};
-use distributed_cache::{CacheEntryOptions, CacheError, DistributedCache};
+use distributed_cache::{CacheEntryOptions, CacheError, DistributedCache, DistributedCacheEntry};
 use redis::{AsyncCommands, aio::ConnectionManager};
 use std::time::SystemTime;
 
@@ -119,8 +119,8 @@ impl DistributedCache for RedisCache {
         Ok(())
     }
 
-    /// 获取字节缓存
-    async fn get_bytes(&self, key: &str) -> Result<Option<Vec<u8>>, CacheError> {
+    /// 获取包含元数据的字节缓存
+    async fn get_entry(&self, key: &str) -> Result<Option<DistributedCacheEntry>, CacheError> {
         validate_key(key)?;
 
         let data_key = self.data_key(key);
@@ -185,7 +185,7 @@ impl DistributedCache for RedisCache {
                 .map_err(|error| CacheError::InternalError(error.to_string()))?;
         }
 
-        Ok(Some(value))
+        Ok(Some(DistributedCacheEntry { value, metadata }))
     }
 
     /// 删除缓存

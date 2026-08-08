@@ -752,7 +752,7 @@ pub async fn set_cacheable_json<T>(
     cache: &HybridCache,
     key: &str,
     value: &T,
-    l2_ttl_seconds: u64,
+    ttl_seconds: u64,
 ) -> Result<(), HybridCacheError>
 where
     T: Serialize + DeserializeOwned + PartialEq,
@@ -761,7 +761,7 @@ where
         .set_json_with_round_trip_validator(
             key,
             value,
-            l2_ttl_seconds,
+            ttl_seconds,
             |original_value, round_trip_value| Ok(original_value == round_trip_value),
         )
         .await
@@ -775,24 +775,29 @@ where
     lock.as_distributed_lock_ref()
 }
 
-/// 根据显式作用域与稳定类型标签生成方法标识
+/// 根据显式作用域、参数类型签名与稳定类型标签生成方法标识
 pub fn stable_method_key(
     scope: &str,
     self_type: Option<&str>,
+    parameter_types: &[&str],
     generic_types: &[String],
     const_generics: &[String],
+    key_revision: u32,
 ) -> String {
     let mut key = format!("source-generator|scope={}:{}", scope.len(), scope);
 
     if let Some(self_type) = self_type {
         append_scoped_key_dimension(&mut key, "self", [self_type]);
     }
+    append_scoped_key_dimension(&mut key, "parameter", parameter_types.iter().copied());
     append_scoped_key_dimension(
         &mut key,
         "generic",
         generic_types.iter().map(String::as_str),
     );
     append_scoped_key_dimension(&mut key, "const", const_generics.iter().map(String::as_str));
+    let key_revision = key_revision.to_string();
+    append_scoped_key_dimension(&mut key, "revision", [key_revision.as_str()]);
     key
 }
 

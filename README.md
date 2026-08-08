@@ -273,7 +273,9 @@ impl<'a> UserService<'a> {
 
 这个宏会自动记录 `executing`、`executed`、`exception` 三类结构化日志，适合挂在查询、外部调用和关键写操作入口。异常错误摘要只会在 ERROR 日志实际启用时格式化；`#[retry]` 的 scheduled 和 exhausted 错误摘要也分别受 WARN 与 ERROR 级别门控
 
-方法自身声明的类型泛型、const 泛型以及参数位置直接或嵌套在引用、容器等类型中的 `impl Trait` 会自动加入方法键。过程宏无法看到外围 `impl` 的泛型；这类维度应通过 `key_include_self = true` 或 `key_types(...)`、`key_consts(...)` 显式加入
+普通参数的声明类型会按声明顺序编码为编译期稳定的 Token 签名并自动加入方法键，因此 `u32`、`u64`、`Option<T>`、`Vec<T>` 等不同签名不会共享方法键，也不要求普通参数类型实现 `StableKeyType`。方法自身声明的类型泛型、const 泛型以及参数位置直接或嵌套在引用、容器等类型中的 `impl Trait` 仍会按实际单态化类型自动加入运行时维度。过程宏无法看到外围 `impl` 的泛型；这类维度应通过 `key_include_self = true` 或 `key_types(...)`、`key_consts(...)` 显式加入
+
+类型别名目标、关联类型解析结果或其他无法从方法签名 Token 判断的语义发生不兼容变化时，应显式递增 `key_revision = 1`。`key_revision` 默认为 `0`，并由 `logging`、`retry`、`cacheable`、`concurrency_limit` 四个属性以相同方式加入方法键
 
 ```rust
 impl StaticWorker {
@@ -324,7 +326,7 @@ async fn execute(value: u32) -> Result<u32, AppError> {
 
 `String`、`Vec<T>` 等非 `Copy` 参数应改为不可变引用，需要拥有值时再在方法体内通过引用为当前尝试显式克隆。直接使用非 `Copy` 参数，或者在签名中写成 `mut value: T`，都会得到编译期诊断
 
-`#[retry]` 同样支持 `key_types(...)`、`key_consts(...)` 和 receiver 方法的 `key_include_self`。这些参数只调整 scheduled/exhausted 日志里的 `method` 字段，不改变重试次数、等待时间或错误返回。方法自身声明的泛型会自动加入，外围 `impl` 泛型仍需显式声明
+`#[retry]` 同样支持 `key_types(...)`、`key_consts(...)`、`key_revision` 和 receiver 方法的 `key_include_self`。这些参数只调整 scheduled/exhausted 日志里的 `method` 字段，不改变重试次数、等待时间或错误返回。普通参数声明类型与方法自身声明的泛型会自动加入，外围 `impl` 泛型仍需显式声明
 
 ```rust
 impl<T, const N: usize> GenericWorker<T, N> {
@@ -374,11 +376,13 @@ impl<'a> DemoService<'a> {
 
 `#[cacheable]` 的 receiver 必须是不可变引用，其他参数使用不带子模式的标识符绑定。宏只生成一份原方法体，并由缓存旁路或正常回源路径调用同一个异步闭包，因此局部 `static`、`OnceLock` 和局部函数项不会因运行时分支而分裂
 
+`ttl_seconds` 是 L1 与 L2 共同遵守的端到端缓存有效期。HybridCache 的全局 L1 有效期只作为额外上限；从 L2 回填 L1 时会沿用条目的剩余有效期，不会因本地回填重新延长绝对截止时间
+
 返回 `Result<(), E>` 或显式配置 `cache_value = false` 时，过程宏会在展开阶段直接保留原方法，不生成参数键、缓存访问或序列化代码，因此不会要求参数实现 `Serialize`，也不会给成功类型引入缓存相关 Trait 约束。`cache`、`key_scope` 等属性语法仍需完整提供，但其中的表达式不会进入生成代码或参与类型检查
 
 `#[concurrency_limit]` 的 `is_use_parameter`、`is_block` 只接受布尔字面量，`semaphore`、`expiry_seconds` 只接受无符号整数字面量，避免同一个锁键的并发策略随单次调用参数变化。未启用 `is_use_parameter` 时不会序列化方法参数，因此参数无需实现 `Serialize`
 
-自由函数或静态关联函数必须通过 `key_scope` 提供稳定基础作用域。方法自身声明的类型泛型、const 泛型和参数位置直接或嵌套的 `impl Trait` 会自动在作用域后加入运行时实例维度。类型泛型和 `impl Trait` 的声明约束必须包含 `StableKeyType`
+自由函数或静态关联函数必须通过 `key_scope` 提供稳定基础作用域。所有普通参数的声明类型会自动加入静态签名维度；方法自身声明的类型泛型、const 泛型和参数位置直接或嵌套的 `impl Trait` 会自动在作用域后加入运行时实例维度。只有这些需要取得实际单态化身份的类型泛型和 `impl Trait` 声明约束必须包含 `StableKeyType`，普通参数类型不增加该约束
 
 过程宏看不到外围 `impl<T>`。receiver 方法必须显式配置 `key_include_self = true` 或 `false`；泛型宿主应优先使用 `true` 并为完整 `Self` 实现 `StableKeyType`，实现时可以通过 `compose_stable_key_type` 无歧义地组合固定类型标签和泛型参数标签。无 receiver 的静态关联函数如果使用了外围类型泛型或 const 泛型，必须分别通过 `key_types(...)` 和 `key_consts(...)` 显式加入这些维度
 
@@ -397,6 +401,8 @@ impl<T, const N: usize> GenericLoader<T, N> {
 ```
 
 `key_types(...)` 接受一个或多个外围类型，`key_consts(...)` 接受一个或多个外围 const 泛型或关联常量路径。方法自身声明的泛型已经自动加入，重复手工配置会产生编译诊断。确实需要让不同 receiver 类型共享同一个显式 scope 时，可以明确配置 `key_include_self = false`，并应在调用点审查共享缓存结果或锁范围是否安全
+
+普通参数类型签名采用带版本的 Token Tree 编码，每组 Token、标识符和字面量均包含数量或字节长度边界，不依赖编译器运行时类型名称或源码空白。此修改会让四个属性的方法键发生一次有意迁移；旧缓存会自然失效，滚动发布期间新旧版本的缓存键与分布式锁键也会隔离
 
 参数键会无损保留完整 `i128` 与 `u128` 数值。直接整数、`serde_json::Number` 和 `serde_json::Value::Number` 使用相同的最终 JSON 节点预算，不会把 serde_json 的私有透明结构重复计入项目数或深度。升级前已经使用超出 `i64/u64` 范围的 128 位整数作为缓存或并发限制参数时，旧键曾因浮点转换丢失精度；升级后这些调用会发生一次有意键迁移，以消除相邻大整数共享键的风险
 

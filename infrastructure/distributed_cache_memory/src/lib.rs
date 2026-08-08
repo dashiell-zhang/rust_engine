@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 use dashmap::DashMap;
 use distributed_cache::options::{CacheMetadata, validate_key};
-use distributed_cache::{CacheEntryOptions, CacheError, DistributedCache};
+use distributed_cache::{CacheEntryOptions, CacheError, DistributedCache, DistributedCacheEntry};
 use std::sync::Arc;
 use std::time::SystemTime;
 
@@ -64,8 +64,8 @@ impl DistributedCache for InMemoryCache {
         Ok(())
     }
 
-    /// 获取字节缓存
-    async fn get_bytes(&self, key: &str) -> Result<Option<Vec<u8>>, CacheError> {
+    /// 获取包含元数据的字节缓存
+    async fn get_entry(&self, key: &str) -> Result<Option<DistributedCacheEntry>, CacheError> {
         validate_key(key)?;
 
         let now = SystemTime::now();
@@ -81,7 +81,10 @@ impl DistributedCache for InMemoryCache {
         }
 
         record.metadata.refresh_sliding(now)?;
-        Ok(Some(record.value.clone()))
+        Ok(Some(DistributedCacheEntry {
+            value: record.value.clone(),
+            metadata: record.metadata.clone(),
+        }))
     }
 
     /// 删除缓存

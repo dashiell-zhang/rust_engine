@@ -1,7 +1,7 @@
 use proc_macro::TokenStream;
 use proc_macro_crate::{FoundCrate, crate_name};
-use proc_macro2::TokenStream as TokenStream2;
-use quote::{format_ident, quote, quote_spanned};
+use proc_macro2::{Delimiter, Spacing, TokenStream as TokenStream2, TokenTree};
+use quote::{ToTokens, format_ident, quote, quote_spanned};
 use syn::{
     Expr, GenericArgument, Ident, ItemFn, MetaNameValue, Pat, Path, PathArguments, Token, Type,
     braced, parenthesized,
@@ -34,7 +34,9 @@ fn runtime_crate_path() -> syn::Result<TokenStream2> {
 ///
 /// 仅支持返回 Result<T, E> 的 async fn，E 需实现 Debug
 /// 必须通过 key_scope 声明跨构建稳定且全局唯一的方法标识
-/// receiver 方法必须显式配置 key_include_self，方法自身泛型与参数位置的 impl Trait 会自动加入方法键并需声明 StableKeyType 约束
+/// receiver 方法必须显式配置 key_include_self，普通参数声明类型会自动加入静态签名维度
+/// 方法自身泛型与参数位置的 impl Trait 会加入实际类型维度并需声明 StableKeyType 约束
+/// 类型别名目标等签名 Token 不变的语义升级应通过 key_revision 显式隔离
 ///
 /// # 示例
 /// ```ignore
@@ -71,6 +73,9 @@ struct LoggingArgs {
 
     /// 显式作用域是否包含 receiver 的 Self 类型
     key_include_self: Option<bool>,
+
+    /// 无法由签名推导的语义版本维度
+    key_revision: u32,
 }
 
 impl Parse for LoggingArgs {
@@ -81,6 +86,7 @@ impl Parse for LoggingArgs {
         let mut key_types = None;
         let mut key_consts = None;
         let mut key_include_self = None;
+        let mut key_revision = None;
 
         for meta in &metas {
             let name = meta
@@ -95,11 +101,12 @@ impl Parse for LoggingArgs {
                 &mut key_types,
                 &mut key_consts,
                 &mut key_include_self,
+                &mut key_revision,
             )? {
                 return Err(syn::Error::new_spanned(
                     meta.path(),
                     format!(
-                        "未知参数 `{name}`，支持 key_scope / key_types(...) / key_consts(...) / key_include_self"
+                        "未知参数 `{name}`，支持 key_scope / key_types(...) / key_consts(...) / key_include_self / key_revision"
                     ),
                 ));
             }
@@ -118,6 +125,7 @@ impl Parse for LoggingArgs {
             key_types: key_types.unwrap_or_default(),
             key_consts: key_consts.unwrap_or_default(),
             key_include_self,
+            key_revision: key_revision.unwrap_or_default(),
         })
     }
 }
@@ -148,6 +156,7 @@ fn expand_logging(args: LoggingArgs, mut input: ItemFn) -> syn::Result<TokenStre
         &args.key_types,
         &args.key_consts,
         args.key_include_self,
+        args.key_revision,
         &runtime,
     )?;
 
@@ -210,7 +219,9 @@ fn expand_logging(args: LoggingArgs, mut input: ItemFn) -> syn::Result<TokenStre
 ///
 /// receiver 只支持不可变引用，其他参数必须实现 `Copy`，且不支持可变绑定、可变引用或可变裸指针。
 /// 必须通过 key_scope 声明跨构建稳定且全局唯一的方法标识。
-/// receiver 方法必须显式配置 key_include_self，方法自身泛型与参数位置的 impl Trait 会自动加入方法键并需声明 StableKeyType 约束。
+/// receiver 方法必须显式配置 key_include_self，普通参数声明类型会自动加入静态签名维度。
+/// 方法自身泛型与参数位置的 impl Trait 会加入实际类型维度并需声明 StableKeyType 约束。
+/// 类型别名目标等签名 Token 不变的语义升级应通过 key_revision 显式隔离。
 /// 需要在单次尝试中修改参数时，应在方法体内从不可变原参数创建局部副本或克隆，
 /// 使该局部值能够在每次重试执行方法体时重新初始化。
 ///
@@ -242,13 +253,14 @@ pub fn retry(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// 为 async fn 方法开启缓存包装，命中缓存时直接返回序列化结果
 ///
 /// - cache：缓存实例表达式，支持 Arc<HybridCache> 或 &HybridCache
-/// - ttl_seconds：L2 缓存有效期秒数，默认 60
+/// - ttl_seconds：L1 与 L2 共同遵守的缓存有效期秒数，默认 60
 /// - lock：可选的分布式锁实例表达式，用于缓存回源防击穿
 /// - lock_expiry_seconds：防击穿锁有效期秒数，默认 60
 /// - key_scope：必填的稳定方法键
 /// - key_types(...)：加入实现 StableKeyType 的外围类型键维度，方法自身类型泛型会自动加入
 /// - key_consts(...)：显式加入外围 const 泛型等宏不可见的常量键维度，方法自身 const 泛型会自动加入
 /// - key_include_self：receiver 方法必须显式声明是否通过 StableKeyType 将 Self 加入键
+/// - key_revision：签名 Token 无法表达的语义版本，默认 0，仅接受 u32 字面量
 /// - key：可选的显式参数键表达式，包含所有业务相关参数且不得移动方法参数
 /// - cache_value：返回类型别名等无法静态分析时，显式声明是否缓存成功值
 ///
@@ -281,6 +293,7 @@ pub fn cacheable(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// - key_types(...)：加入实现 StableKeyType 的外围类型键维度，方法自身类型泛型会自动加入
 /// - key_consts(...)：显式加入外围 const 泛型等宏不可见的常量键维度，方法自身 const 泛型会自动加入
 /// - key_include_self：receiver 方法必须显式声明是否通过 StableKeyType 将 Self 加入键
+/// - key_revision：签名 Token 无法表达的语义版本，默认 0，仅接受 u32 字面量
 /// - key：is_use_parameter 为 true 时可使用的显式参数键表达式
 ///
 /// 显式参数键应包含全部会影响并发隔离的业务维度，并通过引用避免移动方法参数
@@ -793,6 +806,9 @@ struct RetryArgs {
 
     /// 显式作用域是否包含 receiver 的 Self 类型
     key_include_self: Option<bool>,
+
+    /// 无法由签名推导的语义版本维度
+    key_revision: u32,
 }
 
 /// 重试等待配置
@@ -817,6 +833,7 @@ impl Default for RetryArgs {
             key_types: Vec::new(),
             key_consts: Vec::new(),
             key_include_self: None,
+            key_revision: 0,
         }
     }
 }
@@ -829,6 +846,7 @@ impl Parse for RetryArgs {
         let mut key_types = None;
         let mut key_consts = None;
         let mut key_include_self = None;
+        let mut key_revision = None;
         let mut has_max_retries = false;
         let mut has_delay_ms = false;
         let mut has_delay_seconds = false;
@@ -891,11 +909,12 @@ impl Parse for RetryArgs {
                         &mut key_types,
                         &mut key_consts,
                         &mut key_include_self,
+                        &mut key_revision,
                     )? {
                         return Err(syn::Error::new_spanned(
                             meta.path(),
                             format!(
-                                "未知参数 `{other}`，支持 max_retries / delay_seconds / delay_ms / key_scope / key_types(...) / key_consts(...) / key_include_self"
+                                "未知参数 `{other}`，支持 max_retries / delay_seconds / delay_ms / key_scope / key_types(...) / key_consts(...) / key_include_self / key_revision"
                             ),
                         ));
                     }
@@ -914,6 +933,7 @@ impl Parse for RetryArgs {
         args.key_types = key_types.unwrap_or_default();
         args.key_consts = key_consts.unwrap_or_default();
         args.key_include_self = key_include_self;
+        args.key_revision = key_revision.unwrap_or_default();
 
         Ok(args)
     }
@@ -955,6 +975,7 @@ fn expand_retry(args: RetryArgs, mut input: ItemFn) -> syn::Result<TokenStream> 
         &args.key_types,
         &args.key_consts,
         args.key_include_self,
+        args.key_revision,
         &runtime,
     )?;
 
@@ -1145,7 +1166,7 @@ struct CacheableArgs {
     /// 缓存实例表达式
     cache: Expr,
 
-    /// L2 缓存有效期秒数
+    /// L1 与 L2 共同遵守的缓存有效期秒数
     ttl_seconds: Option<Expr>,
 
     /// 可选的分布式锁实例表达式
@@ -1165,6 +1186,9 @@ struct CacheableArgs {
 
     /// 显式作用域是否包含 receiver 的 Self 类型
     key_include_self: Option<bool>,
+
+    /// 无法由签名推导的语义版本维度
+    key_revision: u32,
 
     /// 显式参与缓存键生成的参数表达式
     key: Option<Expr>,
@@ -1186,6 +1210,7 @@ impl Parse for CacheableArgs {
         let mut key_types: Option<Vec<Type>> = None;
         let mut key_consts: Option<Vec<Expr>> = None;
         let mut key_include_self = None;
+        let mut key_revision = None;
         let mut key = None;
         let mut cache_value = None;
         let mut has_cache = false;
@@ -1278,11 +1303,12 @@ impl Parse for CacheableArgs {
                         &mut key_types,
                         &mut key_consts,
                         &mut key_include_self,
+                        &mut key_revision,
                     )? {
                         return Err(syn::Error::new_spanned(
                             meta.path(),
                             format!(
-                                "未知参数 `{other}`，支持 cache / ttl_seconds / lock / lock_expiry_seconds / key_scope / key_types(...) / key_consts(...) / key_include_self / key / cache_value"
+                                "未知参数 `{other}`，支持 cache / ttl_seconds / lock / lock_expiry_seconds / key_scope / key_types(...) / key_consts(...) / key_include_self / key_revision / key / cache_value"
                             ),
                         ));
                     }
@@ -1316,6 +1342,7 @@ impl Parse for CacheableArgs {
             key_types: key_types.unwrap_or_default(),
             key_consts: key_consts.unwrap_or_default(),
             key_include_self,
+            key_revision: key_revision.unwrap_or_default(),
             key,
             cache_value,
         })
@@ -1351,6 +1378,9 @@ struct ConcurrencyLimitArgs {
     /// 显式作用域是否包含 receiver 的 Self 类型
     key_include_self: Option<bool>,
 
+    /// 无法由签名推导的语义版本维度
+    key_revision: u32,
+
     /// 显式参与锁键生成的参数表达式
     key: Option<Expr>,
 }
@@ -1368,6 +1398,7 @@ impl Parse for ConcurrencyLimitArgs {
         let mut key_types: Option<Vec<Type>> = None;
         let mut key_consts: Option<Vec<Expr>> = None;
         let mut key_include_self = None;
+        let mut key_revision = None;
         let mut key = None;
         let mut has_lock = false;
         let mut has_is_use_parameter = false;
@@ -1464,11 +1495,12 @@ impl Parse for ConcurrencyLimitArgs {
                         &mut key_types,
                         &mut key_consts,
                         &mut key_include_self,
+                        &mut key_revision,
                     )? {
                         return Err(syn::Error::new_spanned(
                             meta.path(),
                             format!(
-                                "未知参数 `{other}`，支持 lock / is_use_parameter / is_block / semaphore / expiry_seconds / key_scope / key_types(...) / key_consts(...) / key_include_self / key"
+                                "未知参数 `{other}`，支持 lock / is_use_parameter / is_block / semaphore / expiry_seconds / key_scope / key_types(...) / key_consts(...) / key_include_self / key_revision / key"
                             ),
                         ));
                     }
@@ -1503,6 +1535,7 @@ impl Parse for ConcurrencyLimitArgs {
             key_types: key_types.unwrap_or_default(),
             key_consts: key_consts.unwrap_or_default(),
             key_include_self,
+            key_revision: key_revision.unwrap_or_default(),
             key,
         })
     }
@@ -1520,7 +1553,7 @@ fn require_name_value<'a>(meta: &'a syn::Meta, name: &str) -> syn::Result<&'a Me
     Ok(value)
 }
 
-/// 解析显式作用域共用的类型、常量和 Self 键维度
+/// 解析显式作用域共用的类型、常量、Self 和修订版本键维度
 fn parse_scoped_key_meta(
     meta: &syn::Meta,
     name: &str,
@@ -1528,6 +1561,7 @@ fn parse_scoped_key_meta(
     key_types: &mut Option<Vec<Type>>,
     key_consts: &mut Option<Vec<Expr>>,
     key_include_self: &mut Option<bool>,
+    key_revision: &mut Option<u32>,
 ) -> syn::Result<bool> {
     match name {
         "key_scope" => {
@@ -1605,6 +1639,16 @@ fn parse_scoped_key_meta(
             }
             let value = require_name_value(meta, "key_include_self")?;
             *key_include_self = Some(parse_bool_literal(&value.value, "key_include_self")?);
+        }
+        "key_revision" => {
+            if key_revision.is_some() {
+                return Err(syn::Error::new_spanned(
+                    meta.path(),
+                    "参数 key_revision 不能重复配置",
+                ));
+            }
+            let value = require_name_value(meta, "key_revision")?;
+            *key_revision = Some(parse_u32_literal(&value.value, "key_revision")?);
         }
         _ => return Ok(false),
     }
@@ -1768,6 +1812,7 @@ fn expand_cacheable(args: CacheableArgs, mut input: ItemFn) -> syn::Result<Token
         &args.key_types,
         &args.key_consts,
         args.key_include_self,
+        args.key_revision,
         &runtime,
     )?;
 
@@ -2086,6 +2131,7 @@ fn expand_concurrency_limit(
         &args.key_types,
         &args.key_consts,
         args.key_include_self,
+        args.key_revision,
         &runtime,
     )?;
 
@@ -2476,16 +2522,29 @@ fn path_arguments_contain_impl_trait(arguments: &PathArguments) -> bool {
     }
 }
 
-/// 根据显式作用域、方法泛型和稳定类型标签生成方法标识表达式
+/// 根据显式作用域、普通参数签名、方法泛型和稳定类型标签生成方法标识表达式
 fn build_scoped_method_key(
     sig: &syn::Signature,
     key_scope: &syn::LitStr,
     explicit_key_types: &[Type],
     explicit_key_consts: &[Expr],
     key_include_self: Option<bool>,
+    key_revision: u32,
     runtime: &TokenStream2,
 ) -> syn::Result<TokenStream2> {
     validate_explicit_method_generic_dimensions(sig, explicit_key_types, explicit_key_consts)?;
+
+    let parameter_types = sig
+        .inputs
+        .iter()
+        .filter_map(|argument| {
+            let syn::FnArg::Typed(argument) = argument else {
+                return None;
+            };
+            let signature = stable_type_token_signature(&argument.ty);
+            Some(syn::LitStr::new(&signature, proc_macro2::Span::call_site()))
+        })
+        .collect::<Vec<_>>();
 
     let mut stable_types = sig
         .generics
@@ -2531,11 +2590,68 @@ fn build_scoped_method_key(
             #runtime::stable_method_key(
                 #key_scope,
                 __source_generator_self_type.as_deref(),
+                &[#(#parameter_types),*],
                 &__source_generator_stable_types,
                 &__source_generator_stable_consts,
+                #key_revision,
             )
         }
     })
+}
+
+/// 将参数类型 Token 编码为跨构建稳定且无拼接歧义的签名
+fn stable_type_token_signature(ty: &Type) -> String {
+    let mut signature = String::from("rust-type-token-v1");
+    append_type_token_stream_signature(&mut signature, ty.to_token_stream());
+    signature
+}
+
+/// 使用 Token 数量、种类和长度前缀递归编码类型 Token 流
+fn append_type_token_stream_signature(signature: &mut String, tokens: TokenStream2) {
+    let tokens = tokens.into_iter().collect::<Vec<_>>();
+    signature.push('S');
+    signature.push_str(&tokens.len().to_string());
+    signature.push('[');
+
+    for token in tokens {
+        match token {
+            TokenTree::Ident(ident) => {
+                append_type_token_text(signature, 'I', &ident.to_string());
+            }
+            TokenTree::Punct(punct) => {
+                signature.push('P');
+                signature.push_str(&u32::from(punct.as_char()).to_string());
+                signature.push(':');
+                signature.push(match punct.spacing() {
+                    Spacing::Alone => 'A',
+                    Spacing::Joint => 'J',
+                });
+            }
+            TokenTree::Literal(literal) => {
+                append_type_token_text(signature, 'L', &literal.to_string());
+            }
+            TokenTree::Group(group) => {
+                signature.push('G');
+                signature.push(match group.delimiter() {
+                    Delimiter::Parenthesis => 'P',
+                    Delimiter::Brace => 'B',
+                    Delimiter::Bracket => 'K',
+                    Delimiter::None => 'N',
+                });
+                append_type_token_stream_signature(signature, group.stream());
+            }
+        }
+    }
+
+    signature.push(']');
+}
+
+/// 使用字节长度前缀编码标识符或字面量文本
+fn append_type_token_text(signature: &mut String, kind: char, value: &str) {
+    signature.push(kind);
+    signature.push_str(&value.len().to_string());
+    signature.push(':');
+    signature.push_str(value);
 }
 
 /// 为参数位置直接或嵌套的 impl Trait 生成实际单态化类型标签
