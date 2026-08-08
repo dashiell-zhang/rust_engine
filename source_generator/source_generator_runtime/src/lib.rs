@@ -147,6 +147,15 @@ where
     T::stable_key_type()
 }
 
+/// 根据值引用推断并获取匿名泛型参数的稳定类型标签
+#[doc(hidden)]
+pub fn stable_key_type_of<T>(_: &T) -> String
+where
+    T: StableKeyType + ?Sized,
+{
+    T::stable_key_type()
+}
+
 /// 将无序集合显式包装为按规范 JSON 排序的参数键值
 pub struct UnorderedKey<I> {
     values: I,
@@ -243,7 +252,7 @@ where
 {
     /// 返回不可变引用的稳定类型标签
     fn stable_key_type() -> String {
-        compose_stable_type_tag("rust:ref", &[T::stable_key_type()])
+        compose_stable_key_type("rust:ref", &[T::stable_key_type()])
     }
 }
 
@@ -253,7 +262,7 @@ where
 {
     /// 返回可变引用的稳定类型标签
     fn stable_key_type() -> String {
-        compose_stable_type_tag("rust:ref-mut", &[T::stable_key_type()])
+        compose_stable_key_type("rust:ref-mut", &[T::stable_key_type()])
     }
 }
 
@@ -264,7 +273,7 @@ macro_rules! impl_stable_key_wrapper {
             T: StableKeyType,
         {
             fn stable_key_type() -> String {
-                compose_stable_type_tag($tag, &[T::stable_key_type()])
+                compose_stable_key_type($tag, &[T::stable_key_type()])
             }
         }
     };
@@ -286,7 +295,7 @@ where
 {
     /// 返回哈希集合的稳定类型标签
     fn stable_key_type() -> String {
-        compose_stable_type_tag("rust:hash-set", &[T::stable_key_type()])
+        compose_stable_key_type("rust:hash-set", &[T::stable_key_type()])
     }
 }
 
@@ -297,7 +306,7 @@ where
 {
     /// 返回有序字典的稳定类型标签
     fn stable_key_type() -> String {
-        compose_stable_type_tag(
+        compose_stable_key_type(
             "rust:btree-map",
             &[K::stable_key_type(), V::stable_key_type()],
         )
@@ -312,7 +321,7 @@ where
 {
     /// 返回哈希字典的稳定类型标签
     fn stable_key_type() -> String {
-        compose_stable_type_tag(
+        compose_stable_key_type(
             "rust:hash-map",
             &[K::stable_key_type(), V::stable_key_type()],
         )
@@ -326,7 +335,7 @@ where
 {
     /// 返回结果类型的稳定标签
     fn stable_key_type() -> String {
-        compose_stable_type_tag("rust:result", &[T::stable_key_type(), E::stable_key_type()])
+        compose_stable_key_type("rust:result", &[T::stable_key_type(), E::stable_key_type()])
     }
 }
 
@@ -336,7 +345,7 @@ where
 {
     /// 返回固定长度数组的稳定类型标签
     fn stable_key_type() -> String {
-        compose_stable_type_tag("rust:array", &[T::stable_key_type(), format!("length:{N}")])
+        compose_stable_key_type("rust:array", &[T::stable_key_type(), format!("length:{N}")])
     }
 }
 
@@ -346,7 +355,7 @@ where
 {
     /// 返回切片的稳定类型标签
     fn stable_key_type() -> String {
-        compose_stable_type_tag("rust:slice", &[T::stable_key_type()])
+        compose_stable_key_type("rust:slice", &[T::stable_key_type()])
     }
 }
 
@@ -357,7 +366,7 @@ macro_rules! impl_stable_key_tuple {
             $($type: StableKeyType),+
         {
             fn stable_key_type() -> String {
-                compose_stable_type_tag($tag, &[$($type::stable_key_type()),+])
+                compose_stable_key_type($tag, &[$($type::stable_key_type()),+])
             }
         }
     };
@@ -372,8 +381,8 @@ impl_stable_key_tuple!("rust:tuple6"; T1, T2, T3, T4, T5, T6);
 impl_stable_key_tuple!("rust:tuple7"; T1, T2, T3, T4, T5, T6, T7);
 impl_stable_key_tuple!("rust:tuple8"; T1, T2, T3, T4, T5, T6, T7, T8);
 
-/// 使用长度前缀组合稳定类型标签
-fn compose_stable_type_tag(prefix: &str, parts: &[String]) -> String {
+/// 使用长度前缀组合用户类型与泛型参数的稳定标签
+pub fn compose_stable_key_type(prefix: &str, parts: &[String]) -> String {
     let mut tag = format!("{}:{prefix}", prefix.len());
     for part in parts {
         tag.push('|');
@@ -729,7 +738,7 @@ where
     cache.as_hybrid_cache_ref()
 }
 
-/// 使用类型感知的规范 JSON 校验缓存值往返语义并写入缓存
+/// 使用返回类型自身的相等语义校验缓存值往返结果并写入缓存
 pub async fn set_cacheable_json<T>(
     cache: &HybridCache,
     key: &str,
@@ -737,23 +746,14 @@ pub async fn set_cacheable_json<T>(
     l2_ttl_seconds: u64,
 ) -> Result<(), HybridCacheError>
 where
-    T: Serialize + DeserializeOwned,
+    T: Serialize + DeserializeOwned + PartialEq,
 {
     cache
         .set_json_with_round_trip_validator(
             key,
             value,
             l2_ttl_seconds,
-            |original_value, round_trip_value| {
-                let original_key = arguments_key(original_value).map_err(|error| {
-                    HybridCacheError::ValueLimit(format!("缓存值规范化失败: {error}"))
-                })?;
-                let round_trip_key = arguments_key(round_trip_value).map_err(|error| {
-                    HybridCacheError::ValueLimit(format!("缓存值规范化失败: {error}"))
-                })?;
-
-                Ok(original_key == round_trip_key)
-            },
+            |original_value, round_trip_value| Ok(original_value == round_trip_value),
         )
         .await
 }

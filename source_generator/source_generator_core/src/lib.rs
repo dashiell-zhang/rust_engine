@@ -34,13 +34,17 @@ fn runtime_crate_path() -> syn::Result<TokenStream2> {
 ///
 /// 仅支持返回 Result<T, E> 的 async fn，E 需实现 Debug
 /// 必须通过 key_scope 声明跨构建稳定且全局唯一的方法标识
+/// receiver 方法必须显式配置 key_include_self，方法自身泛型与参数位置的 impl Trait 会自动加入方法键并需声明 StableKeyType 约束
 ///
 /// # 示例
 /// ```ignore
 /// use source_generator_runtime::logging;
 ///
 /// impl MyService {
-///     #[logging(key_scope = "application.my-service.get-user")]
+///     #[logging(
+///         key_scope = "application.my-service.get-user",
+///         key_include_self = false
+///     )]
 ///     pub async fn get_user(&self, id: i64) -> Result<UserDto, AppError> {
 ///         // 方法体
 ///     }
@@ -129,12 +133,7 @@ fn expand_logging(args: LoggingArgs, mut input: ItemFn) -> syn::Result<TokenStre
         return Err(syn::Error::new_spanned(sig, "#[logging] 只能用于 async fn"));
     }
 
-    if !has_receiver(sig) && args.key_include_self.is_some() {
-        return Err(syn::Error::new_spanned(
-            sig,
-            "无 self 接收者的 #[logging] 函数不能配置 key_include_self",
-        ));
-    }
+    validate_receiver_key_strategy(sig, args.key_include_self, "logging")?;
 
     let attrs = &input.attrs;
     let vis = &input.vis;
@@ -144,12 +143,13 @@ fn expand_logging(args: LoggingArgs, mut input: ItemFn) -> syn::Result<TokenStre
         .as_ref()
         .ok_or_else(|| syn::Error::new_spanned(sig, "缺少必填参数 key_scope"))?;
     let method_key = build_scoped_method_key(
+        sig,
         key_scope,
         &args.key_types,
         &args.key_consts,
         args.key_include_self,
         &runtime,
-    );
+    )?;
 
     let expanded: TokenStream2 = quote! {
 
@@ -210,6 +210,7 @@ fn expand_logging(args: LoggingArgs, mut input: ItemFn) -> syn::Result<TokenStre
 ///
 /// receiver 只支持不可变引用，其他参数必须实现 `Copy`，且不支持可变绑定、可变引用或可变裸指针。
 /// 必须通过 key_scope 声明跨构建稳定且全局唯一的方法标识。
+/// receiver 方法必须显式配置 key_include_self，方法自身泛型与参数位置的 impl Trait 会自动加入方法键并需声明 StableKeyType 约束。
 /// 需要在单次尝试中修改参数时，应在方法体内从不可变原参数创建局部副本或克隆，
 /// 使该局部值能够在每次重试执行方法体时重新初始化。
 ///
@@ -222,7 +223,8 @@ fn expand_logging(args: LoggingArgs, mut input: ItemFn) -> syn::Result<TokenStre
 ///     #[retry(
 ///         max_retries = 3,
 ///         delay_seconds = 1,
-///         key_scope = "application.my-service.call-external"
+///         key_scope = "application.my-service.call-external",
+///         key_include_self = false
 ///     )]
 ///     pub async fn call_external(&self, id: i64) -> Result<String, AppError> {
 ///         // 外部调用可能失败
@@ -244,9 +246,9 @@ pub fn retry(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// - lock：可选的分布式锁实例表达式，用于缓存回源防击穿
 /// - lock_expiry_seconds：防击穿锁有效期秒数，默认 60
 /// - key_scope：必填的稳定方法键
-/// - key_types(...)：加入实现 StableKeyType 的类型键维度
-/// - key_consts(...)：显式加入外围 const 泛型等宏不可见的常量键维度
-/// - key_include_self：是否通过 StableKeyType 将 Self 加入键，默认 false
+/// - key_types(...)：加入实现 StableKeyType 的外围类型键维度，方法自身类型泛型会自动加入
+/// - key_consts(...)：显式加入外围 const 泛型等宏不可见的常量键维度，方法自身 const 泛型会自动加入
+/// - key_include_self：receiver 方法必须显式声明是否通过 StableKeyType 将 Self 加入键
 /// - key：可选的显式参数键表达式，包含所有业务相关参数且不得移动方法参数
 /// - cache_value：返回类型别名等无法静态分析时，显式声明是否缓存成功值
 ///
@@ -255,10 +257,11 @@ pub fn retry(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// 未配置 key 时，除 receiver 外的全部参数都必须实现 Serialize
 /// 配置 key 后只要求该表达式实现 Serialize，调用方负责包含所有影响结果的稳定业务维度
 /// 参数实现 Serialize 但运行时序列化失败时会记录降级日志并绕过缓存
+/// Result<(), E> 或显式 cache_value = false 时不会生成缓存代码，也不会引入缓存相关 Trait 约束
 ///
-/// 仅支持返回 Result<T, E> 的 async fn，T 需实现 Serialize 与 DeserializeOwned
+/// 仅支持返回 Result<T, E> 的 async fn，T 需实现 Serialize、DeserializeOwned 与 PartialEq
 /// receiver 必须是不可变引用，其他参数只支持不带子模式的标识符绑定
-/// 不建议用于 Result<(), E> 命令方法，不支持包含可变引用的参数
+/// 启用缓存值时不支持包含可变引用的参数
 #[proc_macro_attribute]
 pub fn cacheable(attr: TokenStream, item: TokenStream) -> TokenStream {
     let args = parse_macro_input!(attr as CacheableArgs);
@@ -275,9 +278,9 @@ pub fn cacheable(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// - semaphore：允许的最大并发数，默认 1，仅接受整数值字面量
 /// - expiry_seconds：锁过期秒数，默认 0 表示使用锁实现默认值，仅接受整数值字面量
 /// - key_scope：必填的稳定方法键
-/// - key_types(...)：加入实现 StableKeyType 的类型键维度
-/// - key_consts(...)：显式加入外围 const 泛型等宏不可见的常量键维度
-/// - key_include_self：是否通过 StableKeyType 将 Self 加入键，默认 false
+/// - key_types(...)：加入实现 StableKeyType 的外围类型键维度，方法自身类型泛型会自动加入
+/// - key_consts(...)：显式加入外围 const 泛型等宏不可见的常量键维度，方法自身 const 泛型会自动加入
+/// - key_include_self：receiver 方法必须显式声明是否通过 StableKeyType 将 Self 加入键
 /// - key：is_use_parameter 为 true 时可使用的显式参数键表达式
 ///
 /// 显式参数键应包含全部会影响并发隔离的业务维度，并通过引用避免移动方法参数
@@ -929,12 +932,7 @@ fn expand_retry(args: RetryArgs, mut input: ItemFn) -> syn::Result<TokenStream> 
         ));
     }
 
-    if !has_receiver(&input.sig) && args.key_include_self.is_some() {
-        return Err(syn::Error::new_spanned(
-            &input.sig,
-            "无 self 接收者的 #[retry] 函数不能配置 key_include_self",
-        ));
-    }
+    validate_receiver_key_strategy(&input.sig, args.key_include_self, "retry")?;
 
     validate_retry_parameters(&input.sig)?;
     let sig = &input.sig;
@@ -952,12 +950,13 @@ fn expand_retry(args: RetryArgs, mut input: ItemFn) -> syn::Result<TokenStream> 
         .as_ref()
         .ok_or_else(|| syn::Error::new_spanned(sig, "缺少必填参数 key_scope"))?;
     let method_key = build_scoped_method_key(
+        sig,
         key_scope,
         &args.key_types,
         &args.key_consts,
         args.key_include_self,
         &runtime,
-    );
+    )?;
 
     // 将宏参数转为编译期字面量，嵌入生成代码
     let max_retries = args.max_retries.map_or_else(
@@ -1086,7 +1085,7 @@ fn build_retry_copy_assertions(
                 return None;
             };
 
-            if matches!(argument.ty.as_ref(), Type::ImplTrait(_)) {
+            if contains_impl_trait(&argument.ty) {
                 let Pat::Ident(pattern) = argument.pat.as_ref() else {
                     return Some(Err(syn::Error::new_spanned(
                         &argument.pat,
@@ -1685,16 +1684,35 @@ where
 
 /// 展开 #[cacheable] 宏，生成缓存命中包装逻辑
 fn expand_cacheable(args: CacheableArgs, mut input: ItemFn) -> syn::Result<TokenStream> {
-    bind_wildcard_impl_trait_parameters(&mut input);
-    let sig = &input.sig;
-    let runtime = runtime_crate_path()?;
-
-    if sig.asyncness.is_none() {
+    if input.sig.asyncness.is_none() {
         return Err(syn::Error::new_spanned(
-            sig,
+            &input.sig,
             "#[cacheable] 只能用于 async fn",
         ));
     }
+
+    let return_type = match &input.sig.output {
+        syn::ReturnType::Type(_, return_type) => return_type,
+        syn::ReturnType::Default => {
+            return Err(syn::Error::new_spanned(
+                &input.sig,
+                "#[cacheable] 只能用于返回 Result<T, E> 的方法",
+            ));
+        }
+    };
+    let cache_value = resolve_cache_value(return_type, args.cache_value)?;
+    let key_scope = args
+        .key_scope
+        .as_ref()
+        .ok_or_else(|| syn::Error::new_spanned(&input.sig, "缺少必填参数 key_scope"))?;
+
+    if !cache_value {
+        return Ok(quote! { #input }.into());
+    }
+
+    bind_wildcard_impl_trait_parameters(&mut input);
+    let sig = &input.sig;
+    let runtime = runtime_crate_path()?;
 
     if let Some(receiver) = sig.inputs.iter().find_map(|input| match input {
         syn::FnArg::Receiver(receiver) => Some(receiver),
@@ -1719,16 +1737,6 @@ fn expand_cacheable(args: CacheableArgs, mut input: ItemFn) -> syn::Result<Token
         ));
     }
 
-    let return_type = match &sig.output {
-        syn::ReturnType::Type(_, return_type) => return_type,
-        syn::ReturnType::Default => {
-            return Err(syn::Error::new_spanned(
-                sig,
-                "#[cacheable] 只能用于返回 Result<T, E> 的方法",
-            ));
-        }
-    };
-
     if let Some(input) = sig.inputs.iter().find(|input| match input {
         syn::FnArg::Receiver(receiver) => contains_mutable_reference(&receiver.ty),
         syn::FnArg::Typed(typed) => contains_mutable_reference(&typed.ty),
@@ -1739,12 +1747,7 @@ fn expand_cacheable(args: CacheableArgs, mut input: ItemFn) -> syn::Result<Token
         ));
     }
 
-    if !has_receiver(sig) && args.key_include_self.is_some() {
-        return Err(syn::Error::new_spanned(
-            sig,
-            "无 self 接收者的 #[cacheable] 函数不能配置 key_include_self",
-        ));
-    }
+    validate_receiver_key_strategy(sig, args.key_include_self, "cacheable")?;
 
     let uses_explicit_key = args.key.is_some();
     let argument_value = build_argument_value(sig, args.key.as_ref())?;
@@ -1759,18 +1762,14 @@ fn expand_cacheable(args: CacheableArgs, mut input: ItemFn) -> syn::Result<Token
         "cache",
         &argument_value_ident,
     )?;
-    let cache_value = resolve_cache_value(return_type, args.cache_value)?;
-    let key_scope = args
-        .key_scope
-        .as_ref()
-        .ok_or_else(|| syn::Error::new_spanned(sig, "缺少必填参数 key_scope"))?;
     let method_key = build_scoped_method_key(
+        sig,
         key_scope,
         &args.key_types,
         &args.key_consts,
         args.key_include_self,
         &runtime,
-    );
+    )?;
 
     let attrs = &input.attrs;
     let vis = &input.vis;
@@ -1843,10 +1842,6 @@ fn expand_cacheable(args: CacheableArgs, mut input: ItemFn) -> syn::Result<Token
         #vis #sig {
 
             #cache_body_declaration
-
-            if !#cache_value {
-                return #cache_body(#(#cache_body_arguments),*).await;
-            }
 
             let #argument_value_ident = #argument_value;
             #argument_serialization_assertions
@@ -2052,24 +2047,20 @@ fn expand_concurrency_limit(
         ));
     }
 
-    if !has_receiver(sig) && args.key_include_self.is_some() {
-        return Err(syn::Error::new_spanned(
-            sig,
-            "无 self 接收者的 #[concurrency_limit] 函数不能配置 key_include_self",
-        ));
-    }
+    validate_receiver_key_strategy(sig, args.key_include_self, "concurrency_limit")?;
 
     let key_scope = args
         .key_scope
         .as_ref()
         .ok_or_else(|| syn::Error::new_spanned(sig, "缺少必填参数 key_scope"))?;
     let method_key = build_scoped_method_key(
+        sig,
         key_scope,
         &args.key_types,
         &args.key_consts,
         args.key_include_self,
         &runtime,
-    );
+    )?;
 
     let uses_explicit_key = args.key.is_some();
     let argument_value = if use_arguments_key {
@@ -2404,33 +2395,108 @@ fn path_arguments_contain_trait_object(arguments: &PathArguments) -> bool {
     }
 }
 
-/// 根据显式作用域和稳定类型标签生成方法标识表达式
+/// 判断声明类型是否直接或嵌套包含 impl Trait
+fn contains_impl_trait(ty: &Type) -> bool {
+    match ty {
+        Type::ImplTrait(_) => true,
+        Type::Array(value) => contains_impl_trait(&value.elem),
+        Type::BareFn(value) => {
+            value
+                .inputs
+                .iter()
+                .any(|input| contains_impl_trait(&input.ty))
+                || match &value.output {
+                    syn::ReturnType::Default => false,
+                    syn::ReturnType::Type(_, ty) => contains_impl_trait(ty),
+                }
+        }
+        Type::Group(value) => contains_impl_trait(&value.elem),
+        Type::Paren(value) => contains_impl_trait(&value.elem),
+        Type::Path(value) => {
+            value
+                .qself
+                .as_ref()
+                .is_some_and(|qself| contains_impl_trait(&qself.ty))
+                || value
+                    .path
+                    .segments
+                    .iter()
+                    .any(|segment| path_arguments_contain_impl_trait(&segment.arguments))
+        }
+        Type::Ptr(value) => contains_impl_trait(&value.elem),
+        Type::Reference(value) => contains_impl_trait(&value.elem),
+        Type::Slice(value) => contains_impl_trait(&value.elem),
+        Type::Tuple(value) => value.elems.iter().any(contains_impl_trait),
+        _ => false,
+    }
+}
+
+/// 判断路径泛型参数是否包含 impl Trait
+fn path_arguments_contain_impl_trait(arguments: &PathArguments) -> bool {
+    match arguments {
+        PathArguments::None => false,
+        PathArguments::AngleBracketed(arguments) => arguments.args.iter().any(|argument| {
+            matches!(argument, GenericArgument::Type(ty) if contains_impl_trait(ty))
+                || matches!(argument, GenericArgument::AssocType(value) if contains_impl_trait(&value.ty))
+        }),
+        PathArguments::Parenthesized(arguments) => {
+            arguments.inputs.iter().any(contains_impl_trait)
+                || match &arguments.output {
+                    syn::ReturnType::Default => false,
+                    syn::ReturnType::Type(_, ty) => contains_impl_trait(ty),
+                }
+        }
+    }
+}
+
+/// 根据显式作用域、方法泛型和稳定类型标签生成方法标识表达式
 fn build_scoped_method_key(
+    sig: &syn::Signature,
     key_scope: &syn::LitStr,
     explicit_key_types: &[Type],
     explicit_key_consts: &[Expr],
     key_include_self: Option<bool>,
     runtime: &TokenStream2,
-) -> TokenStream2 {
-    let stable_types = explicit_key_types
-        .iter()
-        .map(|value| quote! { #runtime::stable_key_type::<#value>() })
+) -> syn::Result<TokenStream2> {
+    validate_explicit_method_generic_dimensions(sig, explicit_key_types, explicit_key_consts)?;
+
+    let mut stable_types = sig
+        .generics
+        .type_params()
+        .map(|parameter| {
+            let ident = &parameter.ident;
+            quote! { #runtime::stable_key_type::<#ident>() }
+        })
         .collect::<Vec<_>>();
-    let stable_consts = explicit_key_consts
-        .iter()
-        .map(|value| {
+    stable_types.extend(build_impl_trait_stable_types(sig, runtime)?);
+    stable_types.extend(
+        explicit_key_types
+            .iter()
+            .map(|value| quote! { #runtime::stable_key_type::<#value>() }),
+    );
+
+    let mut stable_consts = sig
+        .generics
+        .const_params()
+        .map(|parameter| {
+            let ident = &parameter.ident;
             quote! {
-                ::std::format!("{}", (#value))
+                ::std::format!("{}", (#ident))
             }
         })
         .collect::<Vec<_>>();
+    stable_consts.extend(explicit_key_consts.iter().map(|value| {
+        quote! {
+            ::std::format!("{}", (#value))
+        }
+    }));
     let self_type = if key_include_self.unwrap_or(false) {
         quote! { ::core::option::Option::Some(#runtime::stable_key_type::<Self>()) }
     } else {
         quote! { ::core::option::Option::<::std::string::String>::None }
     };
 
-    quote! {
+    Ok(quote! {
         {
             let __source_generator_stable_types = ::std::vec![#(#stable_types),*];
             let __source_generator_stable_consts = ::std::vec![#(#stable_consts),*];
@@ -2442,7 +2508,114 @@ fn build_scoped_method_key(
                 &__source_generator_stable_consts,
             )
         }
+    })
+}
+
+/// 为参数位置直接或嵌套的 impl Trait 生成实际单态化类型标签
+fn build_impl_trait_stable_types(
+    sig: &syn::Signature,
+    runtime: &TokenStream2,
+) -> syn::Result<Vec<TokenStream2>> {
+    sig.inputs
+        .iter()
+        .filter_map(|argument| {
+            let syn::FnArg::Typed(argument) = argument else {
+                return None;
+            };
+            if !contains_impl_trait(&argument.ty) {
+                return None;
+            }
+
+            let Pat::Ident(pattern) = argument.pat.as_ref() else {
+                return Some(Err(syn::Error::new_spanned(
+                    &argument.pat,
+                    "impl Trait 参数必须使用标识符或通配符模式才能生成稳定方法键",
+                )));
+            };
+            let ident = &pattern.ident;
+            let value = if pattern.by_ref.is_some() {
+                quote! { &*#ident }
+            } else {
+                quote! { &#ident }
+            };
+
+            Some(Ok(quote! {
+                #runtime::stable_key_type_of(#value)
+            }))
+        })
+        .collect()
+}
+
+/// 拒绝重复显式声明已经自动加入方法键的方法泛型维度
+fn validate_explicit_method_generic_dimensions(
+    sig: &syn::Signature,
+    explicit_key_types: &[Type],
+    explicit_key_consts: &[Expr],
+) -> syn::Result<()> {
+    for value in explicit_key_types {
+        let Some(ident) = transparent_type_path_ident(value) else {
+            continue;
+        };
+
+        if sig
+            .generics
+            .type_params()
+            .any(|parameter| parameter.ident == *ident)
+        {
+            return Err(syn::Error::new_spanned(
+                value,
+                format!("方法类型泛型 `{ident}` 已自动加入方法键，不能在 key_types 中重复配置"),
+            ));
+        }
     }
+
+    for value in explicit_key_consts {
+        let Some(ident) = transparent_expr_path_ident(value) else {
+            continue;
+        };
+
+        if sig
+            .generics
+            .const_params()
+            .any(|parameter| parameter.ident == *ident)
+        {
+            return Err(syn::Error::new_spanned(
+                value,
+                format!("方法 const 泛型 `{ident}` 已自动加入方法键，不能在 key_consts 中重复配置"),
+            ));
+        }
+    }
+
+    Ok(())
+}
+
+/// 取得透明类型包装中的单段路径标识符
+fn transparent_type_path_ident(ty: &Type) -> Option<&Ident> {
+    match ty {
+        Type::Group(group) => transparent_type_path_ident(&group.elem),
+        Type::Paren(paren) => transparent_type_path_ident(&paren.elem),
+        Type::Path(path)
+            if path.qself.is_none()
+                && path.path.leading_colon.is_none()
+                && path.path.segments.len() == 1 =>
+        {
+            path.path.segments.first().map(|segment| &segment.ident)
+        }
+        _ => None,
+    }
+}
+
+/// 取得透明表达式包装中的单段路径标识符
+fn transparent_expr_path_ident(expression: &Expr) -> Option<&Ident> {
+    let Expr::Path(path) = strip_transparent_expr(expression) else {
+        return None;
+    };
+
+    if path.qself.is_some() || path.path.leading_colon.is_some() || path.path.segments.len() != 1 {
+        return None;
+    }
+
+    path.path.segments.first().map(|segment| &segment.ident)
 }
 
 /// 解析并校验稳定键作用域字符串
@@ -2483,9 +2656,7 @@ fn bind_wildcard_impl_trait_parameters(input: &mut ItemFn) {
         let syn::FnArg::Typed(argument) = argument else {
             continue;
         };
-        if !matches!(argument.ty.as_ref(), Type::ImplTrait(_))
-            || !is_wildcard_pattern(argument.pat.as_ref())
-        {
+        if !contains_impl_trait(&argument.ty) || !is_wildcard_pattern(argument.pat.as_ref()) {
             continue;
         }
 
@@ -2517,6 +2688,31 @@ fn has_receiver(sig: &syn::Signature) -> bool {
     sig.inputs
         .iter()
         .any(|input| matches!(input, syn::FnArg::Receiver(_)))
+}
+
+/// 校验 receiver 方法显式声明是否将 Self 加入稳定方法键
+fn validate_receiver_key_strategy(
+    sig: &syn::Signature,
+    key_include_self: Option<bool>,
+    attribute_name: &str,
+) -> syn::Result<()> {
+    if has_receiver(sig) {
+        if key_include_self.is_none() {
+            return Err(syn::Error::new_spanned(
+                sig,
+                format!(
+                    "#[{attribute_name}] 的 receiver 方法必须显式配置 key_include_self = true 或 false"
+                ),
+            ));
+        }
+    } else if key_include_self.is_some() {
+        return Err(syn::Error::new_spanned(
+            sig,
+            format!("无 self 接收者的 #[{attribute_name}] 函数不能配置 key_include_self"),
+        ));
+    }
+
+    Ok(())
 }
 
 /// 判断类型是否直接或嵌套包含可变引用

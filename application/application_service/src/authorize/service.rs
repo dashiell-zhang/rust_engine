@@ -622,7 +622,8 @@ impl<'a> AuthorizeService<'a> {
     #[retry(
         max_retries = 3,
         delay_ms = 200,
-        key_scope = "application.authorize.get-wx-mini-app-open-id"
+        key_scope = "application.authorize.get-wx-mini-app-open-id",
+        key_include_self = false
     )]
     async fn get_wx_mini_app_open_id(&self, app_id: &str, code: &str) -> Result<String, AppError> {
         // 按 Module=WeiXinMiniApp, Key=AppId, Value=app_id 查分组
@@ -683,7 +684,8 @@ impl<'a> AuthorizeService<'a> {
     #[retry(
         max_retries = 3,
         delay_ms = 200,
-        key_scope = "application.authorize.get-wx-app-access-token-and-open-id"
+        key_scope = "application.authorize.get-wx-app-access-token-and-open-id",
+        key_include_self = false
     )]
     async fn get_wx_app_access_token_and_open_id(
         &self,

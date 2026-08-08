@@ -255,13 +255,16 @@ cargo clippy --workspace --all-targets -- -D warnings
 
 ### 1. 给应用服务方法挂日志
 
-最简单的用法是在 `async fn` 上直接标注 `#[logging]`。当前仓库中的真实例子可以参考 [application/application_service/src/user/service.rs#L159](application/application_service/src/user/service.rs#L159)。
+使用时需要为 `async fn` 提供稳定且全局唯一的 `key_scope`。带 receiver 的方法还必须显式声明是否将 `Self` 加入方法键。当前仓库中的真实例子可以参考 [application/application_service/src/user/service.rs#L159](application/application_service/src/user/service.rs#L159)。
 
 ```rust
 use source_generator_runtime::logging;
 
 impl<'a> UserService<'a> {
-    #[logging]
+    #[logging(
+        key_scope = "application.user.get-user",
+        key_include_self = false
+    )]
     pub async fn get_user(&self, target_id: i64) -> Result<Option<UserDto>, AppError> {
         // 方法体
     }
@@ -270,9 +273,7 @@ impl<'a> UserService<'a> {
 
 这个宏会自动记录 `executing`、`executed`、`exception` 三类结构化日志，适合挂在查询、外部调用和关键写操作入口。异常错误摘要只会在 ERROR 日志实际启用时格式化；`#[retry]` 的 scheduled 和 exhausted 错误摘要也分别受 WARN 与 ERROR 级别门控
 
-无 receiver 的静态关联函数会通过宏生成的局部声明标记自动识别外围类型，因此同一模块内不同类型的同名同签名函数也会得到不同的默认方法键。普通模块自由函数与 receiver 方法的默认键保持兼容；已有静态关联函数的默认日志 `method` 字段会发生一次有意迁移
-
-需要跨重命名保持固定标识，或需要显式纳入外围类型泛型和 const 泛型时，仍可配置 `key_scope`、`key_types(...)` 和 `key_consts(...)`
+方法自身声明的类型泛型、const 泛型以及参数位置直接或嵌套在引用、容器等类型中的 `impl Trait` 会自动加入方法键。过程宏无法看到外围 `impl` 的泛型；这类维度应通过 `key_include_self = true` 或 `key_types(...)`、`key_consts(...)` 显式加入
 
 ```rust
 impl StaticWorker {
@@ -291,7 +292,12 @@ impl StaticWorker {
 use source_generator_runtime::retry;
 
 impl<'a> AuthorizeService<'a> {
-    #[retry(max_retries = 3, delay_ms = 200)]
+    #[retry(
+        max_retries = 3,
+        delay_ms = 200,
+        key_scope = "application.authorize.get-wx-mini-app-open-id",
+        key_include_self = false
+    )]
     async fn get_wx_mini_app_open_id(&self, app_id: &str, code: &str) -> Result<String, AppError> {
         // 外部 HTTP 调用
     }
@@ -307,7 +313,7 @@ impl<'a> AuthorizeService<'a> {
 `#[retry]` 的 receiver 必须是不可变引用，其他参数必须实现 `Copy`，并且不能使用签名级 `mut`、`ref mut`、可变引用或可变裸指针，避免某次失败尝试对参数的修改泄漏到下一次重试。需要在单次尝试内修改参数时，应从不可变原参数创建局部副本；该局部值会随方法体在每次尝试时重新初始化
 
 ```rust
-#[retry(max_retries = 3)]
+#[retry(max_retries = 3, key_scope = "worker.execute")]
 async fn execute(value: u32) -> Result<u32, AppError> {
     let mut attempt_value = value;
     attempt_value += 1;
@@ -318,7 +324,7 @@ async fn execute(value: u32) -> Result<u32, AppError> {
 
 `String`、`Vec<T>` 等非 `Copy` 参数应改为不可变引用，需要拥有值时再在方法体内通过引用为当前尝试显式克隆。直接使用非 `Copy` 参数，或者在签名中写成 `mut value: T`，都会得到编译期诊断
 
-`#[retry]` 同样支持 `key_scope`、`key_types(...)`、`key_consts(...)` 和 receiver 方法的 `key_include_self`。这些参数只调整 scheduled/exhausted 日志里的 `method` 字段，不改变重试次数、等待时间或错误返回。无 receiver 的静态关联函数未配置显式 scope 时，也会自动将外围类型加入默认方法键
+`#[retry]` 同样支持 `key_types(...)`、`key_consts(...)` 和 receiver 方法的 `key_include_self`。这些参数只调整 scheduled/exhausted 日志里的 `method` 字段，不改变重试次数、等待时间或错误返回。方法自身声明的泛型会自动加入，外围 `impl` 泛型仍需显式声明
 
 ```rust
 impl<T, const N: usize> GenericWorker<T, N> {
@@ -342,12 +348,24 @@ impl<T, const N: usize> GenericWorker<T, N> {
 use source_generator_runtime::{cacheable, concurrency_limit};
 
 impl<'a> DemoService<'a> {
-    #[cacheable(cache = self.cache, ttl_seconds = 120)]
+    #[cacheable(
+        cache = self.cache,
+        ttl_seconds = 120,
+        key_scope = "demo.get-detail",
+        key_include_self = false
+    )]
     pub async fn get_detail(&self, id: i64) -> Result<DemoDto, AppError> {
         // 查询逻辑
     }
 
-    #[concurrency_limit(lock = self.lock, is_use_parameter = true, semaphore = 1, expiry_seconds = 30)]
+    #[concurrency_limit(
+        lock = self.lock,
+        is_use_parameter = true,
+        semaphore = 1,
+        expiry_seconds = 30,
+        key_scope = "demo.sync-detail",
+        key_include_self = false
+    )]
     pub async fn sync_detail(&self, id: i64) -> Result<bool, AppError> {
         // 写操作或同步逻辑
     }
@@ -356,11 +374,13 @@ impl<'a> DemoService<'a> {
 
 `#[cacheable]` 的 receiver 必须是不可变引用，其他参数使用不带子模式的标识符绑定。宏只生成一份原方法体，并由缓存旁路或正常回源路径调用同一个异步闭包，因此局部 `static`、`OnceLock` 和局部函数项不会因运行时分支而分裂
 
+返回 `Result<(), E>` 或显式配置 `cache_value = false` 时，过程宏会在展开阶段直接保留原方法，不生成参数键、缓存访问或序列化代码，因此不会要求参数实现 `Serialize`，也不会给成功类型引入缓存相关 Trait 约束。`cache`、`key_scope` 等属性语法仍需完整提供，但其中的表达式不会进入生成代码或参与类型检查
+
 `#[concurrency_limit]` 的 `is_use_parameter`、`is_block` 只接受布尔字面量，`semaphore`、`expiry_seconds` 只接受无符号整数字面量，避免同一个锁键的并发策略随单次调用参数变化。未启用 `is_use_parameter` 时不会序列化方法参数，因此参数无需实现 `Serialize`
 
-自由函数或静态关联函数必须通过 `key_scope` 提供稳定基础作用域。方法泛型、const 泛型和参数位置的 `impl Trait` 会自动在作用域后加入运行时实例维度。receiver 方法使用显式 scope 时默认始终加入 `Self`，因此 trait 默认方法、数组和元组等不同具体类型也不会共享缓存键或锁键。升级后，所有显式配置 `key_scope` 的 receiver 方法会发生一次有意的键迁移
+自由函数或静态关联函数必须通过 `key_scope` 提供稳定基础作用域。方法自身声明的类型泛型、const 泛型和参数位置直接或嵌套的 `impl Trait` 会自动在作用域后加入运行时实例维度。类型泛型和 `impl Trait` 的声明约束必须包含 `StableKeyType`
 
-过程宏看不到外围 `impl<T>`。无 receiver 的静态关联函数如果使用了外围类型泛型或 const 泛型，必须分别通过 `key_types(...)` 和 `key_consts(...)` 显式加入这些维度
+过程宏看不到外围 `impl<T>`。receiver 方法必须显式配置 `key_include_self = true` 或 `false`；泛型宿主应优先使用 `true` 并为完整 `Self` 实现 `StableKeyType`，实现时可以通过 `compose_stable_key_type` 无歧义地组合固定类型标签和泛型参数标签。无 receiver 的静态关联函数如果使用了外围类型泛型或 const 泛型，必须分别通过 `key_types(...)` 和 `key_consts(...)` 显式加入这些维度
 
 ```rust
 impl<T, const N: usize> GenericLoader<T, N> {
@@ -376,11 +396,11 @@ impl<T, const N: usize> GenericLoader<T, N> {
 }
 ```
 
-`key_types(...)` 接受一个或多个类型，`key_consts(...)` 接受一个或多个 const 泛型或关联常量路径。两者只能与 `key_scope` 一起使用。确实需要让不同 receiver 类型共享同一个显式 scope 时，可以明确配置 `key_include_self = false`；该选项只允许用于有 receiver 的方法，并应在调用点审查共享缓存结果或锁范围是否安全
+`key_types(...)` 接受一个或多个外围类型，`key_consts(...)` 接受一个或多个外围 const 泛型或关联常量路径。方法自身声明的泛型已经自动加入，重复手工配置会产生编译诊断。确实需要让不同 receiver 类型共享同一个显式 scope 时，可以明确配置 `key_include_self = false`，并应在调用点审查共享缓存结果或锁范围是否安全
 
 参数键会无损保留完整 `i128` 与 `u128` 数值。直接整数、`serde_json::Number` 和 `serde_json::Value::Number` 使用相同的最终 JSON 节点预算，不会把 serde_json 的私有透明结构重复计入项目数或深度。升级前已经使用超出 `i64/u64` 范围的 128 位整数作为缓存或并发限制参数时，旧键曾因浮点转换丢失精度；升级后这些调用会发生一次有意键迁移，以消除相邻大整数共享键的风险
 
-标准 `HashSet` 会按照规范化元素内容排序，包括它位于普通 `derive(Serialize)` 结构体、元组、枚举和标准透明包装内部的情况。缓存返回值的 JSON 往返校验使用同一套类型感知规则，因此包含 `HashSet` 的返回值不会因随机迭代顺序被误判为语义变化
+参数键中的无序集合必须通过 `unordered_key` 显式声明集合语义。缓存返回值通过 `PartialEq` 校验 JSON 往返语义，因此 `HashSet` 按集合语义比较，不会因随机迭代顺序被误判为变化
 
 参数类型不能直接或嵌套包含 `dyn Trait`。Rust 无法从任意 trait object 通用取得具体实现类型，继续生成键可能让不同实现共享缓存或锁；直接可见的 trait object 会得到编译期诊断，类型别名隐藏的 trait object 会在运行时安全门控中被拒绝。`cacheable` 会绕过缓存并正常执行业务方法，启用参数键的 `concurrency_limit` 会返回明确错误，未启用参数键时不受影响。确需动态多态时，应改用把稳定类型标签纳入 `Serialize` 输出的枚举或包装类型；普通泛型参数和 `impl Trait` 仍会按实际单态化类型隔离
 

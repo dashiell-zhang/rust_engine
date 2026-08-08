@@ -1625,7 +1625,8 @@ impl<'a> PayService<'a> {
     #[retry(
         max_retries = 3,
         delay_ms = 200,
-        key_scope = "application.pay.request-wx-pay-certificates"
+        key_scope = "application.pay.request-wx-pay-certificates",
+        key_include_self = false
     )]
     async fn request_wx_pay_certificates(
         &self,

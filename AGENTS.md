@@ -108,6 +108,7 @@
 - `#[logging]` 不是默认全量挂载；只在需要的方法上显式 `use source_generator_runtime::logging;` 后再添加属性。
 - 现有 `#[logging]`、`#[retry]`、`#[cacheable]`、`#[concurrency_limit]` 仅支持 `async fn`；改方法签名或扩宏时先检查这一前提。
 - `#[retry]` 默认最多重试 3 次、每次等待 0 ms；`#[cacheable]` 默认 `ttl_seconds = 60`；`#[concurrency_limit]` 默认使用 `self.lock`、并发数 `1`、非阻塞。
+- 横切属性必须配置稳定且全局唯一的 `key_scope`；receiver 方法还必须显式配置 `key_include_self = true` 或 `false`。方法自身泛型会自动加入方法键，外围 `impl` 泛型需要通过 `Self` 或显式键维度覆盖。
 - 需要修改横切默认值时，先确认是业务想调单个调用点参数，还是确实要改宏默认行为；优先改属性参数，避免扩大影响面。
 
 ## 已知兼容性坑
