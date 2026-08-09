@@ -124,7 +124,7 @@ impl StableInvocationKeyWriter {
     /// 创建稳定调用键编码器
     fn new() -> Self {
         Self {
-            output: "source-generator-invocation-key-v2|".to_string(),
+            output: "source-generator-invocation-key|".to_string(),
             frames: Vec::new(),
             root_count: 0,
             item_count: 0,
@@ -1176,19 +1176,14 @@ pub fn log_exception(method: &str, trace_id: &str, duration_ms: u128, error: &st
 
 /// 在异常日志启用时格式化并记录方法调用错误
 pub fn log_exception_debug(method: &str, trace_id: &str, duration_ms: u128, error: &impl Debug) {
-    if !tracing::event_enabled!(
-        tracing::Level::ERROR,
+    let duration_ms = u64::try_from(duration_ms).unwrap_or(u64::MAX);
+    tracing::error!(
         trace_id,
         method,
         duration_ms,
-        error,
-        event
-    ) {
-        return;
-    }
-
-    let error = error_summary(error);
-    log_exception(method, trace_id, duration_ms, &error);
+        error = %LazyDebugSummary(error),
+        event = "exception",
+    );
 }
 
 /// 重试间隔等待
@@ -1297,6 +1292,30 @@ impl fmt::Write for ErrorSummaryWriter {
     }
 }
 
+/// 在最终 tracing 事件实际记录时才格式化 Debug 错误摘要
+struct LazyDebugSummary<'a, T: ?Sized>(&'a T);
+
+impl<T> Display for LazyDebugSummary<'_, T>
+where
+    T: Debug + ?Sized,
+{
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
+        formatter.write_str(&format_error_summary(format_args!("{:?}", self.0)))
+    }
+}
+
+/// 在最终 tracing 事件实际记录时才格式化 Display 错误摘要
+struct LazyDisplaySummary<'a, T: ?Sized>(&'a T);
+
+impl<T> Display for LazyDisplaySummary<'_, T>
+where
+    T: Display + ?Sized,
+{
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
+        formatter.write_str(&format_error_summary(format_args!("{}", self.0)))
+    }
+}
+
 /// 记录即将执行下一次重试
 pub fn log_retry_scheduled(
     method: &str,
@@ -1325,22 +1344,16 @@ pub fn log_retry_scheduled_debug(
     delay_ms: u64,
     error: &impl Debug,
 ) {
-    if !tracing::event_enabled!(
-        tracing::Level::WARN,
+    let error_type = std::any::type_name_of_val(error);
+    tracing::warn!(
         method,
         trace_id,
         retry,
         delay_ms,
         error_type,
-        error,
-        event
-    ) {
-        return;
-    }
-
-    let error_type = std::any::type_name_of_val(error);
-    let error = retry_error_summary(error);
-    log_retry_scheduled(method, trace_id, retry, delay_ms, error_type, &error);
+        error = %LazyDebugSummary(error),
+        event = "retry_scheduled"
+    );
 }
 
 /// 记录重试次数已经耗尽
@@ -1363,31 +1376,25 @@ pub fn log_retry_exhausted(
 
 /// 在错误日志启用时格式化并记录重试次数耗尽错误
 pub fn log_retry_exhausted_debug(method: &str, trace_id: &str, retries: u64, error: &impl Debug) {
-    if !tracing::event_enabled!(
-        tracing::Level::ERROR,
+    let error_type = std::any::type_name_of_val(error);
+    tracing::error!(
         method,
         trace_id,
         retries,
         error_type,
-        error,
-        event
-    ) {
-        return;
-    }
-
-    let error_type = std::any::type_name_of_val(error);
-    let error = retry_error_summary(error);
-    log_retry_exhausted(method, trace_id, retries, error_type, &error);
+        error = %LazyDebugSummary(error),
+        event = "retry_exhausted"
+    );
 }
 
 /// 记录缓存读取、写入或防击穿锁故障并继续执行业务
 pub fn log_cache_degraded(method: &str, operation: &str, error: &dyn Display) {
-    if !tracing::enabled!(tracing::Level::WARN) {
-        return;
-    }
-
-    let error = display_summary(error);
-    tracing::warn!(method, operation, error, event = "cache_degraded");
+    tracing::warn!(
+        method,
+        operation,
+        error = %LazyDisplaySummary(error),
+        event = "cache_degraded"
+    );
 }
 
 /// 混合缓存引用适配接口
@@ -1479,29 +1486,24 @@ where
     lock.as_distributed_lock_ref()
 }
 
-/// 根据显式作用域、参数类型签名与稳定类型标签生成方法标识
+/// 根据显式作用域与稳定类型标签生成方法标识
 pub fn stable_method_key(
     scope: &str,
     self_type: Option<&str>,
-    parameter_types: &[&str],
     generic_types: &[String],
     const_generics: &[String],
-    key_revision: u32,
 ) -> String {
-    let mut key = format!("source-generator|scope={}:{}", scope.len(), scope);
+    let mut key = format!("source-generator-method|scope={}:{}", scope.len(), scope);
 
     if let Some(self_type) = self_type {
         append_scoped_key_dimension(&mut key, "self", [self_type]);
     }
-    append_scoped_key_dimension(&mut key, "parameter", parameter_types.iter().copied());
     append_scoped_key_dimension(
         &mut key,
         "generic",
         generic_types.iter().map(String::as_str),
     );
     append_scoped_key_dimension(&mut key, "const", const_generics.iter().map(String::as_str));
-    let key_revision = key_revision.to_string();
-    append_scoped_key_dimension(&mut key, "revision", [key_revision.as_str()]);
     key
 }
 
