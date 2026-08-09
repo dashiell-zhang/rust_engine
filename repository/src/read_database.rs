@@ -28,7 +28,7 @@ impl ConnectionTrait for ReadDatabaseConnection {
     }
 
     /// 拒绝执行写命令
-    async fn execute(&self, _statement: Statement) -> Result<ExecResult, DbErr> {
+    async fn execute_raw(&self, _statement: Statement) -> Result<ExecResult, DbErr> {
         Err(read_only_error())
     }
 
@@ -38,13 +38,13 @@ impl ConnectionTrait for ReadDatabaseConnection {
     }
 
     /// 查询单条数据
-    async fn query_one(&self, statement: Statement) -> Result<Option<QueryResult>, DbErr> {
-        self.connection.query_one(statement).await
+    async fn query_one_raw(&self, statement: Statement) -> Result<Option<QueryResult>, DbErr> {
+        self.connection.query_one_raw(statement).await
     }
 
     /// 查询多条数据
-    async fn query_all(&self, statement: Statement) -> Result<Vec<QueryResult>, DbErr> {
-        self.connection.query_all(statement).await
+    async fn query_all_raw(&self, statement: Statement) -> Result<Vec<QueryResult>, DbErr> {
+        self.connection.query_all_raw(statement).await
     }
 }
 

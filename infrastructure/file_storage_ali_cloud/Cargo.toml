@@ -8,11 +8,11 @@ application_interface = { path = "../../application/application_interface" }
 common = { path = "../common" }
 
 async-trait = "0.1"
-base64 = "0.22.1"
+base64 = "0.23.1"
 chrono = "0.4.45"
 hmac = "0.13.0"
 reqwest = { version = "0.13.4", default-features = false, features = ["rustls", "stream"] }
 sha1 = "0.11.0"
-tokio = { version = "1.52.3", features = ["fs", "io-util"] }
+tokio = { version = "1.53.1", features = ["fs", "io-util"] }
 tokio-util = { version = "0.7", features = ["io"] }
 urlencoding = "2"

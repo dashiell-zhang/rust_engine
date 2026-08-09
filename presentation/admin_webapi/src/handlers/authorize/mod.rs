@@ -8,8 +8,7 @@ use axum::{
 };
 use base64::{Engine as _, engine::general_purpose};
 use common::app_error::AppError as ApplicationError;
-use p256::{SecretKey, pkcs8::EncodePublicKey};
-use rand_core::OsRng;
+use p256::{SecretKey, elliptic_curve::Generate, pkcs8::EncodePublicKey};
 use std::sync::Arc;
 use webapi_core::extract::{Json, Query};
 use webapi_core::{auth::UserContext, error::AppError};
@@ -106,7 +105,7 @@ pub async fn generate_ecdsa_key_pair() -> Result<Response, AppError> {
         .into());
     }
 
-    let secret_key = SecretKey::random(&mut OsRng);
+    let secret_key = SecretKey::generate();
     let private_key = secret_key.to_sec1_der().map_err(|error| {
         AppError::from(ApplicationError::internal(format!(
             "ECDSA 私钥编码失败: {error}"

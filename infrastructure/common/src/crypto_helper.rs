@@ -10,6 +10,7 @@ use ecb::cipher::{
 };
 use hmac::{Hmac, Mac};
 use md5::Md5;
+use md5_legacy::Md5 as RsaMd5;
 use pbkdf2::pbkdf2;
 use rsa::{
     Oaep, Pkcs1v15Encrypt, Pkcs1v15Sign, Pss, RsaPrivateKey, RsaPublicKey,
@@ -17,7 +18,9 @@ use rsa::{
     pkcs8::{DecodePrivateKey, DecodePublicKey},
 };
 use sha1::Sha1;
+use sha1_legacy::Sha1 as RsaSha1;
 use sha2::{Digest, Sha256, Sha384, Sha512};
+use sha2_legacy::{Sha256 as RsaSha256, Sha512 as RsaSha512};
 use subtle::ConstantTimeEq;
 
 type Aes192Gcm = AesGcm<Aes192GcmCipher, aes_gcm::aead::consts::U12>;
@@ -190,8 +193,8 @@ pub fn sha512_hash_data(text: &str, encoding: StringEncoding) -> String {
 pub fn hmac_md5_hash_data(text: &str, private_key: &str, encoding: StringEncoding) -> String {
     type HmacMd5 = Hmac<Md5>;
 
-    let mut mac = <HmacMd5 as Mac>::new_from_slice(private_key.as_bytes())
-        .expect("HMAC-MD5 密钥长度初始化失败");
+    let mut mac =
+        HmacMd5::new_from_slice(private_key.as_bytes()).expect("HMAC-MD5 密钥长度初始化失败");
     mac.update(text.as_bytes());
     encode_bytes(&mac.finalize().into_bytes(), encoding)
 }
@@ -200,8 +203,8 @@ pub fn hmac_md5_hash_data(text: &str, private_key: &str, encoding: StringEncodin
 pub fn hmac_sha1_hash_data(text: &str, private_key: &str, encoding: StringEncoding) -> String {
     type HmacSha1 = Hmac<Sha1>;
 
-    let mut mac = <HmacSha1 as Mac>::new_from_slice(private_key.as_bytes())
-        .expect("HMAC-SHA1 密钥长度初始化失败");
+    let mut mac =
+        HmacSha1::new_from_slice(private_key.as_bytes()).expect("HMAC-SHA1 密钥长度初始化失败");
     mac.update(text.as_bytes());
     encode_bytes(&mac.finalize().into_bytes(), encoding)
 }
@@ -210,8 +213,8 @@ pub fn hmac_sha1_hash_data(text: &str, private_key: &str, encoding: StringEncodi
 pub fn hmac_sha256_hash_data(text: &str, private_key: &str, encoding: StringEncoding) -> String {
     type HmacSha256 = Hmac<Sha256>;
 
-    let mut mac = <HmacSha256 as Mac>::new_from_slice(private_key.as_bytes())
-        .expect("HMAC-SHA256 密钥长度初始化失败");
+    let mut mac =
+        HmacSha256::new_from_slice(private_key.as_bytes()).expect("HMAC-SHA256 密钥长度初始化失败");
     mac.update(text.as_bytes());
     encode_bytes(&mac.finalize().into_bytes(), encoding)
 }
@@ -220,8 +223,8 @@ pub fn hmac_sha256_hash_data(text: &str, private_key: &str, encoding: StringEnco
 pub fn hmac_sha384_hash_data(text: &str, private_key: &str, encoding: StringEncoding) -> String {
     type HmacSha384 = Hmac<Sha384>;
 
-    let mut mac = <HmacSha384 as Mac>::new_from_slice(private_key.as_bytes())
-        .expect("HMAC-SHA384 密钥长度初始化失败");
+    let mut mac =
+        HmacSha384::new_from_slice(private_key.as_bytes()).expect("HMAC-SHA384 密钥长度初始化失败");
     mac.update(text.as_bytes());
     encode_bytes(&mac.finalize().into_bytes(), encoding)
 }
@@ -230,8 +233,8 @@ pub fn hmac_sha384_hash_data(text: &str, private_key: &str, encoding: StringEnco
 pub fn hmac_sha512_hash_data(text: &str, private_key: &str, encoding: StringEncoding) -> String {
     type HmacSha512 = Hmac<Sha512>;
 
-    let mut mac = <HmacSha512 as Mac>::new_from_slice(private_key.as_bytes())
-        .expect("HMAC-SHA512 密钥长度初始化失败");
+    let mut mac =
+        HmacSha512::new_from_slice(private_key.as_bytes()).expect("HMAC-SHA512 密钥长度初始化失败");
     mac.update(text.as_bytes());
     encode_bytes(&mac.finalize().into_bytes(), encoding)
 }
@@ -265,16 +268,16 @@ pub fn rsa_sign_data(
         },
         RsaSignaturePadding::Pss => match hash_algorithm {
             RsaHashAlgorithm::Md5 => private_key
-                .sign_with_rng(&mut rng, Pss::new::<Md5>(), &digest)
+                .sign_with_rng(&mut rng, Pss::new::<RsaMd5>(), &digest)
                 .map_err(|error| error.to_string())?,
             RsaHashAlgorithm::Sha1 => private_key
-                .sign_with_rng(&mut rng, Pss::new::<Sha1>(), &digest)
+                .sign_with_rng(&mut rng, Pss::new::<RsaSha1>(), &digest)
                 .map_err(|error| error.to_string())?,
             RsaHashAlgorithm::Sha256 => private_key
-                .sign_with_rng(&mut rng, Pss::new::<Sha256>(), &digest)
+                .sign_with_rng(&mut rng, Pss::new::<RsaSha256>(), &digest)
                 .map_err(|error| error.to_string())?,
             RsaHashAlgorithm::Sha512 => private_key
-                .sign_with_rng(&mut rng, Pss::new::<Sha512>(), &digest)
+                .sign_with_rng(&mut rng, Pss::new::<RsaSha512>(), &digest)
                 .map_err(|error| error.to_string())?,
         },
     };
@@ -311,13 +314,13 @@ pub fn rsa_verify_data(
             }
         },
         RsaSignaturePadding::Pss => match hash_algorithm {
-            RsaHashAlgorithm::Md5 => public_key.verify(Pss::new::<Md5>(), &digest, &signature),
-            RsaHashAlgorithm::Sha1 => public_key.verify(Pss::new::<Sha1>(), &digest, &signature),
+            RsaHashAlgorithm::Md5 => public_key.verify(Pss::new::<RsaMd5>(), &digest, &signature),
+            RsaHashAlgorithm::Sha1 => public_key.verify(Pss::new::<RsaSha1>(), &digest, &signature),
             RsaHashAlgorithm::Sha256 => {
-                public_key.verify(Pss::new::<Sha256>(), &digest, &signature)
+                public_key.verify(Pss::new::<RsaSha256>(), &digest, &signature)
             }
             RsaHashAlgorithm::Sha512 => {
-                public_key.verify(Pss::new::<Sha512>(), &digest, &signature)
+                public_key.verify(Pss::new::<RsaSha512>(), &digest, &signature)
             }
         },
     };
@@ -339,13 +342,13 @@ pub fn rsa_encrypt(
             .encrypt(&mut rng, Pkcs1v15Encrypt, content.as_bytes())
             .map_err(|error| error.to_string())?,
         RsaEncryptionPadding::OaepSha1 => public_key
-            .encrypt(&mut rng, Oaep::new::<Sha1>(), content.as_bytes())
+            .encrypt(&mut rng, Oaep::new::<RsaSha1>(), content.as_bytes())
             .map_err(|error| error.to_string())?,
         RsaEncryptionPadding::OaepSha256 => public_key
-            .encrypt(&mut rng, Oaep::new::<Sha256>(), content.as_bytes())
+            .encrypt(&mut rng, Oaep::new::<RsaSha256>(), content.as_bytes())
             .map_err(|error| error.to_string())?,
         RsaEncryptionPadding::OaepSha512 => public_key
-            .encrypt(&mut rng, Oaep::new::<Sha512>(), content.as_bytes())
+            .encrypt(&mut rng, Oaep::new::<RsaSha512>(), content.as_bytes())
             .map_err(|error| error.to_string())?,
     };
 
@@ -366,13 +369,13 @@ pub fn rsa_decrypt(
             .decrypt(Pkcs1v15Encrypt, &content)
             .map_err(|error| error.to_string())?,
         RsaEncryptionPadding::OaepSha1 => private_key
-            .decrypt(Oaep::new::<Sha1>(), &content)
+            .decrypt(Oaep::new::<RsaSha1>(), &content)
             .map_err(|error| error.to_string())?,
         RsaEncryptionPadding::OaepSha256 => private_key
-            .decrypt(Oaep::new::<Sha256>(), &content)
+            .decrypt(Oaep::new::<RsaSha256>(), &content)
             .map_err(|error| error.to_string())?,
         RsaEncryptionPadding::OaepSha512 => private_key
-            .decrypt(Oaep::new::<Sha512>(), &content)
+            .decrypt(Oaep::new::<RsaSha512>(), &content)
             .map_err(|error| error.to_string())?,
     };
 
@@ -466,19 +469,22 @@ fn aes_gcm_encrypt_bytes(
         msg: plain,
         aad: associated_text.unwrap_or_default(),
     };
+    let nonce: &Nonce<aes_gcm::aead::consts::U12> = nonce
+        .try_into()
+        .map_err(|_| "nonce 长度必须是 12 字节".to_string())?;
 
     match key.len() {
         16 => Aes128Gcm::new_from_slice(key)
             .map_err(|error| error.to_string())?
-            .encrypt(Nonce::from_slice(nonce), payload)
+            .encrypt(nonce, payload)
             .map_err(|error| error.to_string()),
         24 => Aes192Gcm::new_from_slice(key)
             .map_err(|error| error.to_string())?
-            .encrypt(Nonce::from_slice(nonce), payload)
+            .encrypt(nonce, payload)
             .map_err(|error| error.to_string()),
         32 => Aes256Gcm::new_from_slice(key)
             .map_err(|error| error.to_string())?
-            .encrypt(Nonce::from_slice(nonce), payload)
+            .encrypt(nonce, payload)
             .map_err(|error| error.to_string()),
         _ => Err("private_key 长度必须是 16、24 或 32 字节".to_string()),
     }
@@ -499,19 +505,22 @@ fn aes_gcm_decrypt_bytes(
         msg: cipher,
         aad: associated_text.unwrap_or_default(),
     };
+    let nonce: &Nonce<aes_gcm::aead::consts::U12> = nonce
+        .try_into()
+        .map_err(|_| "nonce 长度必须是 12 字节".to_string())?;
 
     match key.len() {
         16 => Aes128Gcm::new_from_slice(key)
             .map_err(|error| error.to_string())?
-            .decrypt(Nonce::from_slice(nonce), payload)
+            .decrypt(nonce, payload)
             .map_err(|error| error.to_string()),
         24 => Aes192Gcm::new_from_slice(key)
             .map_err(|error| error.to_string())?
-            .decrypt(Nonce::from_slice(nonce), payload)
+            .decrypt(nonce, payload)
             .map_err(|error| error.to_string()),
         32 => Aes256Gcm::new_from_slice(key)
             .map_err(|error| error.to_string())?
-            .decrypt(Nonce::from_slice(nonce), payload)
+            .decrypt(nonce, payload)
             .map_err(|error| error.to_string()),
         _ => Err("private_key 长度必须是 16、24 或 32 字节".to_string()),
     }

@@ -1553,8 +1553,7 @@ fn validate_retry_parameters(sig: &syn::Signature) -> syn::Result<()> {
     for argument in &sig.inputs {
         match argument {
             syn::FnArg::Receiver(receiver) => {
-                if !matches!(receiver.ty.as_ref(), Type::Reference(reference) if reference.mutability.is_none())
-                {
+                if !receiver_is_immutable_reference(receiver) {
                     return Err(syn::Error::new_spanned(
                         receiver,
                         "#[retry] 的 receiver 必须是不可变引用，避免重试之间共享可变 receiver 状态",
@@ -2249,7 +2248,7 @@ fn expand_cacheable(args: CacheableArgs, mut input: ItemFn) -> syn::Result<Token
     if let Some(receiver) = sig.inputs.iter().find_map(|input| match input {
         syn::FnArg::Receiver(receiver) => Some(receiver),
         syn::FnArg::Typed(_) => None,
-    }) && !matches!(receiver.ty.as_ref(), Type::Reference(reference) if reference.mutability.is_none())
+    }) && !receiver_is_immutable_reference(receiver)
     {
         return Err(syn::Error::new_spanned(
             receiver,
@@ -2270,7 +2269,7 @@ fn expand_cacheable(args: CacheableArgs, mut input: ItemFn) -> syn::Result<Token
     }
 
     if let Some(input) = sig.inputs.iter().find(|input| match input {
-        syn::FnArg::Receiver(receiver) => contains_mutable_reference(&receiver.ty),
+        syn::FnArg::Receiver(receiver) => receiver_contains_mutable_reference(receiver),
         syn::FnArg::Typed(typed) => contains_mutable_reference(&typed.ty),
     }) {
         return Err(syn::Error::new_spanned(
@@ -2907,14 +2906,14 @@ fn contains_trait_object(ty: &Type) -> bool {
     match ty {
         Type::TraitObject(_) => true,
         Type::Array(value) => contains_trait_object(&value.elem),
-        Type::BareFn(value) => {
+        Type::FnPtr(value) => {
             value
                 .inputs
                 .iter()
                 .any(|input| contains_trait_object(&input.ty))
                 || match &value.output {
                     syn::ReturnType::Default => false,
-                    syn::ReturnType::Type(_, ty) => contains_trait_object(ty),
+                    syn::ReturnType::Type(_, ty) => contains_trait_object(ty.as_ref()),
                 }
         }
         Type::Group(value) => contains_trait_object(&value.elem),
@@ -2947,10 +2946,13 @@ fn path_arguments_contain_trait_object(arguments: &PathArguments) -> bool {
                 || matches!(argument, GenericArgument::AssocType(value) if contains_trait_object(&value.ty))
         }),
         PathArguments::Parenthesized(arguments) => {
-            arguments.inputs.iter().any(contains_trait_object)
+            arguments
+                .inputs
+                .iter()
+                .any(|input| contains_trait_object(&input.ty))
                 || match &arguments.output {
                     syn::ReturnType::Default => false,
-                    syn::ReturnType::Type(_, ty) => contains_trait_object(ty),
+                    syn::ReturnType::Type(_, ty) => contains_trait_object(ty.as_ref()),
                 }
         }
     }
@@ -2961,14 +2963,14 @@ fn contains_impl_trait(ty: &Type) -> bool {
     match ty {
         Type::ImplTrait(_) => true,
         Type::Array(value) => contains_impl_trait(&value.elem),
-        Type::BareFn(value) => {
+        Type::FnPtr(value) => {
             value
                 .inputs
                 .iter()
                 .any(|input| contains_impl_trait(&input.ty))
                 || match &value.output {
                     syn::ReturnType::Default => false,
-                    syn::ReturnType::Type(_, ty) => contains_impl_trait(ty),
+                    syn::ReturnType::Type(_, ty) => contains_impl_trait(ty.as_ref()),
                 }
         }
         Type::Group(value) => contains_impl_trait(&value.elem),
@@ -3001,10 +3003,13 @@ fn path_arguments_contain_impl_trait(arguments: &PathArguments) -> bool {
                 || matches!(argument, GenericArgument::AssocType(value) if contains_impl_trait(&value.ty))
         }),
         PathArguments::Parenthesized(arguments) => {
-            arguments.inputs.iter().any(contains_impl_trait)
+            arguments
+                .inputs
+                .iter()
+                .any(|input| contains_impl_trait(&input.ty))
                 || match &arguments.output {
                     syn::ReturnType::Default => false,
-                    syn::ReturnType::Type(_, ty) => contains_impl_trait(ty),
+                    syn::ReturnType::Type(_, ty) => contains_impl_trait(ty.as_ref()),
                 }
         }
     }
@@ -3356,7 +3361,8 @@ fn contains_mutable_reference(ty: &Type) -> bool {
         Type::Group(group) => contains_mutable_reference(&group.elem),
         Type::Paren(paren) => contains_mutable_reference(&paren.elem),
         Type::Ptr(pointer) => {
-            pointer.mutability.is_some() || contains_mutable_reference(&pointer.elem)
+            matches!(pointer.mutability, syn::PointerMutability::Mut(_))
+                || contains_mutable_reference(&pointer.elem)
         }
         Type::Slice(slice) => contains_mutable_reference(&slice.elem),
         Type::Tuple(tuple) => tuple.elems.iter().any(contains_mutable_reference),
@@ -3373,4 +3379,27 @@ fn contains_mutable_reference(ty: &Type) -> bool {
         }),
         _ => false,
     }
+}
+
+/// 判断 receiver 是否为不可变引用，包括 `&self` 与 `self: &Self`。
+fn receiver_is_immutable_reference(receiver: &syn::Receiver) -> bool {
+    match &receiver.kind {
+        syn::ReceiverKind::Reference(_, _, mutability) => mutability.is_none(),
+        syn::ReceiverKind::Typed(_, ty) => {
+            matches!(ty.as_ref(), Type::Reference(reference) if reference.mutability.is_none())
+        }
+        syn::ReceiverKind::Value => false,
+        _ => false,
+    }
+}
+
+/// 判断 receiver 是否直接或通过显式类型包含可变引用。
+fn receiver_contains_mutable_reference(receiver: &syn::Receiver) -> bool {
+    receiver.mutability.is_some()
+        || match &receiver.kind {
+            syn::ReceiverKind::Reference(_, _, mutability) => mutability.is_some(),
+            syn::ReceiverKind::Typed(_, ty) => contains_mutable_reference(ty),
+            syn::ReceiverKind::Value => false,
+            _ => false,
+        }
 }

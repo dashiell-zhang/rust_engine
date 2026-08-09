@@ -6,7 +6,7 @@ use repository::extensions::SoftDeleteQueryExt;
 use repository::{log, queue_task, queue_task::QueueTaskStatus, task_setting};
 use sea_orm::{
     ActiveModelTrait, ActiveValue::Set, ColumnTrait, ConnectionTrait, DatabaseTransaction,
-    EntityTrait, IntoActiveModel, PaginatorTrait, QueryFilter, QueryOrder, QuerySelect,
+    EntityTrait, ExprTrait, IntoActiveModel, PaginatorTrait, QueryFilter, QueryOrder, QuerySelect,
 };
 use serde_json::json;
 

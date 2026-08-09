@@ -75,7 +75,7 @@ pub async fn migrate(db: &DatabaseConnection) -> Result<(), String> {
             [migration.version.into(), migration.name.into()],
         );
 
-        db.execute(insert_statement).await.map_err(|error| {
+        db.execute_raw(insert_statement).await.map_err(|error| {
             format!(
                 "写入迁移历史 {} {} 失败: {error}",
                 migration.version, migration.name

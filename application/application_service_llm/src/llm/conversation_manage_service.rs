@@ -1,7 +1,8 @@
 use repository::extensions::SoftDeleteQueryExt;
 use repository::{llm_app, llm_conversation, user};
 use sea_orm::{
-    ColumnTrait, Condition, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder, QuerySelect,
+    ColumnTrait, Condition, EntityTrait, ExprTrait, PaginatorTrait, QueryFilter, QueryOrder,
+    QuerySelect,
 };
 
 use application_interface::context::LlmContext;

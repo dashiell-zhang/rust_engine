@@ -7,6 +7,6 @@ edition = "2024"
 logger = { path = "../logger" }
 
 chrono = { version = "0.4.45", features = ["serde"] }
-serde_json = "1.0.150"
-tokio = { version = "1.52.3", features = ["full"] }
+serde_json = "1.0.151"
+tokio = { version = "1.53.1", features = ["full"] }
 tracing = "0.1.44"

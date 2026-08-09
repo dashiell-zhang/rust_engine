@@ -1,5 +1,5 @@
 use sea_orm::{
-    ConditionalStatement, DbBackend, EntityTrait, Schema,
+    ConditionalStatement, DbBackend, EntityTrait, ExprTrait, Schema,
     sea_query::{ColumnDef, Expr, Index, Table, TableAlterStatement},
 };
 

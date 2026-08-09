@@ -11,8 +11,8 @@ use regex::Regex;
 use repository::extensions::SoftDeleteQueryExt;
 use repository::{llm_app, llm_model};
 use sea_orm::{
-    ActiveModelTrait, ColumnTrait, EntityTrait, IntoActiveModel, PaginatorTrait, QueryFilter,
-    QueryOrder, QuerySelect, Set,
+    ActiveModelTrait, ColumnTrait, EntityTrait, ExprTrait, IntoActiveModel, PaginatorTrait,
+    QueryFilter, QueryOrder, QuerySelect, Set,
 };
 use serde_json::{Map, Value};
 

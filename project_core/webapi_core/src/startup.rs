@@ -2,7 +2,7 @@ use base64::{Engine as _, engine::general_purpose};
 use jsonwebtoken::{DecodingKey, EncodingKey};
 use p256::{
     PublicKey, SecretKey,
-    elliptic_curve::sec1::ToEncodedPoint,
+    elliptic_curve::sec1::ToSec1Point,
     pkcs8::{DecodePrivateKey, DecodePublicKey, EncodePrivateKey},
 };
 use sea_orm::ConnectOptions;
@@ -191,7 +191,7 @@ fn normalize_ec_public_key_bytes(public_key_bytes: &[u8]) -> Result<Vec<u8>, Str
     let public_key = PublicKey::from_public_key_der(public_key_bytes)
         .map_err(|error| format!("JWT public_key 解析失败: {error}"))?;
 
-    Ok(public_key.to_encoded_point(false).as_bytes().to_vec())
+    Ok(public_key.to_sec1_point(false).as_bytes().to_vec())
 }
 
 /// 获取默认 SQL 日志开关

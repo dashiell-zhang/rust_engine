@@ -8,7 +8,8 @@ use repository::{
 };
 use sea_orm::{
     ActiveEnum, ActiveModelTrait, ActiveValue::Set, ColumnTrait, DatabaseConnection, EntityTrait,
-    IntoActiveModel, PaginatorTrait, QueryFilter, QueryOrder, QuerySelect, sea_query::Expr,
+    ExprTrait, IntoActiveModel, PaginatorTrait, QueryFilter, QueryOrder, QuerySelect,
+    sea_query::Expr,
 };
 use serde_json::json;
 use std::{
@@ -259,7 +260,7 @@ impl TaskServiceRunner {
         let queue_definition = self.registry.get_queue_definition(&task.name);
         let semaphore = queue_definition
             .as_ref()
-            .map(|item| item.semaphore.max(1) as u32)
+            .map(|item| Ord::max(item.semaphore, 1) as u32)
             .unwrap_or(1);
         let lock_key = format!("queue_task_worker:{}", task.name);
         let lock_guard = match self
@@ -931,7 +932,8 @@ impl TaskServiceRunner {
         };
 
         let now = Utc::now();
-        let lookback_milliseconds = self.options.schedule_poll_interval_milliseconds.max(1) as i64;
+        let lookback_milliseconds =
+            Ord::max(self.options.schedule_poll_interval_milliseconds, 1) as i64;
         let window_start = now - chrono::Duration::milliseconds(lookback_milliseconds + 1000);
 
         let last_occurrence = schedule
@@ -1104,10 +1106,10 @@ fn normalize_trigger_time(value: DateTime<Utc>) -> String {
 ///
 /// 默认按锁过期时长的一半续期，最小为一秒
 fn get_lock_renew_interval_seconds(expiry_seconds: u64) -> u64 {
-    let effective_expiry_seconds = expiry_seconds.max(1);
+    let effective_expiry_seconds = Ord::max(expiry_seconds, 1);
     let renew_interval_seconds = effective_expiry_seconds / 2;
 
-    renew_interval_seconds.max(1)
+    Ord::max(renew_interval_seconds, 1)
 }
 
 /// 获取机器名称
