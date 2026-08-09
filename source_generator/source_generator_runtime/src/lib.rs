@@ -626,7 +626,7 @@ where
 
 impl<T> StableInvocationKey for PhantomData<T>
 where
-    T: StableKeyType,
+    T: StableKeyType + ?Sized,
 {
     /// 写入幽灵类型的稳定标签
     fn write_stable_invocation_key(
@@ -952,14 +952,28 @@ macro_rules! impl_stable_key_wrapper {
 }
 
 impl_stable_key_wrapper!(Option, "rust:option");
-impl_stable_key_wrapper!(Box, "rust:box");
-impl_stable_key_wrapper!(Rc, "rust:rc");
-impl_stable_key_wrapper!(Arc, "rust:arc");
 impl_stable_key_wrapper!(Vec, "rust:vec");
 impl_stable_key_wrapper!(VecDeque, "rust:vec-deque");
 impl_stable_key_wrapper!(LinkedList, "rust:linked-list");
 impl_stable_key_wrapper!(BTreeSet, "rust:btree-set");
-impl_stable_key_wrapper!(PhantomData, "rust:phantom-data");
+
+macro_rules! impl_stable_key_unsized_wrapper {
+    ($type:ident, $tag:literal) => {
+        impl<T> StableKeyType for $type<T>
+        where
+            T: StableKeyType + ?Sized,
+        {
+            fn stable_key_type() -> String {
+                compose_stable_key_type($tag, &[T::stable_key_type()])
+            }
+        }
+    };
+}
+
+impl_stable_key_unsized_wrapper!(Box, "rust:box");
+impl_stable_key_unsized_wrapper!(Rc, "rust:rc");
+impl_stable_key_unsized_wrapper!(Arc, "rust:arc");
+impl_stable_key_unsized_wrapper!(PhantomData, "rust:phantom-data");
 
 impl<I> StableKeyType for UnorderedKey<I>
 where

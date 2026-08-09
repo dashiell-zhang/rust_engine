@@ -418,7 +418,9 @@ struct ArticleQuery {
 }
 ```
 
-派生实现与 Serde 属性完全独立，所有字段以及枚举 variant 默认进入稳定键。派生宏还会根据同一个 `scope` 为类型生成 `StableKeyType`；泛型类型会把类型参数的稳定标签和 const 泛型值一并编码，自动约束落在非递归字段的完整声明类型上，纯 `PhantomData<T>` 只要求 `T: StableKeyType`，递归泛型仍能正常派生。当前不支持通过 `invocation_key` 跳过字段；不需要参与业务键的复杂参数应在属性上配置显式 `key = (...)`，只选择真正决定结果的稳定字段
+派生实现与 Serde 属性完全独立，所有字段以及枚举 variant 默认进入稳定键。派生宏还会根据同一个 `scope` 为类型生成 `StableKeyType`；泛型类型会把类型参数的稳定标签和 const 泛型值一并编码，自动约束落在非递归字段的完整声明类型上，纯 `PhantomData<T>` 只要求 `T: StableKeyType`，`Box<T>`、`Rc<T>`、`Arc<T>` 和 `PhantomData<T>` 的稳定类型标签支持 `T: ?Sized`，递归泛型仍能正常派生。当前不支持通过 `invocation_key` 跳过字段；不需要参与业务键的复杂参数应在属性上配置显式 `key = (...)`，只选择真正决定结果的稳定字段
+
+自动递归识别只把 `Node<T>` 和 `self::Node<T>` 这类能够仅凭语法确认的路径视为当前派生类型，不会把 `std::result::Result` 等外部同名类型误判为递归字段。通过完全限定路径、类型别名或自定义包装器间接递归时，应使用 `bound` 明确替换自动字段约束
 
 关联类型、自定义递归包装器或其他无法可靠自动推导的场景，可以通过 `bound` 字符串替换自动字段约束。显式约束中的 Trait 路径按调用方作用域解析；下面示例需要将 `StableInvocationKey` Trait 引入当前作用域
 

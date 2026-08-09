@@ -305,9 +305,10 @@ pub fn concurrency_limit(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// 为结构体或枚举生成完整字段稳定调用键实现
 ///
 /// 必须通过 `scope = "..."` 声明稳定类型作用域。默认按照非递归字段的完整声明类型
-/// 生成 `StableInvocationKey` 约束；复杂关联类型或自定义递归包装器可以通过
-/// `bound = "..."` 替换自动字段约束。所有类型泛型仍需实现 `StableKeyType`，
-/// 以便写入派生类型自身的稳定泛型维度。
+/// 生成 `StableInvocationKey` 约束；直接递归字段应使用当前类型的非限定路径或
+/// `self::Type` 路径，完全限定路径、类型别名、复杂关联类型或自定义递归包装器
+/// 可以通过 `bound = "..."` 替换自动字段约束。所有类型泛型仍需实现
+/// `StableKeyType`，以便写入派生类型自身的稳定泛型维度。
 #[proc_macro_derive(StableInvocationKey, attributes(invocation_key))]
 pub fn derive_stable_invocation_key(item: TokenStream) -> TokenStream {
     let input = parse_macro_input!(item as DeriveInput);
@@ -496,7 +497,7 @@ fn build_invocation_key_field_bounds(
 
     fields
         .into_iter()
-        .filter(|field| !type_contains_derived_type(&field.ty, type_name))
+        .filter(|field| !type_contains_unambiguous_derived_type(&field.ty, type_name))
         .filter_map(|field| {
             let ty = &field.ty;
             let key = quote! { #ty }.to_string();
@@ -508,8 +509,8 @@ fn build_invocation_key_field_bounds(
         .collect()
 }
 
-/// 判断字段是否直接递归包含当前派生类型
-fn type_contains_derived_type(ty: &Type, type_name: &Ident) -> bool {
+/// 判断字段是否通过无歧义路径直接递归包含当前派生类型
+fn type_contains_unambiguous_derived_type(ty: &Type, type_name: &Ident) -> bool {
     let mut visitor = DerivedTypeUsageVisitor {
         type_name,
         found: false,
@@ -526,17 +527,26 @@ struct DerivedTypeUsageVisitor<'a> {
 
 impl<'ast> Visit<'ast> for DerivedTypeUsageVisitor<'_> {
     fn visit_type_path(&mut self, node: &'ast syn::TypePath) {
-        if node
-            .path
-            .segments
-            .iter()
-            .any(|segment| segment.ident == *self.type_name)
-        {
+        if is_unambiguous_derived_type_path(node, self.type_name) {
             self.found = true;
             return;
         }
 
         visit::visit_type_path(self, node);
+    }
+}
+
+/// 判断类型路径是否能够仅凭语法确认指向当前派生类型
+fn is_unambiguous_derived_type_path(node: &syn::TypePath, type_name: &Ident) -> bool {
+    if node.qself.is_some() || node.path.leading_colon.is_some() {
+        return false;
+    }
+
+    let segments = &node.path.segments;
+    match segments.len() {
+        1 => segments[0].ident == *type_name,
+        2 => segments[0].ident == "self" && segments[1].ident == *type_name,
+        _ => false,
     }
 }
 
