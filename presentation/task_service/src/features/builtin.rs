@@ -8,7 +8,11 @@ pub struct BuiltinTaskFeature;
 
 impl TaskServiceFeature for BuiltinTaskFeature {
     /// 向任务注册表注册当前特性的任务
-    fn register(&self, registry: &mut TaskRegistry, context: &TaskServiceFeatureContext) {
-        register_builtin_tasks(registry, context);
+    fn register(
+        &self,
+        registry: &mut TaskRegistry,
+        context: &TaskServiceFeatureContext,
+    ) -> Result<(), String> {
+        register_builtin_tasks(registry, context)
     }
 }

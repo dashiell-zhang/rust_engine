@@ -201,14 +201,14 @@ pub struct TaskRegistry {
     /// 队列任务注册表
     queue_handlers: BTreeMap<String, QueueTaskRegistration>,
 
-    /// 队列任务别名处理器注册表
-    queue_handler_aliases: BTreeMap<String, Arc<dyn QueueTaskHandler>>,
+    /// 队列任务别名目标注册表
+    queue_alias_targets: BTreeMap<String, String>,
 
     /// 定时任务注册表
     schedule_handlers: BTreeMap<String, ScheduleTaskRegistration>,
 
-    /// 定时任务别名处理器注册表
-    schedule_handler_aliases: BTreeMap<String, Arc<dyn ScheduleTaskHandler>>,
+    /// 定时任务别名目标注册表
+    schedule_alias_targets: BTreeMap<String, String>,
 }
 
 impl TaskRegistry {
@@ -218,40 +218,70 @@ impl TaskRegistry {
     }
 
     /// 注册队列任务
-    pub fn register_queue<T>(&mut self, name: impl Into<String>, handler: T)
+    pub fn register_queue<T>(&mut self, name: impl Into<String>, handler: T) -> Result<(), String>
     where
         T: QueueTaskHandler + 'static,
     {
-        self.register_queue_with_definition(QueueTaskDefinition::new(name), handler);
+        self.register_queue_with_definition(QueueTaskDefinition::new(name), handler)
     }
 
     /// 注册带定义的队列任务
-    pub fn register_queue_with_definition<T>(&mut self, definition: QueueTaskDefinition, handler: T)
+    pub fn register_queue_with_definition<T>(
+        &mut self,
+        definition: QueueTaskDefinition,
+        handler: T,
+    ) -> Result<(), String>
     where
         T: QueueTaskHandler + 'static,
     {
+        let name = definition.name.clone();
+        if self.queue_handlers.contains_key(&name) {
+            return Err(format!("队列任务 {name:?} 重复注册"));
+        }
+        if self.queue_alias_targets.contains_key(&name) {
+            return Err(format!("队列任务 {name:?} 与已注册别名同名"));
+        }
+
         self.queue_handlers.insert(
-            definition.name.clone(),
+            name,
             QueueTaskRegistration {
                 definition,
                 handler: Arc::new(handler),
             },
         );
+
+        Ok(())
     }
 
     /// 注册队列任务别名
-    pub fn register_queue_alias(&mut self, alias: impl Into<String>, target: &str) {
-        if let Some(handler) = self.get_queue_handler(target) {
-            self.queue_handler_aliases.insert(alias.into(), handler);
+    pub fn register_queue_alias(
+        &mut self,
+        alias: impl Into<String>,
+        target: impl Into<String>,
+    ) -> Result<(), String> {
+        let alias = alias.into();
+        if self.queue_handlers.contains_key(&alias) {
+            return Err(format!("队列任务别名 {alias:?} 与已注册任务同名"));
         }
+        if self.queue_alias_targets.contains_key(&alias) {
+            return Err(format!("队列任务别名 {alias:?} 重复注册"));
+        }
+
+        self.queue_alias_targets.insert(alias, target.into());
+
+        Ok(())
     }
 
     /// 注册定时任务
-    pub fn register_schedule<T>(&mut self, name: impl Into<String>, handler: T)
+    pub fn register_schedule<T>(
+        &mut self,
+        name: impl Into<String>,
+        handler: T,
+    ) -> Result<(), String>
     where
         T: ScheduleTaskHandler + 'static,
     {
-        self.register_schedule_with_definition(ScheduleTaskDefinition::new(name), handler);
+        self.register_schedule_with_definition(ScheduleTaskDefinition::new(name), handler)
     }
 
     /// 注册带定义的定时任务
@@ -259,23 +289,59 @@ impl TaskRegistry {
         &mut self,
         definition: ScheduleTaskDefinition,
         handler: T,
-    ) where
+    ) -> Result<(), String>
+    where
         T: ScheduleTaskHandler + 'static,
     {
+        let name = definition.name.clone();
+        if self.schedule_handlers.contains_key(&name) {
+            return Err(format!("定时任务 {name:?} 重复注册"));
+        }
+        if self.schedule_alias_targets.contains_key(&name) {
+            return Err(format!("定时任务 {name:?} 与已注册别名同名"));
+        }
+
         self.schedule_handlers.insert(
-            definition.name.clone(),
+            name,
             ScheduleTaskRegistration {
                 definition,
                 handler: Arc::new(handler),
             },
         );
+
+        Ok(())
     }
 
     /// 注册定时任务别名
-    pub fn register_schedule_alias(&mut self, alias: impl Into<String>, target: &str) {
-        if let Some(handler) = self.get_schedule_handler(target) {
-            self.schedule_handler_aliases.insert(alias.into(), handler);
+    pub fn register_schedule_alias(
+        &mut self,
+        alias: impl Into<String>,
+        target: impl Into<String>,
+    ) -> Result<(), String> {
+        let alias = alias.into();
+        if self.schedule_handlers.contains_key(&alias) {
+            return Err(format!("定时任务别名 {alias:?} 与已注册任务同名"));
         }
+        if self.schedule_alias_targets.contains_key(&alias) {
+            return Err(format!("定时任务别名 {alias:?} 重复注册"));
+        }
+
+        self.schedule_alias_targets.insert(alias, target.into());
+
+        Ok(())
+    }
+
+    /// 校验全部别名并解析到最终正式任务名
+    pub fn resolve_aliases(&mut self) -> Result<(), String> {
+        self.queue_alias_targets =
+            resolve_alias_targets(&self.queue_alias_targets, &self.queue_handlers, "队列任务")?;
+        self.schedule_alias_targets = resolve_alias_targets(
+            &self.schedule_alias_targets,
+            &self.schedule_handlers,
+            "定时任务",
+        )?;
+
+        Ok(())
     }
 
     /// 获取队列任务处理器
@@ -283,7 +349,12 @@ impl TaskRegistry {
         self.queue_handlers
             .get(name)
             .map(|item| item.handler.clone())
-            .or_else(|| self.queue_handler_aliases.get(name).cloned())
+            .or_else(|| {
+                resolve_alias_target(&self.queue_alias_targets, &self.queue_handlers, name)
+                    .ok()
+                    .and_then(|target| self.queue_handlers.get(&target))
+                    .map(|item| item.handler.clone())
+            })
     }
 
     /// 获取队列任务定义
@@ -299,7 +370,12 @@ impl TaskRegistry {
         self.schedule_handlers
             .get(name)
             .map(|item| item.handler.clone())
-            .or_else(|| self.schedule_handler_aliases.get(name).cloned())
+            .or_else(|| {
+                resolve_alias_target(&self.schedule_alias_targets, &self.schedule_handlers, name)
+                    .ok()
+                    .and_then(|target| self.schedule_handlers.get(&target))
+                    .map(|item| item.handler.clone())
+            })
     }
 
     /// 获取定时任务定义
@@ -357,5 +433,54 @@ impl TaskRegistry {
         }
 
         tasks
+    }
+}
+
+/// 校验并扁平化同类任务的全部别名目标
+fn resolve_alias_targets<T>(
+    aliases: &BTreeMap<String, String>,
+    handlers: &BTreeMap<String, T>,
+    task_kind: &str,
+) -> Result<BTreeMap<String, String>, String> {
+    aliases
+        .keys()
+        .map(|alias| {
+            resolve_alias_target(aliases, handlers, alias)
+                .map(|target| (alias.clone(), target))
+                .map_err(|error| format!("{task_kind}{error}"))
+        })
+        .collect()
+}
+
+/// 解析单个别名指向的最终正式任务名
+fn resolve_alias_target<T>(
+    aliases: &BTreeMap<String, String>,
+    handlers: &BTreeMap<String, T>,
+    alias: &str,
+) -> Result<String, String> {
+    let mut path = Vec::new();
+    let mut current = alias.to_string();
+
+    loop {
+        if handlers.contains_key(&current) {
+            return Ok(current);
+        }
+
+        if let Some(cycle_start) = path.iter().position(|item| item == &current) {
+            let mut cycle = path[cycle_start..].to_vec();
+            cycle.push(current);
+            let cycle = cycle
+                .iter()
+                .map(|item| format!("{item:?}"))
+                .collect::<Vec<_>>()
+                .join(" -> ");
+            return Err(format!("别名存在循环引用: {cycle}"));
+        }
+
+        path.push(current.clone());
+        let Some(target) = aliases.get(&current) else {
+            return Err(format!("别名 {alias:?} 指向不存在的目标 {current:?}"));
+        };
+        current.clone_from(target);
     }
 }

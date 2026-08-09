@@ -3,11 +3,12 @@ use proc_macro_crate::{FoundCrate, crate_name};
 use proc_macro2::{Delimiter, Spacing, TokenStream as TokenStream2, TokenTree};
 use quote::{ToTokens, format_ident, quote, quote_spanned};
 use syn::{
-    Expr, GenericArgument, Ident, ItemFn, MetaNameValue, Pat, Path, PathArguments, Token, Type,
-    braced, parenthesized,
+    Data, DeriveInput, Expr, Fields, GenericArgument, Ident, ItemFn, MetaNameValue, Pat, Path,
+    PathArguments, Token, Type, braced, parenthesized,
     parse::{Parse, ParseStream},
     parse_macro_input,
     punctuated::Punctuated,
+    visit::{self, Visit},
 };
 
 /// 解析调用方实际使用的运行时 crate 路径
@@ -266,9 +267,10 @@ pub fn retry(attr: TokenStream, item: TokenStream) -> TokenStream {
 ///
 /// 显式参数键应优先写成 `key = (&id, &tenant_id)`，无序集合应使用
 /// `key = source_generator_runtime::unordered_key(&ids)` 明确声明集合语义
-/// 未配置 key 时，除 receiver 外的全部参数都必须实现 Serialize
-/// 配置 key 后只要求该表达式实现 Serialize，调用方负责包含所有影响结果的稳定业务维度
-/// 参数实现 Serialize 但运行时序列化失败时会记录降级日志并绕过缓存
+/// 未配置 key 时，除 receiver 外的全部参数都必须实现 StableInvocationKey
+/// 配置 key 后只要求该表达式实现 StableInvocationKey，调用方负责包含所有影响结果的稳定业务维度
+/// StableInvocationKey 不支持可变引用，派生类型中的嵌套可变引用也会被拒绝
+/// 稳定参数键生成失败时会记录降级日志并绕过缓存
 /// Result<(), E> 或显式 cache_value = false 时不会生成缓存代码，也不会引入缓存相关 Trait 约束
 ///
 /// 仅支持返回 Result<T, E> 的 async fn，T 需实现 Serialize、DeserializeOwned 与 PartialEq
@@ -298,8 +300,9 @@ pub fn cacheable(attr: TokenStream, item: TokenStream) -> TokenStream {
 ///
 /// 显式参数键应包含全部会影响并发隔离的业务维度，并通过引用避免移动方法参数
 /// 无序集合应使用 source_generator_runtime::unordered_key 显式声明集合语义
-/// 未配置 key 时，除 receiver 外的全部参数都必须实现 Serialize
-/// 参数序列化失败时会返回错误，禁止绕过锁继续执行
+/// 未配置 key 时，除 receiver 外的全部参数都必须实现 StableInvocationKey
+/// 可变引用参数应在显式 key 中通过 &*value 创建不可变重借用
+/// 参数键生成失败时会返回错误，禁止绕过锁继续执行
 ///
 /// 仅支持返回 Result<T, E> 的 async fn，E 需实现 From<String> 与 From<LockError>
 #[proc_macro_attribute]
@@ -308,6 +311,483 @@ pub fn concurrency_limit(attr: TokenStream, item: TokenStream) -> TokenStream {
     let input = parse_macro_input!(item as ItemFn);
 
     expand_concurrency_limit(args, input).unwrap_or_else(|e| e.to_compile_error().into())
+}
+
+/// 为结构体或枚举生成完整字段稳定调用键实现
+#[proc_macro_derive(StableInvocationKey, attributes(invocation_key))]
+pub fn derive_stable_invocation_key(item: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(item as DeriveInput);
+
+    expand_stable_invocation_key(input).unwrap_or_else(|error| error.to_compile_error().into())
+}
+
+/// 展开 StableInvocationKey 派生实现
+fn expand_stable_invocation_key(input: DeriveInput) -> syn::Result<TokenStream> {
+    let runtime = runtime_crate_path()?;
+    let scope = parse_invocation_key_scope(&input)?;
+    let type_name = &input.ident;
+    validate_invocation_key_fields(&input.data)?;
+
+    let generic_type_names = input
+        .generics
+        .type_params()
+        .map(|parameter| parameter.ident.to_string())
+        .collect::<std::collections::BTreeSet<_>>();
+    let value_generic_names = collect_value_generic_names(&input.data, &generic_type_names);
+    let mut invocation_generics = input.generics.clone();
+    for parameter in input.generics.type_params() {
+        let ident = &parameter.ident;
+        let predicate = if value_generic_names.contains(&ident.to_string()) {
+            syn::parse_quote!(#ident: #runtime::StableInvocationKey + #runtime::StableKeyType)
+        } else {
+            syn::parse_quote!(#ident: #runtime::StableKeyType)
+        };
+        invocation_generics
+            .make_where_clause()
+            .predicates
+            .push(predicate);
+    }
+    let (impl_generics, type_generics, where_clause) = invocation_generics.split_for_impl();
+    let generic_writes = build_invocation_key_generic_writes(&input.generics, &runtime);
+    let generic_count = generic_writes.len();
+    let body = match &input.data {
+        Data::Struct(data) => build_struct_invocation_key_body(
+            &data.fields,
+            &scope,
+            &runtime,
+            &generic_writes,
+            generic_count,
+        )?,
+        Data::Enum(data) => {
+            build_enum_invocation_key_body(data, &scope, &runtime, &generic_writes, generic_count)?
+        }
+        Data::Union(data) => {
+            return Err(syn::Error::new_spanned(
+                data.union_token,
+                "StableInvocationKey 不支持 union",
+            ));
+        }
+    };
+
+    let mut type_key_generics = input.generics.clone();
+    for parameter in input.generics.type_params() {
+        let ident = &parameter.ident;
+        type_key_generics
+            .make_where_clause()
+            .predicates
+            .push(syn::parse_quote!(#ident: #runtime::StableKeyType));
+    }
+    let (type_key_impl_generics, type_key_type_generics, type_key_where_clause) =
+        type_key_generics.split_for_impl();
+    let generic_type_parts = build_stable_key_type_generic_parts(&input.generics, &runtime);
+
+    Ok(quote! {
+        impl #impl_generics #runtime::StableInvocationKey for #type_name #type_generics #where_clause {
+            fn write_stable_invocation_key(
+                &self,
+                writer: &mut #runtime::StableInvocationKeyWriter,
+            ) -> ::core::result::Result<(), #runtime::InvocationKeyError> {
+                #body
+            }
+        }
+
+        impl #type_key_impl_generics #runtime::StableKeyType for #type_name #type_key_type_generics #type_key_where_clause {
+            fn stable_key_type() -> ::std::string::String {
+                #runtime::compose_stable_key_type(
+                    "rust:user",
+                    &[::std::string::ToString::to_string(#scope), #(#generic_type_parts),*],
+                )
+            }
+        }
+    }
+    .into())
+}
+
+/// 解析用户类型显式声明的稳定键作用域
+fn parse_invocation_key_scope(input: &DeriveInput) -> syn::Result<syn::LitStr> {
+    let mut scope = None;
+
+    for attribute in &input.attrs {
+        if !attribute.path().is_ident("invocation_key") {
+            continue;
+        }
+        attribute.parse_nested_meta(|meta| {
+            if !meta.path.is_ident("scope") {
+                return Err(meta.error("未知参数，仅支持 scope"));
+            }
+            if scope.is_some() {
+                return Err(meta.error("参数 scope 不能重复配置"));
+            }
+            let value = meta.value()?.parse::<syn::LitStr>()?;
+            if value.value().trim().is_empty() {
+                return Err(syn::Error::new_spanned(
+                    &value,
+                    "scope 不能为空或只包含空白",
+                ));
+            }
+            if value.value().chars().any(char::is_control) {
+                return Err(syn::Error::new_spanned(
+                    &value,
+                    "scope 不能包含换行符或其他控制字符",
+                ));
+            }
+            scope = Some(value);
+            Ok(())
+        })?;
+    }
+
+    scope.ok_or_else(|| {
+        syn::Error::new_spanned(
+            &input.ident,
+            "派生 StableInvocationKey 时必须配置 #[invocation_key(scope = \"...\")]",
+        )
+    })
+}
+
+/// 校验派生类型字段并拒绝未支持的字段配置
+fn validate_invocation_key_fields(data: &Data) -> syn::Result<()> {
+    if let Data::Enum(data) = data {
+        for variant in &data.variants {
+            if let Some(attribute) = variant
+                .attrs
+                .iter()
+                .find(|attribute| attribute.path().is_ident("invocation_key"))
+            {
+                return Err(syn::Error::new_spanned(
+                    attribute,
+                    "StableInvocationKey 当前不支持枚举变体配置",
+                ));
+            }
+        }
+    }
+
+    let fields = match data {
+        Data::Struct(data) => data.fields.iter().collect::<Vec<_>>(),
+        Data::Enum(data) => data
+            .variants
+            .iter()
+            .flat_map(|variant| variant.fields.iter())
+            .collect::<Vec<_>>(),
+        Data::Union(_) => return Ok(()),
+    };
+
+    for field in &fields {
+        if let Some(attribute) = field
+            .attrs
+            .iter()
+            .find(|attribute| attribute.path().is_ident("invocation_key"))
+        {
+            return Err(syn::Error::new_spanned(
+                attribute,
+                "StableInvocationKey 当前不支持跳过字段，所有字段都必须进入稳定键",
+            ));
+        }
+    }
+
+    Ok(())
+}
+
+/// 收集在实际字段值中使用的泛型类型参数
+fn collect_value_generic_names(
+    data: &Data,
+    generic_type_names: &std::collections::BTreeSet<String>,
+) -> std::collections::BTreeSet<String> {
+    let mut visitor = ValueGenericUsageVisitor {
+        generic_type_names,
+        value_generic_names: std::collections::BTreeSet::new(),
+    };
+
+    match data {
+        Data::Struct(data) => {
+            for field in &data.fields {
+                visitor.visit_type(&field.ty);
+            }
+        }
+        Data::Enum(data) => {
+            for field in data
+                .variants
+                .iter()
+                .flat_map(|variant| variant.fields.iter())
+            {
+                visitor.visit_type(&field.ty);
+            }
+        }
+        Data::Union(_) => {}
+    }
+
+    visitor.value_generic_names
+}
+
+/// 泛型类型参数值用途访问器
+struct ValueGenericUsageVisitor<'a> {
+    /// 当前类型声明的泛型类型参数名称
+    generic_type_names: &'a std::collections::BTreeSet<String>,
+
+    /// 出现在实际字段值中的泛型类型参数名称
+    value_generic_names: std::collections::BTreeSet<String>,
+}
+
+impl<'ast> Visit<'ast> for ValueGenericUsageVisitor<'_> {
+    /// 记录类型路径中的泛型参数并跳过 PhantomData 的纯类型维度
+    fn visit_type_path(&mut self, node: &'ast syn::TypePath) {
+        if is_phantom_data_type_path(node) {
+            return;
+        }
+
+        if node.qself.is_none()
+            && let Some(segment) = node.path.segments.first()
+            && self.generic_type_names.contains(&segment.ident.to_string())
+        {
+            self.value_generic_names.insert(segment.ident.to_string());
+        }
+
+        visit::visit_type_path(self, node);
+    }
+}
+
+/// 判断类型路径是否为标准 PhantomData
+fn is_phantom_data_type_path(node: &syn::TypePath) -> bool {
+    if node.qself.is_some() {
+        return false;
+    }
+
+    let segments = node
+        .path
+        .segments
+        .iter()
+        .map(|segment| segment.ident.to_string())
+        .collect::<Vec<_>>();
+    matches!(segments.as_slice(), [name] if name == "PhantomData")
+        || matches!(segments.as_slice(), [root, marker, name] if matches!(root.as_str(), "std" | "core") && marker == "marker" && name == "PhantomData")
+}
+
+/// 生成泛型参数的稳定调用键维度
+fn build_invocation_key_generic_writes(
+    generics: &syn::Generics,
+    runtime: &TokenStream2,
+) -> Vec<TokenStream2> {
+    generics
+        .params
+        .iter()
+        .filter(|parameter| !matches!(parameter, syn::GenericParam::Lifetime(_)))
+        .enumerate()
+        .filter_map(|(index, parameter)| match parameter {
+            syn::GenericParam::Type(parameter) => {
+                let ident = &parameter.ident;
+                let index = index.to_string();
+                Some(quote! {
+                    writer.write_node("rust:user-generic-type", 2, |writer| {
+                        writer.write_scalar("rust:user-generic-index", #index)?;
+                        writer.write_scalar(
+                            "rust:user-generic-value",
+                            &<#ident as #runtime::StableKeyType>::stable_key_type(),
+                        )
+                    })?;
+                })
+            }
+            syn::GenericParam::Const(parameter) => {
+                let ident = &parameter.ident;
+                let index = index.to_string();
+                Some(quote! {
+                    writer.write_node("rust:user-generic-const", 2, |writer| {
+                        writer.write_scalar("rust:user-generic-index", #index)?;
+                        writer.write_scalar(
+                            "rust:user-generic-value",
+                            &::std::string::ToString::to_string(&#ident),
+                        )
+                    })?;
+                })
+            }
+            syn::GenericParam::Lifetime(_) => None,
+        })
+        .collect()
+}
+
+/// 生成派生类型稳定标签中的泛型维度
+fn build_stable_key_type_generic_parts(
+    generics: &syn::Generics,
+    runtime: &TokenStream2,
+) -> Vec<TokenStream2> {
+    generics
+        .params
+        .iter()
+        .filter(|parameter| !matches!(parameter, syn::GenericParam::Lifetime(_)))
+        .enumerate()
+        .filter_map(|(index, parameter)| match parameter {
+            syn::GenericParam::Type(parameter) => {
+                let ident = &parameter.ident;
+                Some(quote! {
+                    ::std::format!(
+                        "type:{}={}",
+                        #index,
+                        <#ident as #runtime::StableKeyType>::stable_key_type(),
+                    )
+                })
+            }
+            syn::GenericParam::Const(parameter) => {
+                let ident = &parameter.ident;
+                Some(quote! {
+                    ::std::format!("const:{}={}", #index, #ident)
+                })
+            }
+            syn::GenericParam::Lifetime(_) => None,
+        })
+        .collect()
+}
+
+/// 生成派生类型键中的泛型维度节点
+fn build_invocation_key_generics_node(
+    generic_writes: &[TokenStream2],
+    generic_count: usize,
+) -> TokenStream2 {
+    quote! {
+        writer.write_node("rust:user-generics", #generic_count, |writer| {
+            #(#generic_writes)*
+            ::core::result::Result::Ok(())
+        })?;
+    }
+}
+
+/// 生成结构体稳定键方法体
+fn build_struct_invocation_key_body(
+    fields: &Fields,
+    scope: &syn::LitStr,
+    runtime: &TokenStream2,
+    generic_writes: &[TokenStream2],
+    generic_count: usize,
+) -> syn::Result<TokenStream2> {
+    let field_writes = build_struct_field_writes(fields, runtime)?;
+    let field_count = field_writes.len();
+    let generics_node = build_invocation_key_generics_node(generic_writes, generic_count);
+
+    Ok(quote! {
+        writer.write_node("rust:user-struct", 3, |writer| {
+            writer.write_scalar("rust:user-type", #scope)?;
+            #generics_node
+            writer.write_node("rust:user-fields", #field_count, |writer| {
+                #(#field_writes)*
+                ::core::result::Result::Ok(())
+            })
+        })
+    })
+}
+
+/// 生成结构体字段稳定键写入语句
+fn build_struct_field_writes(
+    fields: &Fields,
+    runtime: &TokenStream2,
+) -> syn::Result<Vec<TokenStream2>> {
+    fields
+        .iter()
+        .enumerate()
+        .map(|(index, field)| {
+            let (field_name, access) = if let Some(ident) = &field.ident {
+                (ident.to_string(), quote! { &self.#ident })
+            } else {
+                let index = syn::Index::from(index);
+                (index.index.to_string(), quote! { &self.#index })
+            };
+            Ok(quote! {
+                writer.write_node("rust:user-field", 2, |writer| {
+                    writer.write_scalar("rust:user-field-name", #field_name)?;
+                    #runtime::StableInvocationKey::write_stable_invocation_key(#access, writer)
+                })?;
+            })
+        })
+        .collect()
+}
+
+/// 生成枚举稳定键方法体
+fn build_enum_invocation_key_body(
+    data: &syn::DataEnum,
+    scope: &syn::LitStr,
+    runtime: &TokenStream2,
+    generic_writes: &[TokenStream2],
+    generic_count: usize,
+) -> syn::Result<TokenStream2> {
+    let generics_node = build_invocation_key_generics_node(generic_writes, generic_count);
+    let arms = data
+        .variants
+        .iter()
+        .map(|variant| build_enum_variant_arm(variant, scope, runtime, &generics_node))
+        .collect::<syn::Result<Vec<_>>>()?;
+
+    Ok(quote! {
+        match self {
+            #(#arms),*
+        }
+    })
+}
+
+/// 生成单个枚举变体的稳定键匹配分支
+fn build_enum_variant_arm(
+    variant: &syn::Variant,
+    scope: &syn::LitStr,
+    runtime: &TokenStream2,
+    generics_node: &TokenStream2,
+) -> syn::Result<TokenStream2> {
+    let variant_name = variant.ident.to_string();
+    let variant_ident = &variant.ident;
+    let mut field_writes = Vec::new();
+
+    let pattern = match &variant.fields {
+        Fields::Named(fields) => {
+            let bindings = fields
+                .named
+                .iter()
+                .map(|field| {
+                    field
+                        .ident
+                        .as_ref()
+                        .ok_or_else(|| syn::Error::new_spanned(field, "命名枚举字段缺少标识符"))
+                })
+                .collect::<syn::Result<Vec<_>>>()?;
+            for binding in &bindings {
+                let field_name = binding.to_string();
+                field_writes.push(quote! {
+                    writer.write_node("rust:user-field", 2, |writer| {
+                        writer.write_scalar("rust:user-field-name", #field_name)?;
+                        #runtime::StableInvocationKey::write_stable_invocation_key(#binding, writer)
+                    })?;
+                });
+            }
+            quote! { Self::#variant_ident { #(#bindings),* } }
+        }
+        Fields::Unnamed(fields) => {
+            let bindings = (0..fields.unnamed.len())
+                .map(|index| {
+                    format_ident!(
+                        "__source_generator_invocation_key_field_{index}",
+                        span = proc_macro2::Span::mixed_site()
+                    )
+                })
+                .collect::<Vec<_>>();
+            for (index, binding) in bindings.iter().enumerate() {
+                let field_name = index.to_string();
+                field_writes.push(quote! {
+                    writer.write_node("rust:user-field", 2, |writer| {
+                        writer.write_scalar("rust:user-field-name", #field_name)?;
+                        #runtime::StableInvocationKey::write_stable_invocation_key(#binding, writer)
+                    })?;
+                });
+            }
+            quote! { Self::#variant_ident(#(#bindings),*) }
+        }
+        Fields::Unit => quote! { Self::#variant_ident },
+    };
+    let field_count = field_writes.len();
+
+    Ok(quote! {
+        #pattern => writer.write_node("rust:user-enum", 4, |writer| {
+            writer.write_scalar("rust:user-type", #scope)?;
+            #generics_node
+            writer.write_scalar("rust:user-variant", #variant_name)?;
+            writer.write_node("rust:user-fields", #field_count, |writer| {
+                #(#field_writes)*
+                ::core::result::Result::Ok(())
+            })
+        })
+    })
 }
 
 /// 生成应用服务工厂方法
@@ -332,7 +812,7 @@ pub fn generate_direct_service_factory(item: TokenStream) -> TokenStream {
 
 /// 为任务注册表生成批量注册语句
 ///
-/// 通过声明式清单展开 queue schedule 与 alias 注册调用，减少重复样板代码
+/// 通过声明式清单先注册 queue schedule 再登记 alias，并返回注册结果
 #[proc_macro]
 pub fn register_task_registry(item: TokenStream) -> TokenStream {
     let input = parse_macro_input!(item as TaskRegistryRegistrationInput);
@@ -730,34 +1210,38 @@ fn expand_task_registry_registration(
     } else {
         quote! { __task_registry }
     };
-    let statements = input.entries.into_iter().map(|entry| match entry {
-        TaskRegistryRegistrationEntry::Queue {
-            definition,
-            handler,
-        } => {
-            quote! {
-                #registry_target.register_queue_with_definition(#definition, #handler);
+    let mut task_statements = Vec::new();
+    let mut alias_statements = Vec::new();
+    for entry in input.entries {
+        match entry {
+            TaskRegistryRegistrationEntry::Queue {
+                definition,
+                handler,
+            } => {
+                task_statements.push(quote! {
+                    #registry_target.register_queue_with_definition(#definition, #handler)?;
+                });
+            }
+            TaskRegistryRegistrationEntry::Schedule {
+                definition,
+                handler,
+            } => {
+                task_statements.push(quote! {
+                    #registry_target.register_schedule_with_definition(#definition, #handler)?;
+                });
+            }
+            TaskRegistryRegistrationEntry::QueueAlias { alias, target } => {
+                alias_statements.push(quote! {
+                    #registry_target.register_queue_alias(#alias, #target)?;
+                });
+            }
+            TaskRegistryRegistrationEntry::ScheduleAlias { alias, target } => {
+                alias_statements.push(quote! {
+                    #registry_target.register_schedule_alias(#alias, #target)?;
+                });
             }
         }
-        TaskRegistryRegistrationEntry::Schedule {
-            definition,
-            handler,
-        } => {
-            quote! {
-                #registry_target.register_schedule_with_definition(#definition, #handler);
-            }
-        }
-        TaskRegistryRegistrationEntry::QueueAlias { alias, target } => {
-            quote! {
-                #registry_target.register_queue_alias(#alias, #target);
-            }
-        }
-        TaskRegistryRegistrationEntry::ScheduleAlias { alias, target } => {
-            quote! {
-                #registry_target.register_schedule_alias(#alias, #target);
-            }
-        }
-    });
+    }
 
     let registry_binding = if is_direct_path {
         quote! {}
@@ -769,8 +1253,12 @@ fn expand_task_registry_registration(
 
     Ok(quote! {
         {
-            #registry_binding
-            #(#statements)*
+            (|| -> ::core::result::Result<(), ::std::string::String> {
+                #registry_binding
+                #(#task_statements)*
+                #(#alias_statements)*
+                ::core::result::Result::Ok(())
+            })()
         }
     }
     .into())
@@ -1777,7 +2265,7 @@ fn expand_cacheable(args: CacheableArgs, mut input: ItemFn) -> syn::Result<Token
     {
         return Err(syn::Error::new_spanned(
             input,
-            "#[cacheable] 的默认参数键不支持包含 dyn Trait 的参数，请配置 key = (...) 只选择稳定且可序列化的业务参数",
+            "#[cacheable] 的默认参数键不支持包含 dyn Trait 的参数，请配置 key = (...) 只选择实现 StableInvocationKey 的稳定业务参数",
         ));
     }
 
@@ -1799,7 +2287,7 @@ fn expand_cacheable(args: CacheableArgs, mut input: ItemFn) -> syn::Result<Token
         "__source_generator_cache_argument_value",
         span = proc_macro2::Span::mixed_site()
     );
-    let argument_serialization_assertions = build_argument_serialization_assertions(
+    let argument_key_assertions = build_argument_key_assertions(
         sig,
         uses_explicit_key,
         &runtime,
@@ -1917,7 +2405,7 @@ fn expand_cacheable(args: CacheableArgs, mut input: ItemFn) -> syn::Result<Token
             #(#parameter_safety_checks)*
 
             let #argument_value_ident = #argument_value;
-            #argument_serialization_assertions
+            #argument_key_assertions
 
             let __cache_arguments_key = match #runtime::cacheable_invocation_arguments_key(
                 &#runtime::InvocationArguments(#argument_value_ident),
@@ -2115,7 +2603,7 @@ fn expand_concurrency_limit(
     {
         return Err(syn::Error::new_spanned(
             input,
-            "#[concurrency_limit(is_use_parameter = true)] 的默认参数键不支持包含 dyn Trait 的参数，请配置 key = (...) 只选择稳定且可序列化的业务参数",
+            "#[concurrency_limit(is_use_parameter = true)] 的默认参数键不支持包含 dyn Trait 的参数，请配置 key = (...) 只选择实现 StableInvocationKey 的稳定业务参数",
         ));
     }
 
@@ -2187,7 +2675,7 @@ fn expand_concurrency_limit(
             "__source_generator_lock_argument_value",
             span = proc_macro2::Span::mixed_site()
         );
-        let argument_serialization_assertions = build_argument_serialization_assertions(
+        let argument_key_assertions = build_argument_key_assertions(
             sig,
             uses_explicit_key,
             &runtime,
@@ -2197,7 +2685,7 @@ fn expand_concurrency_limit(
         quote! {
 
             let #argument_value_ident = #argument_value;
-            #argument_serialization_assertions
+            #argument_key_assertions
 
             let __lock_arguments_key = match #runtime::invocation_arguments_key(
                 &#runtime::InvocationArguments(#argument_value_ident),
@@ -2298,8 +2786,8 @@ fn build_argument_value(
     }
 }
 
-/// 为默认参数或显式键生成可定位到调用参数的 Serialize 约束
-fn build_argument_serialization_assertions(
+/// 为默认参数或显式键生成可定位到调用参数的 StableInvocationKey 约束
+fn build_argument_key_assertions(
     sig: &syn::Signature,
     uses_explicit_key: bool,
     runtime: &TokenStream2,
@@ -2308,7 +2796,7 @@ fn build_argument_serialization_assertions(
 ) -> syn::Result<TokenStream2> {
     if uses_explicit_key {
         let helper = format_ident!(
-            "__source_generator_{}_explicit_key_must_implement_serialize",
+            "__source_generator_{}_explicit_key_must_implement_stable_invocation_key",
             context,
             span = proc_macro2::Span::mixed_site()
         );
@@ -2316,7 +2804,7 @@ fn build_argument_serialization_assertions(
             {
                 fn #helper<T>(_: &T)
                 where
-                    T: #runtime::Serialize + ?Sized,
+                    T: #runtime::StableInvocationKey + ?Sized,
                 {
                 }
 
@@ -2337,7 +2825,7 @@ fn build_argument_serialization_assertions(
         let parameter_name = ident.to_string();
         let parameter_name = parameter_name.trim_start_matches("r#");
         let helper = format_ident!(
-            "__source_generator_{}_key_parameter_{}_{}_must_implement_serialize_or_configure_key",
+            "__source_generator_{}_key_parameter_{}_{}_must_implement_stable_invocation_key_or_configure_key",
             context,
             index,
             parameter_name,
@@ -2347,7 +2835,7 @@ fn build_argument_serialization_assertions(
             {
                 fn #helper<T>(_: &T)
                 where
-                    T: #runtime::Serialize + ?Sized,
+                    T: #runtime::StableInvocationKey + ?Sized,
                 {
                 }
 

@@ -204,7 +204,7 @@ impl TaskServiceHostBuilder {
             file_storage,
             file_root_paths,
         };
-        let registry = build_task_registry(self.features, &feature_context);
+        let registry = build_task_registry(self.features, &feature_context)?;
 
         sync_task_registry(&db_pool, &registry, &identifier_generator).await;
 
@@ -457,14 +457,15 @@ fn parse_selected_task_ids(command: &str, items: &[DebugTaskMenuItem]) -> Result
 fn build_task_registry(
     features: Vec<Box<dyn TaskServiceFeature>>,
     context: &TaskServiceFeatureContext,
-) -> TaskRegistry {
+) -> Result<TaskRegistry, String> {
     let mut registry = TaskRegistry::new();
 
     for feature in features {
-        feature.register(&mut registry, context);
+        feature.register(&mut registry, context)?;
     }
+    registry.resolve_aliases()?;
 
-    registry
+    Ok(registry)
 }
 
 /// 同步任务注册表到数据库

@@ -164,7 +164,10 @@ impl BuiltinTaskHandlerFactory {
 }
 
 /// 注册任务宿主内置任务
-pub fn register_builtin_tasks(registry: &mut TaskRegistry, context: &TaskServiceFeatureContext) {
+pub fn register_builtin_tasks(
+    registry: &mut TaskRegistry,
+    context: &TaskServiceFeatureContext,
+) -> Result<(), String> {
     let handlers = BuiltinTaskHandlerFactory::new(context);
 
     register_task_registry! {

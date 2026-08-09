@@ -1,6 +1,7 @@
 use std::cell::Cell;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet, LinkedList, VecDeque};
 use std::hash::BuildHasher;
+use std::marker::PhantomData;
 use std::rc::Rc;
 use std::time::Duration;
 
@@ -22,7 +23,7 @@ use std::sync::Arc;
 /// 重新导出分布式锁错误，供属性宏在调用方保留底层错误类型
 pub use distributed_lock::LockError;
 
-/// 重新导出参数键序列化约束，供属性宏生成针对性编译诊断
+/// 重新导出缓存值与显式信任键使用的序列化约束
 #[doc(hidden)]
 pub use serde::Serialize;
 
@@ -69,6 +70,11 @@ impl InvocationKeyError {
             message: message.into(),
         }
     }
+
+    /// 创建自定义参数键错误
+    pub fn custom(message: impl Into<String>) -> Self {
+        Self::new(message)
+    }
 }
 
 impl Display for InvocationKeyError {
@@ -79,6 +85,594 @@ impl Display for InvocationKeyError {
 }
 
 impl std::error::Error for InvocationKeyError {}
+
+/// 为调用参数提供完整且稳定的键编码
+pub trait StableInvocationKey {
+    /// 将当前值写入稳定调用键编码器
+    fn write_stable_invocation_key(
+        &self,
+        writer: &mut StableInvocationKeyWriter,
+    ) -> Result<(), InvocationKeyError>;
+}
+
+/// 稳定调用键的有界无歧义编码器
+#[doc(hidden)]
+pub struct StableInvocationKeyWriter {
+    output: String,
+    frames: Vec<StableInvocationKeyFrame>,
+    root_count: usize,
+    item_count: usize,
+    failed: bool,
+}
+
+/// 稳定调用键节点写入状态
+struct StableInvocationKeyFrame {
+    expected_children: usize,
+    written_children: usize,
+}
+
+impl StableInvocationKeyWriter {
+    /// 稳定调用键允许的最大嵌套深度
+    const MAX_DEPTH: usize = 64;
+
+    /// 稳定调用键允许的最大节点数量
+    const MAX_ITEMS: usize = 10_000;
+
+    /// 稳定调用键允许的最大编码字节数
+    const MAX_BYTES: usize = 1024 * 1024;
+
+    /// 创建稳定调用键编码器
+    fn new() -> Self {
+        Self {
+            output: "source-generator-invocation-key-v2|".to_string(),
+            frames: Vec::new(),
+            root_count: 0,
+            item_count: 0,
+            failed: false,
+        }
+    }
+
+    /// 写入包含固定数量子节点的结构节点
+    pub fn write_node<F>(
+        &mut self,
+        tag: &str,
+        child_count: usize,
+        write_children: F,
+    ) -> Result<(), InvocationKeyError>
+    where
+        F: FnOnce(&mut Self) -> Result<(), InvocationKeyError>,
+    {
+        let result = self.write_node_inner(tag, child_count, write_children);
+        if result.is_err() {
+            self.failed = true;
+        }
+        result
+    }
+
+    /// 写入结构节点并维护内部节点栈
+    fn write_node_inner<F>(
+        &mut self,
+        tag: &str,
+        child_count: usize,
+        write_children: F,
+    ) -> Result<(), InvocationKeyError>
+    where
+        F: FnOnce(&mut Self) -> Result<(), InvocationKeyError>,
+    {
+        self.begin_value()?;
+        self.append("N")?;
+        self.append_text(tag)?;
+        self.append(";")?;
+        self.append(&child_count.to_string())?;
+        self.append("[")?;
+        self.frames.push(StableInvocationKeyFrame {
+            expected_children: child_count,
+            written_children: 0,
+        });
+
+        let result = write_children(self);
+        let Some(frame) = self.frames.pop() else {
+            return Err(InvocationKeyError::new("稳定调用键编码器节点栈异常"));
+        };
+        result?;
+
+        if frame.written_children != frame.expected_children {
+            return Err(InvocationKeyError::new(format!(
+                "稳定调用键节点 {tag:?} 期望 {} 个子节点，实际写入 {} 个",
+                frame.expected_children, frame.written_children
+            )));
+        }
+
+        self.append("]")
+    }
+
+    /// 写入带类型标签的标量节点
+    pub fn write_scalar(&mut self, tag: &str, value: &str) -> Result<(), InvocationKeyError> {
+        let result = self.write_scalar_inner(tag, value);
+        if result.is_err() {
+            self.failed = true;
+        }
+        result
+    }
+
+    /// 写入标量节点并维护内部预算
+    fn write_scalar_inner(&mut self, tag: &str, value: &str) -> Result<(), InvocationKeyError> {
+        self.begin_value()?;
+        self.append("V")?;
+        self.append_text(tag)?;
+        self.append(";")?;
+        self.append_text(value)?;
+        self.append(";")
+    }
+
+    /// 完成稳定调用键编码
+    fn finish(self) -> Result<String, InvocationKeyError> {
+        if self.failed {
+            return Err(InvocationKeyError::new(
+                "稳定调用键写入过程中发生过错误，不能使用部分结果",
+            ));
+        }
+        if !self.frames.is_empty() {
+            return Err(InvocationKeyError::new("稳定调用键存在未结束节点"));
+        }
+        if self.root_count != 1 {
+            return Err(InvocationKeyError::new(format!(
+                "稳定调用键必须包含一个根节点，实际包含 {} 个",
+                self.root_count
+            )));
+        }
+
+        Ok(self.output)
+    }
+
+    /// 开始写入一个值并更新节点预算
+    fn begin_value(&mut self) -> Result<(), InvocationKeyError> {
+        let depth = self.frames.len();
+        if depth > Self::MAX_DEPTH {
+            return Err(InvocationKeyError::new(format!(
+                "稳定调用键超过 {} 层深度限制",
+                Self::MAX_DEPTH
+            )));
+        }
+
+        self.item_count = self
+            .item_count
+            .checked_add(1)
+            .ok_or_else(|| InvocationKeyError::new("稳定调用键节点计数溢出"))?;
+        if self.item_count > Self::MAX_ITEMS {
+            return Err(InvocationKeyError::new(format!(
+                "稳定调用键超过 {} 个节点限制",
+                Self::MAX_ITEMS
+            )));
+        }
+
+        if let Some(frame) = self.frames.last_mut() {
+            frame.written_children = frame
+                .written_children
+                .checked_add(1)
+                .ok_or_else(|| InvocationKeyError::new("稳定调用键子节点计数溢出"))?;
+            if frame.written_children > frame.expected_children {
+                return Err(InvocationKeyError::new("稳定调用键写入了过多子节点"));
+            }
+        } else {
+            self.root_count = self
+                .root_count
+                .checked_add(1)
+                .ok_or_else(|| InvocationKeyError::new("稳定调用键根节点计数溢出"))?;
+        }
+
+        Ok(())
+    }
+
+    /// 写入带字节长度前缀的文本
+    fn append_text(&mut self, value: &str) -> Result<(), InvocationKeyError> {
+        self.append(&value.len().to_string())?;
+        self.append(":")?;
+        self.append(value)
+    }
+
+    /// 写入不超过总字节限制的文本
+    fn append(&mut self, value: &str) -> Result<(), InvocationKeyError> {
+        let next_len = self
+            .output
+            .len()
+            .checked_add(value.len())
+            .ok_or_else(|| InvocationKeyError::new("稳定调用键字节数溢出"))?;
+        if next_len > Self::MAX_BYTES {
+            return Err(InvocationKeyError::new(format!(
+                "稳定调用键超过 {} 字节限制",
+                Self::MAX_BYTES
+            )));
+        }
+
+        self.output.push_str(value);
+        Ok(())
+    }
+}
+
+/// 为实现稳定键契约的值生成参数键
+pub fn arguments_key<T>(args: &T) -> Result<String, InvocationKeyError>
+where
+    T: StableInvocationKey + ?Sized,
+{
+    let mut writer = StableInvocationKeyWriter::new();
+    args.write_stable_invocation_key(&mut writer)?;
+    writer.finish()
+}
+
+macro_rules! impl_stable_invocation_scalar {
+    ($($type:ty => $tag:literal),+ $(,)?) => {
+        $(
+            impl StableInvocationKey for $type {
+                fn write_stable_invocation_key(&self, writer: &mut StableInvocationKeyWriter) -> Result<(), InvocationKeyError> {
+                    writer.write_scalar($tag, &self.to_string())
+                }
+            }
+        )+
+    };
+}
+
+impl_stable_invocation_scalar!(
+    bool => "rust:bool",
+    char => "rust:char",
+    i8 => "rust:i8",
+    i16 => "rust:i16",
+    i32 => "rust:i32",
+    i64 => "rust:i64",
+    i128 => "rust:i128",
+    isize => "rust:isize",
+    u8 => "rust:u8",
+    u16 => "rust:u16",
+    u32 => "rust:u32",
+    u64 => "rust:u64",
+    u128 => "rust:u128",
+    usize => "rust:usize",
+);
+
+impl StableInvocationKey for () {
+    /// 写入单元值稳定键
+    fn write_stable_invocation_key(
+        &self,
+        writer: &mut StableInvocationKeyWriter,
+    ) -> Result<(), InvocationKeyError> {
+        writer.write_node("rust:unit", 0, |_| Ok(()))
+    }
+}
+
+impl StableInvocationKey for str {
+    /// 写入字符串切片稳定键
+    fn write_stable_invocation_key(
+        &self,
+        writer: &mut StableInvocationKeyWriter,
+    ) -> Result<(), InvocationKeyError> {
+        writer.write_scalar("rust:str", self)
+    }
+}
+
+impl StableInvocationKey for String {
+    /// 写入字符串稳定键
+    fn write_stable_invocation_key(
+        &self,
+        writer: &mut StableInvocationKeyWriter,
+    ) -> Result<(), InvocationKeyError> {
+        self.as_str().write_stable_invocation_key(writer)
+    }
+}
+
+impl StableInvocationKey for f32 {
+    /// 写入有限 f32 的稳定二进制表示
+    fn write_stable_invocation_key(
+        &self,
+        writer: &mut StableInvocationKeyWriter,
+    ) -> Result<(), InvocationKeyError> {
+        if !self.is_finite() {
+            return Err(InvocationKeyError::new("稳定调用键不支持非有限 f32"));
+        }
+        let value = if *self == 0.0 { 0.0 } else { *self };
+        writer.write_scalar("rust:f32", &format!("{:08x}", value.to_bits()))
+    }
+}
+
+impl StableInvocationKey for f64 {
+    /// 写入有限 f64 的稳定二进制表示
+    fn write_stable_invocation_key(
+        &self,
+        writer: &mut StableInvocationKeyWriter,
+    ) -> Result<(), InvocationKeyError> {
+        if !self.is_finite() {
+            return Err(InvocationKeyError::new("稳定调用键不支持非有限 f64"));
+        }
+        let value = if *self == 0.0 { 0.0 } else { *self };
+        writer.write_scalar("rust:f64", &format!("{:016x}", value.to_bits()))
+    }
+}
+
+impl StableInvocationKey for uuid::Uuid {
+    /// 写入 UUID 稳定键
+    fn write_stable_invocation_key(
+        &self,
+        writer: &mut StableInvocationKeyWriter,
+    ) -> Result<(), InvocationKeyError> {
+        writer.write_scalar("uuid:uuid", &self.hyphenated().to_string())
+    }
+}
+
+impl StableInvocationKey for serde_json::Number {
+    /// 写入任意精度 JSON 数字稳定键
+    fn write_stable_invocation_key(
+        &self,
+        writer: &mut StableInvocationKeyWriter,
+    ) -> Result<(), InvocationKeyError> {
+        writer.write_scalar("serde-json:number", &self.to_string())
+    }
+}
+
+impl StableInvocationKey for serde_json::Value {
+    /// 写入完整保留 JSON 类型与结构的稳定键
+    fn write_stable_invocation_key(
+        &self,
+        writer: &mut StableInvocationKeyWriter,
+    ) -> Result<(), InvocationKeyError> {
+        writer.write_node("serde-json:value", 1, |writer| match self {
+            serde_json::Value::Null => writer.write_node("serde-json:null", 0, |_| Ok(())),
+            serde_json::Value::Bool(value) => {
+                writer.write_scalar("serde-json:bool", &value.to_string())
+            }
+            serde_json::Value::Number(value) => value.write_stable_invocation_key(writer),
+            serde_json::Value::String(value) => writer.write_scalar("serde-json:string", value),
+            serde_json::Value::Array(values) => {
+                writer.write_node("serde-json:array", values.len(), |writer| {
+                    for value in values {
+                        value.write_stable_invocation_key(writer)?;
+                    }
+                    Ok(())
+                })
+            }
+            serde_json::Value::Object(values) => {
+                let mut entries = values.iter().collect::<Vec<_>>();
+                entries.sort_unstable_by(|left, right| left.0.cmp(right.0));
+                writer.write_node("serde-json:object", entries.len(), |writer| {
+                    for (key, value) in entries {
+                        writer.write_node("serde-json:property", 2, |writer| {
+                            writer.write_scalar("serde-json:property-name", key)?;
+                            value.write_stable_invocation_key(writer)
+                        })?;
+                    }
+                    Ok(())
+                })
+            }
+        })
+    }
+}
+
+impl StableInvocationKey for Duration {
+    /// 写入时长稳定键
+    fn write_stable_invocation_key(
+        &self,
+        writer: &mut StableInvocationKeyWriter,
+    ) -> Result<(), InvocationKeyError> {
+        writer.write_node("rust:duration", 2, |writer| {
+            self.as_secs().write_stable_invocation_key(writer)?;
+            self.subsec_nanos().write_stable_invocation_key(writer)
+        })
+    }
+}
+
+impl<T> StableInvocationKey for &T
+where
+    T: StableInvocationKey + ?Sized,
+{
+    /// 透传不可变引用的稳定键
+    fn write_stable_invocation_key(
+        &self,
+        writer: &mut StableInvocationKeyWriter,
+    ) -> Result<(), InvocationKeyError> {
+        (*self).write_stable_invocation_key(writer)
+    }
+}
+
+macro_rules! impl_stable_invocation_wrapper {
+    ($type:ident) => {
+        impl<T> StableInvocationKey for $type<T>
+        where
+            T: StableInvocationKey + ?Sized,
+        {
+            fn write_stable_invocation_key(
+                &self,
+                writer: &mut StableInvocationKeyWriter,
+            ) -> Result<(), InvocationKeyError> {
+                self.as_ref().write_stable_invocation_key(writer)
+            }
+        }
+    };
+}
+
+impl_stable_invocation_wrapper!(Box);
+impl_stable_invocation_wrapper!(Rc);
+impl_stable_invocation_wrapper!(Arc);
+
+impl<T> StableInvocationKey for Option<T>
+where
+    T: StableInvocationKey,
+{
+    /// 写入可选值稳定键
+    fn write_stable_invocation_key(
+        &self,
+        writer: &mut StableInvocationKeyWriter,
+    ) -> Result<(), InvocationKeyError> {
+        match self {
+            Some(value) => writer.write_node("rust:option:some", 1, |writer| {
+                value.write_stable_invocation_key(writer)
+            }),
+            None => writer.write_node("rust:option:none", 0, |_| Ok(())),
+        }
+    }
+}
+
+impl<T, E> StableInvocationKey for Result<T, E>
+where
+    T: StableInvocationKey,
+    E: StableInvocationKey,
+{
+    /// 写入结果值稳定键
+    fn write_stable_invocation_key(
+        &self,
+        writer: &mut StableInvocationKeyWriter,
+    ) -> Result<(), InvocationKeyError> {
+        match self {
+            Ok(value) => writer.write_node("rust:result:ok", 1, |writer| {
+                value.write_stable_invocation_key(writer)
+            }),
+            Err(error) => writer.write_node("rust:result:err", 1, |writer| {
+                error.write_stable_invocation_key(writer)
+            }),
+        }
+    }
+}
+
+/// 为有序集合写入稳定键
+fn write_ordered_values<'a, T, I>(
+    writer: &mut StableInvocationKeyWriter,
+    tag: &str,
+    values: I,
+    count: usize,
+) -> Result<(), InvocationKeyError>
+where
+    T: StableInvocationKey + 'a,
+    I: IntoIterator<Item = &'a T>,
+{
+    writer.write_node(tag, count, |writer| {
+        for value in values {
+            value.write_stable_invocation_key(writer)?;
+        }
+        Ok(())
+    })
+}
+
+impl<T> StableInvocationKey for [T]
+where
+    T: StableInvocationKey,
+{
+    /// 写入切片稳定键
+    fn write_stable_invocation_key(
+        &self,
+        writer: &mut StableInvocationKeyWriter,
+    ) -> Result<(), InvocationKeyError> {
+        write_ordered_values(writer, "rust:slice", self.iter(), self.len())
+    }
+}
+
+impl<T, const N: usize> StableInvocationKey for [T; N]
+where
+    T: StableInvocationKey,
+{
+    /// 写入数组稳定键
+    fn write_stable_invocation_key(
+        &self,
+        writer: &mut StableInvocationKeyWriter,
+    ) -> Result<(), InvocationKeyError> {
+        writer.write_node("rust:array", N.saturating_add(1), |writer| {
+            N.write_stable_invocation_key(writer)?;
+            for value in self {
+                value.write_stable_invocation_key(writer)?;
+            }
+            Ok(())
+        })
+    }
+}
+
+macro_rules! impl_stable_invocation_sequence {
+    ($type:ident, $tag:literal) => {
+        impl<T> StableInvocationKey for $type<T>
+        where
+            T: StableInvocationKey,
+        {
+            fn write_stable_invocation_key(
+                &self,
+                writer: &mut StableInvocationKeyWriter,
+            ) -> Result<(), InvocationKeyError> {
+                write_ordered_values(writer, $tag, self.iter(), self.len())
+            }
+        }
+    };
+}
+
+impl_stable_invocation_sequence!(Vec, "rust:vec");
+impl_stable_invocation_sequence!(VecDeque, "rust:vec-deque");
+impl_stable_invocation_sequence!(LinkedList, "rust:linked-list");
+impl_stable_invocation_sequence!(BTreeSet, "rust:btree-set");
+
+impl<K, V> StableInvocationKey for BTreeMap<K, V>
+where
+    K: StableInvocationKey,
+    V: StableInvocationKey,
+{
+    /// 按键顺序写入有序字典稳定键
+    fn write_stable_invocation_key(
+        &self,
+        writer: &mut StableInvocationKeyWriter,
+    ) -> Result<(), InvocationKeyError> {
+        writer.write_node("rust:btree-map", self.len(), |writer| {
+            for (key, value) in self {
+                writer.write_node("rust:map-entry", 2, |writer| {
+                    key.write_stable_invocation_key(writer)?;
+                    value.write_stable_invocation_key(writer)
+                })?;
+            }
+            Ok(())
+        })
+    }
+}
+
+impl<T> StableInvocationKey for PhantomData<T>
+where
+    T: StableKeyType,
+{
+    /// 写入幽灵类型的稳定标签
+    fn write_stable_invocation_key(
+        &self,
+        writer: &mut StableInvocationKeyWriter,
+    ) -> Result<(), InvocationKeyError> {
+        writer.write_scalar("rust:phantom-data", &T::stable_key_type())
+    }
+}
+
+macro_rules! impl_stable_invocation_tuple {
+    ($tag:literal; $($type:ident => $index:tt),+) => {
+        impl<$($type),+> StableInvocationKey for ($($type,)+)
+        where
+            $($type: StableInvocationKey),+
+        {
+            fn write_stable_invocation_key(&self, writer: &mut StableInvocationKeyWriter) -> Result<(), InvocationKeyError> {
+                writer.write_node($tag, impl_stable_invocation_tuple!(@count $($type),+), |writer| {
+                    $(self.$index.write_stable_invocation_key(writer)?;)+
+                    Ok(())
+                })
+            }
+        }
+    };
+    (@count $($type:ident),+) => {
+        <[()]>::len(&[$(impl_stable_invocation_tuple!(@unit $type)),+])
+    };
+    (@unit $type:ident) => { () };
+}
+
+impl_stable_invocation_tuple!("rust:tuple1"; T1 => 0);
+impl_stable_invocation_tuple!("rust:tuple2"; T1 => 0, T2 => 1);
+impl_stable_invocation_tuple!("rust:tuple3"; T1 => 0, T2 => 1, T3 => 2);
+impl_stable_invocation_tuple!("rust:tuple4"; T1 => 0, T2 => 1, T3 => 2, T4 => 3);
+impl_stable_invocation_tuple!("rust:tuple5"; T1 => 0, T2 => 1, T3 => 2, T4 => 3, T5 => 4);
+impl_stable_invocation_tuple!("rust:tuple6"; T1 => 0, T2 => 1, T3 => 2, T4 => 3, T5 => 4, T6 => 5);
+impl_stable_invocation_tuple!("rust:tuple7"; T1 => 0, T2 => 1, T3 => 2, T4 => 3, T5 => 4, T6 => 5, T7 => 6);
+impl_stable_invocation_tuple!("rust:tuple8"; T1 => 0, T2 => 1, T3 => 2, T4 => 3, T5 => 4, T6 => 5, T7 => 6, T8 => 7);
+impl_stable_invocation_tuple!("rust:tuple9"; T1 => 0, T2 => 1, T3 => 2, T4 => 3, T5 => 4, T6 => 5, T7 => 6, T8 => 7, T9 => 8);
+impl_stable_invocation_tuple!("rust:tuple10"; T1 => 0, T2 => 1, T3 => 2, T4 => 3, T5 => 4, T6 => 5, T7 => 6, T8 => 7, T9 => 8, T10 => 9);
+impl_stable_invocation_tuple!("rust:tuple11"; T1 => 0, T2 => 1, T3 => 2, T4 => 3, T5 => 4, T6 => 5, T7 => 6, T8 => 7, T9 => 8, T10 => 9, T11 => 10);
+impl_stable_invocation_tuple!("rust:tuple12"; T1 => 0, T2 => 1, T3 => 2, T4 => 3, T5 => 4, T6 => 5, T7 => 6, T8 => 7, T9 => 8, T10 => 9, T11 => 10, T12 => 11);
+impl_stable_invocation_tuple!("rust:tuple13"; T1 => 0, T2 => 1, T3 => 2, T4 => 3, T5 => 4, T6 => 5, T7 => 6, T8 => 7, T9 => 8, T10 => 9, T11 => 10, T12 => 11, T13 => 12);
+impl_stable_invocation_tuple!("rust:tuple14"; T1 => 0, T2 => 1, T3 => 2, T4 => 3, T5 => 4, T6 => 5, T7 => 6, T8 => 7, T9 => 8, T10 => 9, T11 => 10, T12 => 11, T13 => 12, T14 => 13);
+impl_stable_invocation_tuple!("rust:tuple15"; T1 => 0, T2 => 1, T3 => 2, T4 => 3, T5 => 4, T6 => 5, T7 => 6, T8 => 7, T9 => 8, T10 => 9, T11 => 10, T12 => 11, T13 => 12, T14 => 13, T15 => 14);
+impl_stable_invocation_tuple!("rust:tuple16"; T1 => 0, T2 => 1, T3 => 2, T4 => 3, T5 => 4, T6 => 5, T7 => 6, T8 => 7, T9 => 8, T10 => 9, T11 => 10, T12 => 11, T13 => 12, T14 => 13, T15 => 14, T16 => 15);
 
 /// 重试行为选项
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -165,7 +759,7 @@ where
     T::stable_key_type()
 }
 
-/// 将无序集合显式包装为按规范 JSON 排序的参数键值
+/// 将无序集合显式包装为按元素稳定键排序的参数键值
 pub struct UnorderedKey<I> {
     values: I,
 }
@@ -198,7 +792,8 @@ where
                 )));
             }
 
-            let key = arguments_key(&value).map_err(S::Error::custom)?;
+            let key = serialize_arguments_key(&value, ParameterKeySafetyPolicy::default())
+                .map_err(S::Error::custom)?;
             total_bytes = total_bytes
                 .checked_add(key.len())
                 .filter(|length| *length <= MAX_BYTES)
@@ -216,6 +811,71 @@ where
             sequence.serialize_element(&value)?;
         }
         sequence.end()
+    }
+}
+
+impl<I> StableInvocationKey for UnorderedKey<I>
+where
+    I: Clone + IntoIterator,
+    I::Item: StableInvocationKey,
+{
+    /// 按元素稳定键排序后写入无序集合键
+    fn write_stable_invocation_key(
+        &self,
+        writer: &mut StableInvocationKeyWriter,
+    ) -> Result<(), InvocationKeyError> {
+        const MAX_ITEMS: usize = 10_000;
+        const MAX_BYTES: usize = 1024 * 1024;
+
+        let mut values = Vec::new();
+        let mut total_bytes = 0usize;
+        for value in self.values.clone() {
+            if values.len() >= MAX_ITEMS {
+                return Err(InvocationKeyError::new(format!(
+                    "无序参数集合超过 {MAX_ITEMS} 项限制"
+                )));
+            }
+            let value = arguments_key(&value)?;
+            total_bytes = total_bytes
+                .checked_add(value.len())
+                .filter(|length| *length <= MAX_BYTES)
+                .ok_or_else(|| {
+                    InvocationKeyError::new(format!("无序参数集合超过 {MAX_BYTES} 字节限制"))
+                })?;
+            values.push(value);
+        }
+        values.sort_unstable();
+
+        writer.write_node("rust:unordered", values.len(), |writer| {
+            for value in values {
+                writer.write_scalar("rust:unordered-item", &value)?;
+            }
+            Ok(())
+        })
+    }
+}
+
+/// 显式确认 Serde 表示完整且稳定的参数键包装
+pub struct TrustedSerdeKey<T> {
+    value: T,
+}
+
+/// 创建由调用方保证完整性的 Serde 参数键
+pub fn trusted_serde_key<T>(value: T) -> TrustedSerdeKey<T> {
+    TrustedSerdeKey { value }
+}
+
+impl<T> StableInvocationKey for TrustedSerdeKey<T>
+where
+    T: Serialize,
+{
+    /// 将显式信任的 Serde 表示写入稳定调用键
+    fn write_stable_invocation_key(
+        &self,
+        writer: &mut StableInvocationKeyWriter,
+    ) -> Result<(), InvocationKeyError> {
+        let value = serialize_arguments_key(&self.value, ParameterKeySafetyPolicy::default())?;
+        writer.write_scalar("trusted-serde-json", &value)
     }
 }
 
@@ -251,8 +911,11 @@ impl_stable_key_type!(
     f64 => "rust:f64",
     str => "rust:str",
     String => "rust:string",
+    Duration => "rust:duration",
+    serde_json::Number => "serde-json:number",
     serde_json::Value => "serde-json:value",
     uuid::Uuid => "uuid:uuid",
+    std::collections::hash_map::RandomState => "rust:random-state",
 );
 
 impl<T> StableKeyType for &T
@@ -296,15 +959,39 @@ impl_stable_key_wrapper!(Vec, "rust:vec");
 impl_stable_key_wrapper!(VecDeque, "rust:vec-deque");
 impl_stable_key_wrapper!(LinkedList, "rust:linked-list");
 impl_stable_key_wrapper!(BTreeSet, "rust:btree-set");
+impl_stable_key_wrapper!(PhantomData, "rust:phantom-data");
+
+impl<I> StableKeyType for UnorderedKey<I>
+where
+    I: StableKeyType,
+{
+    /// 返回无序参数键包装的稳定类型标签
+    fn stable_key_type() -> String {
+        compose_stable_key_type("rust:unordered-key", &[I::stable_key_type()])
+    }
+}
+
+impl<T> StableKeyType for TrustedSerdeKey<T>
+where
+    T: StableKeyType,
+{
+    /// 返回显式信任 Serde 键包装的稳定类型标签
+    fn stable_key_type() -> String {
+        compose_stable_key_type("rust:trusted-serde-key", &[T::stable_key_type()])
+    }
+}
 
 impl<T, S> StableKeyType for HashSet<T, S>
 where
     T: StableKeyType,
-    S: BuildHasher,
+    S: BuildHasher + StableKeyType,
 {
     /// 返回哈希集合的稳定类型标签
     fn stable_key_type() -> String {
-        compose_stable_key_type("rust:hash-set", &[T::stable_key_type()])
+        compose_stable_key_type(
+            "rust:hash-set",
+            &[T::stable_key_type(), S::stable_key_type()],
+        )
     }
 }
 
@@ -326,13 +1013,17 @@ impl<K, V, S> StableKeyType for HashMap<K, V, S>
 where
     K: StableKeyType,
     V: StableKeyType,
-    S: BuildHasher,
+    S: BuildHasher + StableKeyType,
 {
     /// 返回哈希字典的稳定类型标签
     fn stable_key_type() -> String {
         compose_stable_key_type(
             "rust:hash-map",
-            &[K::stable_key_type(), V::stable_key_type()],
+            &[
+                K::stable_key_type(),
+                V::stable_key_type(),
+                S::stable_key_type(),
+            ],
         )
     }
 }
@@ -389,6 +1080,14 @@ impl_stable_key_tuple!("rust:tuple5"; T1, T2, T3, T4, T5);
 impl_stable_key_tuple!("rust:tuple6"; T1, T2, T3, T4, T5, T6);
 impl_stable_key_tuple!("rust:tuple7"; T1, T2, T3, T4, T5, T6, T7);
 impl_stable_key_tuple!("rust:tuple8"; T1, T2, T3, T4, T5, T6, T7, T8);
+impl_stable_key_tuple!("rust:tuple9"; T1, T2, T3, T4, T5, T6, T7, T8, T9);
+impl_stable_key_tuple!("rust:tuple10"; T1, T2, T3, T4, T5, T6, T7, T8, T9, T10);
+impl_stable_key_tuple!("rust:tuple11"; T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11);
+impl_stable_key_tuple!("rust:tuple12"; T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12);
+impl_stable_key_tuple!("rust:tuple13"; T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12, T13);
+impl_stable_key_tuple!("rust:tuple14"; T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12, T13, T14);
+impl_stable_key_tuple!("rust:tuple15"; T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12, T13, T14, T15);
+impl_stable_key_tuple!("rust:tuple16"; T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12, T13, T14, T15, T16);
 
 /// 使用长度前缀组合用户类型与泛型参数的稳定标签
 pub fn compose_stable_key_type(prefix: &str, parts: &[String]) -> String {
@@ -406,6 +1105,11 @@ pub fn compose_stable_key_type(prefix: &str, parts: &[String]) -> String {
 ///
 /// 详见 source_generator_core::logging
 pub use source_generator_core::logging;
+
+/// 为结构体或枚举派生稳定调用键实现
+///
+/// 详见 source_generator_core::StableInvocationKey
+pub use source_generator_core::StableInvocationKey;
 
 /// 为 async fn 方法开启自动重试的属性宏
 ///
@@ -821,18 +1525,6 @@ fn append_scoped_key_dimension<'a>(
     }
 }
 
-/// 将调用参数序列化为有边界的规范 JSON
-///
-/// 无序集合必须通过 unordered_key 显式包装后参与参数键生成
-/// 非有限浮点数会被拒绝，正负零会被规范化为相同数值
-/// 自定义 Serialize 实现需要自行保证内部无序集合的输出顺序稳定
-pub fn arguments_key<T>(args: &T) -> Result<String, InvocationKeyError>
-where
-    T: Serialize + ?Sized,
-{
-    serialize_arguments_key(args, ParameterKeySafetyPolicy::default())
-}
-
 /// 宏生成的参数值包装
 #[doc(hidden)]
 pub struct InvocationArguments<T>(pub T);
@@ -848,26 +1540,26 @@ where
         .map_err(InvocationKeyError::new)
 }
 
-/// 将宏生成的参数值序列化为有边界的规范 JSON
+/// 将宏生成的参数值编码为有边界的稳定调用键
 #[doc(hidden)]
 pub fn invocation_arguments_key<T>(
     args: &InvocationArguments<T>,
 ) -> Result<String, InvocationKeyError>
 where
-    T: Serialize,
+    T: StableInvocationKey,
 {
-    serialize_arguments_key(&args.0, ParameterKeySafetyPolicy::invocation_key())
+    arguments_key(&args.0)
 }
 
-/// 将宏生成的缓存参数元组序列化为有边界的规范 JSON
+/// 将宏生成的缓存参数元组编码为有边界的稳定调用键
 #[doc(hidden)]
 pub fn cacheable_invocation_arguments_key<T>(
     args: &InvocationArguments<T>,
 ) -> Result<String, InvocationKeyError>
 where
-    T: Serialize,
+    T: StableInvocationKey,
 {
-    serialize_arguments_key(&args.0, ParameterKeySafetyPolicy::cacheable_key())
+    arguments_key(&args.0)
 }
 
 /// 按指定参数语义生成规范 JSON
@@ -931,24 +1623,6 @@ struct ParameterKeySafetyPolicy {
 }
 
 impl ParameterKeySafetyPolicy {
-    /// 创建宏调用参数键使用的类型安全策略
-    fn invocation_key() -> Self {
-        Self {
-            reject_blocking_locks: true,
-            reject_mutable_types: false,
-            reject_trait_objects: true,
-        }
-    }
-
-    /// 创建缓存键参数使用的类型安全策略
-    fn cacheable_key() -> Self {
-        Self {
-            reject_blocking_locks: true,
-            reject_mutable_types: true,
-            reject_trait_objects: true,
-        }
-    }
-
     /// 创建缓存方法原始参数使用的类型安全策略
     fn cacheable_parameter() -> Self {
         Self {

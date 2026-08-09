@@ -378,9 +378,9 @@ impl<'a> DemoService<'a> {
 
 `ttl_seconds` 是 L1 与 L2 共同遵守的端到端缓存有效期。HybridCache 的全局 L1 有效期只作为额外上限；从 L2 回填 L1 时会沿用条目的剩余有效期，不会因本地回填重新延长绝对截止时间
 
-返回 `Result<(), E>` 或显式配置 `cache_value = false` 时，过程宏会在展开阶段直接保留原方法，不生成参数键、缓存访问或序列化代码，因此不会要求参数实现 `Serialize`，也不会给成功类型引入缓存相关 Trait 约束。`cache`、`key_scope` 等属性语法仍需完整提供，但其中的表达式不会进入生成代码或参与类型检查
+返回 `Result<(), E>` 或显式配置 `cache_value = false` 时，过程宏会在展开阶段直接保留原方法，不生成参数键、缓存访问或序列化代码，因此不会要求参数实现 `StableInvocationKey`，也不会给成功类型引入缓存相关 Trait 约束。`cache`、`key_scope` 等属性语法仍需完整提供，但其中的表达式不会进入生成代码或参与类型检查
 
-`#[concurrency_limit]` 的 `is_use_parameter`、`is_block` 只接受布尔字面量，`semaphore`、`expiry_seconds` 只接受无符号整数字面量，避免同一个锁键的并发策略随单次调用参数变化。未启用 `is_use_parameter` 时不会序列化方法参数，因此参数无需实现 `Serialize`
+`#[concurrency_limit]` 的 `is_use_parameter`、`is_block` 只接受布尔字面量，`semaphore`、`expiry_seconds` 只接受无符号整数字面量，避免同一个锁键的并发策略随单次调用参数变化。未启用 `is_use_parameter` 时不会生成方法参数键，因此参数无需实现 `StableInvocationKey`
 
 自由函数或静态关联函数必须通过 `key_scope` 提供稳定基础作用域。所有普通参数的声明类型会自动加入静态签名维度；方法自身声明的类型泛型、const 泛型和参数位置直接或嵌套的 `impl Trait` 会自动在作用域后加入运行时实例维度。只有这些需要取得实际单态化身份的类型泛型和 `impl Trait` 声明约束必须包含 `StableKeyType`，普通参数类型不增加该约束
 
@@ -404,17 +404,29 @@ impl<T, const N: usize> GenericLoader<T, N> {
 
 普通参数类型签名采用带版本的 Token Tree 编码，每组 Token、标识符和字面量均包含数量或字节长度边界，不依赖编译器运行时类型名称或源码空白。此修改会让四个属性的方法键发生一次有意迁移；旧缓存会自然失效，滚动发布期间新旧版本的缓存键与分布式锁键也会隔离
 
-参数键会无损保留完整 `i128` 与 `u128` 数值。直接整数、`serde_json::Number` 和 `serde_json::Value::Number` 使用相同的最终 JSON 节点预算，不会把 serde_json 的私有透明结构重复计入项目数或深度。升级前已经使用超出 `i64/u64` 范围的 128 位整数作为缓存或并发限制参数时，旧键曾因浮点转换丢失精度；升级后这些调用会发生一次有意键迁移，以消除相邻大整数共享键的风险
+参数键使用独立的 `StableInvocationKey` 契约，不再把任意 `Serialize` 输出直接视为完整业务键。整数、字符串、UUID、Duration、Option、有序序列、元组、`BTreeSet`、`BTreeMap`、`serde_json::Number` 和 `serde_json::Value` 等基础类型已经提供实现；用户结构体和枚举应使用派生宏，并声明跨构建稳定的类型作用域
 
-参数键中的无序集合必须通过 `unordered_key` 显式声明集合语义。缓存返回值通过 `PartialEq` 校验 JSON 往返语义，因此 `HashSet` 按集合语义比较，不会因随机迭代顺序被误判为变化
+```rust
+use source_generator_runtime::StableInvocationKey;
 
-默认参数键或显式键值本身不能直接或嵌套包含 `dyn Trait`。Rust 无法从任意 trait object 通用取得具体实现类型，继续生成键可能让不同实现共享缓存或锁；默认参数中直接可见的 trait object 会得到编译期诊断，类型别名、标准容器或通过 Serializer 接口暴露的派生字段会由运行时门控拒绝。`cacheable` 会绕过缓存并正常执行业务方法，启用参数键的 `concurrency_limit` 会在获取锁前返回明确错误，未启用参数键时不受影响。确需动态多态时，应通过显式 `key = (...)` 排除 trait object，并把稳定实现标签与必要业务维度纳入显式键；普通泛型参数和 `impl Trait` 仍会按实际单态化类型隔离。命名包装类型如果通过完全自定义的 `Serialize` 在调用 Serializer 接口前隐藏内部 trait object，则无法由该运行时门控通用反射，必须由包装类型或显式键保证实现身份稳定
+#[derive(serde::Serialize, StableInvocationKey)]
+#[invocation_key(scope = "application.article-query")]
+struct ArticleQuery {
+    id: i64,
+    #[serde(skip)]
+    tenant_id: i64,
+}
+```
 
-参数直接包含，或通过派生结构体字段、标准容器元素嵌套包含 `std::sync::Mutex`、`std::sync::RwLock` 或启用 Serde 的 `lock_api`/`parking_lot` 同步锁时，会在对应锁的 Serde 实现尝试加锁前被拒绝，避免参数键生成阻塞异步工作线程或发生自锁死。自定义 `Serialize` 如果在调用 Serializer 接口前自行执行阻塞逻辑，则不在该运行时门控的保护范围内
+派生实现与 Serde 属性完全独立，所有字段以及枚举 variant 默认进入稳定键。派生宏还会根据同一个 `scope` 为类型生成 `StableKeyType`；泛型类型会把类型参数的稳定标签和 const 泛型值一并编码，纯 `PhantomData<T>` 只要求 `T: StableKeyType`，递归泛型仍能正常派生。当前不支持通过 `invocation_key` 跳过字段；不需要参与业务键的复杂参数应在属性上配置显式 `key = (...)`，只选择真正决定结果的稳定字段
 
-`cacheable` 不支持可变引用或可变裸指针参数：直接可见的类型会得到编译期诊断，类型别名隐藏的可变类型会在访问缓存前由运行时门控拒绝，即使显式 `key = (...)` 没有选择该参数也不能绕过。被选入缓存键的派生结构体字段或容器元素同样会递归检查。安全拒绝会记录缓存降级日志并直接执行业务方法，保留原方法对参数的可观察修改；公共参数键和并发限制参数键不应用这项缓存专用约束
+`HashSet` 和 `HashMap` 不直接实现 `StableInvocationKey`，因为它们的迭代顺序不稳定。需要按无序内容参与键生成时，必须使用 `key = source_generator_runtime::unordered_key(&values)`；遗漏包装会得到编译错误，不会静默生成跨进程不稳定的缓存键或锁键
 
-参数规范化会在构建 `serde_json::Value` 前拒绝同一对象内的重复属性，并按 JSON 反转义后的属性名比较，因此 `"x"` 与 `"\u0078"` 也视为重复。该规则适用于 RawValue 和自定义 SerializeMap，可避免不同原始输入在属性覆盖后生成相同键
+只有在调用方能够保证某个 Serde 表示完整、无损且跨构建稳定时，才可以显式使用 `trusted_serde_key(&value)`。该包装是兼容特殊类型的逃生口，不应作为普通 DTO 的默认实现方式
+
+新的稳定键采用带版本、类型标签、长度边界、深度、节点数和总字节数限制的编码。此次修改会让缓存键与参数并发锁键发生一次有意迁移，旧缓存会自然失效，滚动发布期间新旧版本的键也会隔离
+
+`StableInvocationKey` 不为 `&mut T` 提供实现，因此直接参数、派生 DTO 字段或容器元素中嵌套的可变引用都不能进入缓存键，避免缓存命中跳过原方法的可变副作用。`cacheable` 对直接可见或由类型别名隐藏的可变参数还会执行额外拒绝；`concurrency_limit` 如果只需要读取可变参数生成锁键，应通过显式 `key = &*value` 创建不可变重借用
 
 这两个宏的当前参数约束可以直接参考 [source_generator/source_generator_core/src/lib.rs](source_generator/source_generator_core/src/lib.rs)。
 
@@ -443,10 +455,12 @@ register_task_registry! {
             .with_remark("按默认保留策略定时清理用户 Token"),
         handler: handlers.clean_user_token_schedule_task(),
     }
-}
+}?;
 ```
 
-如果需要兼容旧任务名，还可以继续声明 `queue_alias` 和 `schedule_alias`。
+如果需要兼容旧任务名，还可以继续声明 `queue_alias` 和 `schedule_alias`。宏始终先注册全部正式任务，再登记全部别名，因此 alias 可以写在目标任务之前。宏返回 `Result<(), String>`，重复任务名、重复 alias 或同名覆盖会直接返回注册错误
+
+所有 TaskService Feature 完成注册后，宿主会统一解析 alias 链并扁平化到最终正式任务名。alias 可以跨 Feature 指向稍后注册的任务；目标不存在或出现循环引用时，`TaskServiceHostBuilder::build` 会返回包含 alias 和目标名称的启动错误，不会静默忽略
 
 ### 5. 通过服务工厂收口宿主调用入口
 

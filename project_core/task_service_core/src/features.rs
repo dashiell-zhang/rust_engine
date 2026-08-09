@@ -35,5 +35,9 @@ pub struct TaskServiceFeatureContext {
 /// TaskService 业务特性
 pub trait TaskServiceFeature: Send + Sync {
     /// 向任务注册表注册当前特性的任务
-    fn register(&self, registry: &mut TaskRegistry, context: &TaskServiceFeatureContext);
+    fn register(
+        &self,
+        registry: &mut TaskRegistry,
+        context: &TaskServiceFeatureContext,
+    ) -> Result<(), String>;
 }
