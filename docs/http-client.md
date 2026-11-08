@@ -6,6 +6,8 @@
 
 默认客户端不跟随重定向、不保存 Cookie，支持 gzip、deflate 和 Brotli 解压。普通客户端有 100 秒整体请求期限，连接池空闲期限为 60 秒，工厂每 120 秒按需轮换。可以通过 `HttpClientFactoryOptions` 调整这些选项。
 
+WebAPI 的资源工厂现在直接接收已配置的 `Arc<HttpClientFactory>`，文件提供商与 LLM 默认客户端工厂复用该对象。LLM 应用服务通过注入的 `LlmClientFactory` 创建客户端，不在应用内部固定调用默认协议工厂。具体替换方式见 [宿主资源与 LLM 装配](database-modules.md)。
+
 ## 普通请求
 
 `common::http_client_helper` 提供 `get`、`delete`、`post_string`、`post_form` 和 `post_form_data`。这些方法接收工厂提供的 `reqwest::Client`，完整接收响应正文后返回 `reqwest::Response`。请求失败、正文读取失败或超过 2,147,483,647 字节的缓冲上限时返回错误；HTTP 4xx/5xx 响应仍返回给调用方，由业务决定处理方式。

@@ -1,6 +1,6 @@
 use super::state::AppState;
 use application_interface::error::AppError;
-use application_runtime::context::CurrentUser;
+use application_model::shared::current_user::CurrentUser;
 use async_trait::async_trait;
 
 /// 公共 HTTP 宿主需要的业务策略，由运行入口显式装配。

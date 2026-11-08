@@ -13,27 +13,7 @@ pub trait DatabaseModule: Send + Sync + 'static {
     const MIGRATION_HISTORY_TABLE: &'static str;
 }
 
-#[derive(Clone, serde::Deserialize)]
-pub struct ModuleConnectionSettings {
-    pub connection: String,
-    #[serde(default)]
-    pub read_connection: String,
-}
-impl ModuleConnectionSettings {
-    pub fn validate(&self, module: &str) -> Result<(), String> {
-        if self.connection.trim().is_empty() {
-            return Err(format!("数据库模块 {module} 未配置写连接"));
-        }
-        Ok(())
-    }
-    pub fn read_connection(&self) -> &str {
-        if self.read_connection.trim().is_empty() {
-            &self.connection
-        } else {
-            &self.read_connection
-        }
-    }
-}
+pub use common::database_settings::ModuleConnectionSettings;
 
 pub struct ModuleDatabase<M: DatabaseModule> {
     write: Arc<DatabaseConnection>,

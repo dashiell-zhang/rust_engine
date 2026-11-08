@@ -1,13 +1,12 @@
 use base64::{Engine as _, engine::general_purpose};
+pub use common::database_settings::DatabasePoolSettings;
 use jsonwebtoken::{DecodingKey, EncodingKey};
 use p256::{
     PublicKey, SecretKey,
     elliptic_curve::sec1::ToSec1Point,
     pkcs8::{DecodePrivateKey, DecodePublicKey, EncodePrivateKey},
 };
-use sea_orm::ConnectOptions;
 use serde::Deserialize;
-use std::time::Duration;
 use tokio::net::TcpListener;
 
 /// JWT 密钥对
@@ -17,42 +16,6 @@ pub struct JwtKeyPair {
 
     /// JWT 验签密钥
     pub decoding_key: DecodingKey,
-}
-
-/// 数据库连接池配置
-#[derive(Deserialize, Clone)]
-pub struct DatabasePoolSettings {
-    /// 是否在取连接前执行健康检查
-    #[serde(default = "default_test_before_acquire")]
-    pub test_before_acquire: bool,
-
-    /// 最大连接数
-    #[serde(default = "default_max_connections")]
-    pub max_connections: u32,
-
-    /// 最小连接数
-    #[serde(default = "default_min_connections")]
-    pub min_connections: u32,
-
-    /// 连接超时时间（秒）
-    #[serde(default = "default_connect_timeout_seconds")]
-    pub connect_timeout_seconds: u64,
-
-    /// 从连接池获取连接的超时时间（秒）
-    #[serde(default = "default_acquire_timeout_seconds")]
-    pub acquire_timeout_seconds: u64,
-
-    /// 空闲超时时间（秒）
-    #[serde(default = "default_idle_timeout_seconds")]
-    pub idle_timeout_seconds: u64,
-
-    /// 单个连接最大存活时间（秒）
-    #[serde(default = "default_max_lifetime_seconds")]
-    pub max_lifetime_seconds: u64,
-
-    /// 是否输出 SQL 日志
-    #[serde(default = "default_sqlx_logging")]
-    pub sqlx_logging: bool,
 }
 
 /// 宿主配置
@@ -73,22 +36,6 @@ pub struct HostSettings {
     /// 数据库连接池配置
     #[serde(default)]
     pub database_pool: DatabasePoolSettings,
-}
-
-impl Default for DatabasePoolSettings {
-    /// 创建默认数据库连接池配置
-    fn default() -> Self {
-        Self {
-            test_before_acquire: default_test_before_acquire(),
-            max_connections: default_max_connections(),
-            min_connections: default_min_connections(),
-            connect_timeout_seconds: default_connect_timeout_seconds(),
-            acquire_timeout_seconds: default_acquire_timeout_seconds(),
-            idle_timeout_seconds: default_idle_timeout_seconds(),
-            max_lifetime_seconds: default_max_lifetime_seconds(),
-            sqlx_logging: default_sqlx_logging(),
-        }
-    }
 }
 
 impl Default for HostSettings {
@@ -128,68 +75,12 @@ impl WebApiStartup {
         })
     }
 
-    /// 创建默认 PostgreSQL 连接配置
-    pub fn build_postgres_connect_options(
-        connection: impl Into<String>,
-        pool: &DatabasePoolSettings,
-    ) -> ConnectOptions {
-        let mut options = ConnectOptions::new(connection.into());
-
-        options.test_before_acquire(pool.test_before_acquire);
-
-        options
-            .max_connections(pool.max_connections)
-            .min_connections(pool.min_connections)
-            .connect_timeout(Duration::from_secs(pool.connect_timeout_seconds))
-            .acquire_timeout(Duration::from_secs(pool.acquire_timeout_seconds))
-            .idle_timeout(Duration::from_secs(pool.idle_timeout_seconds))
-            .max_lifetime(Duration::from_secs(pool.max_lifetime_seconds))
-            .sqlx_logging(pool.sqlx_logging);
-
-        options
-    }
-
     /// 绑定 TCP 监听地址
     pub async fn bind_listener(address: &str) -> Result<TcpListener, String> {
         TcpListener::bind(address)
             .await
             .map_err(|error| format!("监听地址绑定失败: {error}"))
     }
-}
-
-/// 获取默认连接前检查开关
-fn default_test_before_acquire() -> bool {
-    false
-}
-
-/// 获取默认最大连接数
-fn default_max_connections() -> u32 {
-    30
-}
-
-/// 获取默认最小连接数
-fn default_min_connections() -> u32 {
-    5
-}
-
-/// 获取默认连接超时秒数
-fn default_connect_timeout_seconds() -> u64 {
-    10
-}
-
-/// 获取默认取连接超时秒数
-fn default_acquire_timeout_seconds() -> u64 {
-    5
-}
-
-/// 获取默认空闲超时秒数
-fn default_idle_timeout_seconds() -> u64 {
-    300
-}
-
-/// 获取默认连接最大存活秒数
-fn default_max_lifetime_seconds() -> u64 {
-    60 * 30
 }
 
 /// 归一化 ECDSA 公钥字节，兼容 SPKI DER 与 SEC1 未压缩点格式
@@ -202,11 +93,6 @@ fn normalize_ec_public_key_bytes(public_key_bytes: &[u8]) -> Result<Vec<u8>, Str
         .map_err(|error| format!("JWT public_key 解析失败: {error}"))?;
 
     Ok(public_key.to_sec1_point(false).as_bytes().to_vec())
-}
-
-/// 获取默认 SQL 日志开关
-fn default_sqlx_logging() -> bool {
-    false
 }
 
 /// 获取默认监听地址

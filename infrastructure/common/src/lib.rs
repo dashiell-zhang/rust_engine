@@ -71,3 +71,6 @@ pub(crate) mod guid;
 
 /// 宿主显式资源集合。
 pub mod resources;
+
+/// 不依赖数据库驱动的连接配置。
+pub mod database_settings;

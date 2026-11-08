@@ -1,0 +1,9 @@
+[package]
+name = "jwt_auth"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+common = { path = "../common", default-features = false }
+jsonwebtoken = { version = "11.1.0", features = ["rust_crypto"] }
+serde = { version = "1.0.229", features = ["derive"] }

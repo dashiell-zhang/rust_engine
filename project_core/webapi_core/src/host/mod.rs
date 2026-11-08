@@ -19,8 +19,6 @@ use self::settings::Settings;
 use common::identifier_generator::IdentifierGenerator;
 use distributed_cache::DistributedCache;
 use distributed_lock::DistributedLock;
-use email::AppEmailSender;
-use file_storage::AppFileStorage;
 use logger::LoggerRuntime;
 use std::future::Future;
 use std::pin::Pin;
@@ -66,15 +64,10 @@ pub type ConfigureWebApiHttpClients = fn(
     &mut http_client::HttpClientFactory,
 ) -> Result<(), String>;
 
-/// 文件组件使用宿主已配置的共享 HTTP 工厂。
-pub type BuildWebApiFileStorage = fn(
-    &Settings,
-    Arc<http_client::HttpClientFactory>,
-) -> Result<Option<Arc<dyn AppFileStorage>>, String>;
-
 pub type BuildWebApiResources = for<'a> fn(
     &'a Settings,
     bool,
+    Arc<http_client::HttpClientFactory>,
 ) -> Pin<
     Box<dyn Future<Output = Result<resources::WebApiResources, String>> + Send + 'a>,
 >;
@@ -117,11 +110,6 @@ pub struct WebApiHostProfile {
     pub build_logger_runtime: BuildWebApiLoggerRuntime,
     pub build_event_transport: BuildWebApiEventTransport,
 
-    /// 文件存储构建方法
-    pub build_file_storage: BuildWebApiFileStorage,
-
-    /// 邮件发送器构建方法
-    pub build_email_sender: fn(&Settings) -> Result<Arc<dyn AppEmailSender>, String>,
     /// 具体宿主装配命名客户端和出站处理器。
     pub configure_http_clients: Option<ConfigureWebApiHttpClients>,
 }
@@ -132,11 +120,8 @@ pub async fn run_webapi_host(
     features: Vec<Box<dyn WebApiFeature>>,
 ) -> Result<(), String> {
     let settings = Settings::load(profile);
-    let email_sender = (profile.build_email_sender)(&settings)?;
     let host = WebApiHostBuilder::new(
         settings,
-        profile.build_file_storage,
-        email_sender,
         profile.build_distributed_lock,
         profile.build_cache,
         profile.build_logger_runtime,

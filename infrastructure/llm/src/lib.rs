@@ -42,3 +42,7 @@ pub use protocol::{LlmModelConfig, LlmProtocolType, create_client};
 
 /// 可由调用方独立控制的取消令牌。
 pub use cancellation::{CancellationError, CancellationToken, OperationCancelled};
+
+/// 可替换的客户端工厂与运行时配置来源。
+pub mod factory;
+pub use factory::{DynamicLlmClientFactory, LlmClientFactory, LlmModelConfigResolver};

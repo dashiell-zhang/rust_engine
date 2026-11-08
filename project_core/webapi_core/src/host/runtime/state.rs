@@ -6,16 +6,14 @@ use crate::health::{
 use crate::host::features::WebApiRoutePermission;
 use crate::host::settings::Settings;
 use application_interface::error::AppError;
-use application_runtime::auth::EcJwtCodec;
 use async_trait::async_trait;
 use chrono::Utc;
 use common::app_error::AppError as ApplicationError;
 use distributed_cache::{CacheEntryOptions, DistributedCache, DistributedCacheExt};
 use distributed_lock::DistributedLock;
-use email::AppEmailSender;
-use file_storage::AppFileStorage;
 use http_client::HttpClientFactory;
 use identifier_generator::IdentifierGenerator;
+use jwt_auth::EcJwtCodec;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -31,14 +29,8 @@ pub struct AppState {
     /// 宿主共享分布式锁
     pub distributed_lock: Arc<dyn DistributedLock>,
 
-    /// 文件存储
-    pub file_storage: Option<Arc<dyn AppFileStorage>>,
-
     /// 应用层缓存
     pub cache: Arc<dyn DistributedCache>,
-
-    /// 邮件发送器
-    pub email_sender: Arc<dyn AppEmailSender>,
 
     /// 共享 HTTP 客户端工厂
     pub http_client_factory: Arc<HttpClientFactory>,
@@ -176,7 +168,7 @@ impl application_interface::events::EventPublisherProvider for AppState {
 impl crate::auth::PermissionState for AppState {
     async fn check_permission(
         &self,
-        current_user: application_runtime::context::CurrentUser,
+        current_user: application_model::shared::current_user::CurrentUser,
         module: &str,
         route: &str,
         allow_unbound: bool,

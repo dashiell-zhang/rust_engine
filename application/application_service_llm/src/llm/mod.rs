@@ -15,3 +15,6 @@ pub mod conversation_manage_service;
 
 /// LLM 运行时调用服务
 pub mod invoke_service;
+
+/// 默认数据库模型配置解析器。
+pub mod model_config_resolver;

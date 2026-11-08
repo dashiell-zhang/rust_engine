@@ -8,8 +8,6 @@ use distributed_cache_redis::RedisCache;
 use distributed_lock::DistributedLock;
 use distributed_lock_memory::InMemoryLock;
 use distributed_lock_redis::RedisLock;
-use email::AppEmailSender;
-use email_smtp::{SmtpEmailSender, SmtpEmailSettings};
 use file_storage::AppFileStorage;
 use file_storage_ali_cloud::{AliyunOssFileStorage, AliyunOssFileStorageSettings};
 use file_storage_tencent_cloud::{TencentCosFileStorage, TencentCosFileStorageSettings};
@@ -148,16 +146,6 @@ pub fn build_file_storage(
     }
 }
 
-/// 构建客户端邮件发送器
-pub fn build_email_sender(settings: &Settings) -> Result<Arc<dyn AppEmailSender>, String> {
-    Ok(Arc::new(SmtpEmailSender::new(SmtpEmailSettings {
-        host: settings.message.smtp.host.clone(),
-        port: settings.message.smtp.port,
-        username: settings.message.smtp.username.clone(),
-        password: settings.message.smtp.password.clone(),
-    })))
-}
-
 /// 明确选择事件目标；后端连接由事件组件独立持有。
 pub fn build_event_transport(
     settings: &Settings,
@@ -186,7 +174,7 @@ pub fn build_event_transport(
             } else {
                 explicit
             };
-            let options = webapi_core::startup::WebApiStartup::build_postgres_connect_options(
+            let options = repository_core::connection::build_postgres_connect_options(
                 connection,
                 &settings.host.database_pool,
             );

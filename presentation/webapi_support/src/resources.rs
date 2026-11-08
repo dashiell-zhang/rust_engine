@@ -12,8 +12,10 @@ use webapi_core::{
         resources::{ResourceHealthCheck, WebApiResources},
         settings::Settings,
     },
-    startup::WebApiStartup,
 };
+
+/// 显式选择本地存储时内部为 None；没有注册资源则属于缺少装配。
+pub struct FileStorageResource(pub Option<Arc<dyn file_storage::AppFileStorage>>);
 
 pub struct BusinessResources {
     pub modules: DatabaseModules,
@@ -73,11 +75,11 @@ pub fn build_resources_with_modules(
             });
         config.validate(BusinessModule::NAME)?;
         let database = ModuleDatabase::<BusinessModule>::connect(
-            WebApiStartup::build_postgres_connect_options(
+            repository_core::connection::build_postgres_connect_options(
                 &config.connection,
                 &settings.host.database_pool,
             ),
-            WebApiStartup::build_postgres_connect_options(
+            repository_core::connection::build_postgres_connect_options(
                 config.read_connection(),
                 &settings.host.database_pool,
             ),
@@ -87,7 +89,7 @@ pub fn build_resources_with_modules(
         modules.register(database)?;
 
         let log_db_pool = if settings.logger.component == logger::LoggerComponent::Database {
-            let mut options = WebApiStartup::build_postgres_connect_options(
+            let mut options = repository_core::connection::build_postgres_connect_options(
                 settings
                     .logger
                     .write_connection(&settings.database.connection),
@@ -107,7 +109,7 @@ pub fn build_resources_with_modules(
         let log_health_db_pool = match &log_db_pool {
             Some(db) => db.clone(),
             None => {
-                let mut options = WebApiStartup::build_postgres_connect_options(
+                let mut options = repository_core::connection::build_postgres_connect_options(
                     settings
                         .logger
                         .write_connection(&settings.database.connection),
@@ -174,7 +176,7 @@ struct LogReadConnection(Arc<ReadDatabaseConnection>);
 async fn build_log_read_connection(
     settings: &Settings,
 ) -> Result<Arc<ReadDatabaseConnection>, String> {
-    let mut options = WebApiStartup::build_postgres_connect_options(
+    let mut options = repository_core::connection::build_postgres_connect_options(
         settings
             .logger
             .query_connection(&settings.database.connection),

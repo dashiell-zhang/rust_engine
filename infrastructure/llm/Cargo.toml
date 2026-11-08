@@ -4,6 +4,8 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+common = { path = "../common", default-features = false }
+http_client = { path = "../http_client" }
 cancellation = { path = "../cancellation" }
 source_generator_core = { path = "../../source_generator/source_generator_core" }
 async-stream = "0.3.6"

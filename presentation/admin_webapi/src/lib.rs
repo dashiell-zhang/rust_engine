@@ -33,8 +33,6 @@ pub const ADMIN_WEBAPI_PROFILE: WebApiHostProfile = WebApiHostProfile {
     build_cache: llm_support::build_cache,
     build_logger_runtime: llm_support::build_logger_runtime,
     build_event_transport: llm_support::build_event_transport,
-    build_file_storage: llm_support::build_file_storage,
-    build_email_sender: llm_support::build_email_sender,
 };
 
 /// 启动管理端 WebAPI 宿主

@@ -5,7 +5,6 @@ mod settings;
 use clap::{CommandFactory, Parser, Subcommand};
 use sea_orm::{ConnectOptions, Database};
 use settings::{DatabaseTarget, Settings};
-use std::time::Duration;
 
 /// 数据库工具命令行参数
 #[derive(Parser)]
@@ -180,16 +179,17 @@ async fn connect_database(
 
 /// 创建数据库工具默认 PostgreSQL 连接配置
 fn build_postgres_connect_options(connection: impl Into<String>) -> ConnectOptions {
-    let mut options = ConnectOptions::new(connection.into());
-
-    options.test_before_acquire(false);
-
-    options
-        .max_connections(30)
-        .min_connections(1)
-        .connect_timeout(Duration::from_secs(50))
-        .idle_timeout(Duration::from_secs(300))
-        .sqlx_logging(false);
-
-    options
+    repository_core::connection::build_postgres_connect_options(
+        connection,
+        repository_core::connection::PostgresPoolOptions {
+            test_before_acquire: false,
+            max_connections: 30,
+            min_connections: 1,
+            connect_timeout_seconds: 50,
+            idle_timeout_seconds: 300,
+            acquire_timeout_seconds: None,
+            max_lifetime_seconds: None,
+            sqlx_logging: false,
+        },
+    )
 }

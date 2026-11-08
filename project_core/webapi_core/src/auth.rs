@@ -1,4 +1,4 @@
-use application_runtime::{auth::EcJwtCodec, context::CurrentUser};
+use application_model::shared::current_user::CurrentUser;
 use async_trait::async_trait;
 use axum::{
     extract::{FromRequestParts, State},
@@ -9,6 +9,7 @@ use axum::{
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use common::app_error::AppError as ApplicationError;
 use jsonwebtoken::{Algorithm, DecodingKey, Validation, errors::ErrorKind};
+use jwt_auth::EcJwtCodec;
 use serde_json::Value;
 
 use crate::error::AppError;

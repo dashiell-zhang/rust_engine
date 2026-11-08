@@ -4,10 +4,8 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-email = { path = "../../infrastructure/email" }
-file_storage = { path = "../../infrastructure/file_storage", default-features = false }
+jwt_auth = { path = "../../infrastructure/jwt_auth" }
 http_client = { path = "../../infrastructure/http_client" }
-application_runtime = { path = "../../application/application_runtime" }
 event_bus = { path = "../../infrastructure/event_bus" }
 application_interface = { path = "../../application/application_interface" }
 application_model = { path = "../../application/application_model" }
@@ -16,7 +14,6 @@ distributed_cache = { path = "../../infrastructure/distributed_cache" }
 distributed_lock = { path = "../../infrastructure/distributed_lock" }
 identifier_generator = { path = "../../infrastructure/identifier_generator" }
 logger = { path = "../../infrastructure/logger" }
-repository_core = { path = "../../infrastructure/repository_core" }
 source_generator_runtime = { path = "../../source_generator/source_generator_runtime" }
 
 axum = { version = "0.8.9", features = ["multipart", "http2"] }
@@ -35,7 +32,6 @@ multer = "3.1.0"
 mime = "0.3.18"
 openssl = { version = "0.10.82", features = ["vendored"] }
 p256 = { version = "0.14.0", features = ["pkcs8"] }
-sea-orm = { version = "2.0.4", features = [ "sqlx-postgres", "runtime-tokio-rustls", "macros" ] }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = { version = "1.0.154", features = ["raw_value"] }
 sha2 = "0.11.1"

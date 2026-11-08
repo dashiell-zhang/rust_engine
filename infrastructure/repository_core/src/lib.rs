@@ -15,3 +15,6 @@ pub use source_generator_core::model_documentation;
 
 /// 明确的业务模块数据库绑定。
 pub mod module;
+
+/// PostgreSQL 连接选项构造。
+pub mod connection;

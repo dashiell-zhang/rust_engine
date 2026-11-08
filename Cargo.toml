@@ -20,6 +20,7 @@ members = [
   "presentation/task_service",
   "infrastructure/common",
   "infrastructure/http_client",
+  "infrastructure/jwt_auth",
   "infrastructure/cancellation",
   "infrastructure/event_bus",
   "infrastructure/event_bus_redis",

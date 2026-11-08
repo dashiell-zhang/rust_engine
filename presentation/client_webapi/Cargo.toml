@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-email = { path = "../../infrastructure/email" }
+repository_core = { path = "../../infrastructure/repository_core" }
 file_storage = { path = "../../infrastructure/file_storage", default-features = false }
 http_client = { path = "../../infrastructure/http_client" }
 application_runtime = { path = "../../application/application_runtime" }
@@ -26,7 +26,6 @@ distributed_cache_redis = { path = "../../infrastructure/distributed_cache_redis
 distributed_lock = { path = "../../infrastructure/distributed_lock" }
 distributed_lock_memory = { path = "../../infrastructure/distributed_lock_memory" }
 distributed_lock_redis = { path = "../../infrastructure/distributed_lock_redis" }
-email_smtp = { path = "../../infrastructure/email_smtp" }
 file_storage_ali_cloud = { path = "../../infrastructure/file_storage_ali_cloud" }
 file_storage_tencent_cloud = { path = "../../infrastructure/file_storage_tencent_cloud" }
 logger = { path = "../../infrastructure/logger" }

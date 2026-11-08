@@ -6,7 +6,6 @@ use std::sync::OnceLock;
 
 use chrono::Utc;
 use common::json_helper::{JsonObjectStringError, validate_optional_json_object_string};
-use llm::LlmModelConfig;
 use regex::Regex;
 use repository::extensions::SoftDeleteQueryExt;
 use repository::{llm_app, llm_model};
@@ -358,11 +357,14 @@ impl<'a> LlmAppService<'a> {
         actor_user_id: i64,
         request: TestLlmAppRequest,
     ) -> Result<TestLlmAppResult, AppError> {
-        let model_config = load_enabled_model_config(self.context.app.db, request.llm_model_id)
+        let model_config = self
+            .context
+            .model_config_resolver
+            .get_config(request.llm_model_id)
             .await?
             .ok_or_else(|| AppError::bad_request("无效的 LlmModelId 或模型已禁用"))?;
         let client =
-            ModelConfigAppLlmClient::new(model_config.clone(), self.context.http_client_factory)?;
+            ModelConfigAppLlmClient::new(model_config.clone(), self.context.client_factory)?;
 
         let parameters = LlmParameters::from_map(
             request.parameters.unwrap_or_default(),
@@ -629,27 +631,6 @@ async fn validate_llm_model_state(
     }
 
     Ok(())
-}
-
-/// 加载启用模型配置
-pub(crate) async fn load_enabled_model_config(
-    db: &sea_orm::DatabaseConnection,
-    model_id: i64,
-) -> Result<Option<LlmModelConfig>, AppError> {
-    let model = llm_model::Entity::find()
-        .filter(llm_model::Column::Id.eq(model_id))
-        .filter(llm_model::Column::IsEnable.eq(true))
-        .not_deleted(llm_model::Column::DeleteTime)
-        .one(db)
-        .await
-        .map_err(to_app_error)?;
-
-    Ok(model.map(|model| LlmModelConfig {
-        endpoint: model.endpoint,
-        api_key: model.api_key,
-        model_id: model.model_id,
-        protocol_type: model.protocol_type,
-    }))
 }
 
 /// 将数据库错误转换为应用层错误

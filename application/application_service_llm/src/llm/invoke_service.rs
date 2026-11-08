@@ -17,7 +17,7 @@ use application_interface::{
 use application_runtime::context::LlmContext;
 
 use super::{
-    app_service::{load_enabled_model_config, render_template, validate_required_parameters},
+    app_service::{render_template, validate_required_parameters},
     client_adapter::ModelConfigAppLlmClient,
 };
 
@@ -49,7 +49,7 @@ impl<'a> LlmInvokeService<'a> {
         let prepared = self.prepare_chat(code, parameters).await?;
         let client = ModelConfigAppLlmClient::new(
             prepared.model_config.clone(),
-            self.context.http_client_factory,
+            self.context.client_factory,
         )?;
         let response = client.chat(prepared.request).await?;
 
@@ -103,7 +103,7 @@ impl<'a> LlmInvokeService<'a> {
 
         Ok(Box::pin(async_stream::try_stream! {
             let prepared = service.prepare_chat(&code, parameters).await?;
-            let client = ModelConfigAppLlmClient::new(prepared.model_config.clone(), service.context.http_client_factory)?;
+            let client = ModelConfigAppLlmClient::new(prepared.model_config.clone(), service.context.client_factory)?;
 
             let mut assistant_content = String::new();
             let mut is_completed = false;
@@ -226,7 +226,10 @@ impl<'a> LlmInvokeService<'a> {
         });
 
         let extra_body = parse_runtime_extra_body(app.extra_body_json.as_deref(), code)?;
-        let model_config = load_enabled_model_config(self.context.app.db, app.llm_model_id)
+        let model_config = self
+            .context
+            .model_config_resolver
+            .get_config(app.llm_model_id)
             .await?
             .ok_or_else(|| {
                 AppError::internal(format!(

@@ -1,3 +1,5 @@
+#[cfg(feature = "llm")]
+pub mod llm_resources;
 pub mod resources;
 pub mod services;
 use application_interface::error::AppError;
@@ -72,7 +74,13 @@ impl<'a> WebApiApplicationAdapter<'a> {
             distributed_lock: self.state.distributed_lock.as_ref(),
             file: Some(FileContext {
                 app,
-                file_storage: self.state.file_storage.as_deref(),
+                file_storage: self
+                    .state
+                    .resources
+                    .get::<resources::FileStorageResource>()
+                    .expect("文件相关能力必须在启动前验证资源")
+                    .0
+                    .as_deref(),
                 http_client_factory: &self.state.http_client_factory,
                 root_path: &self.state.settings.file.root_path,
                 public_base_url: &self.state.settings.file.public_base_url,
@@ -153,10 +161,12 @@ generate_direct_service_factory! {
 generate_direct_service_factory! {
     impl_generics = <'a>;
     factory = WebApiApplicationAdapter<'a>;
-    (application_runtime::context::LlmContext { app: self.primary_app_context(), distributed_lock: self.state.distributed_lock.as_ref(), http_client_factory: &self.state.http_client_factory }) {
+    (self.llm_context()) {
         llm_app: application_service_llm::llm::app_service::LlmAppService<'a> => dyn application_interface::services::llm_app::LlmAppService + 'a,
-        llm_model: application_service_llm::llm::model_service::LlmModelService<'a> => dyn application_interface::services::llm_model::LlmModelService + 'a,
         llm_invoke: application_service_llm::llm::invoke_service::LlmInvokeService<'a> => dyn application_interface::services::llm_invoke::LlmInvokeService + 'a
+    }
+    (application_runtime::context::LlmModelContext { app: self.primary_app_context(), distributed_lock: self.state.distributed_lock.as_ref() }) {
+        llm_model: application_service_llm::llm::model_service::LlmModelService<'a> => dyn application_interface::services::llm_model::LlmModelService + 'a
     }
     (self.state.business_resources().business().read()) {
         llm_conversation_manage: application_service_llm::llm::conversation_manage_service::LlmConversationManageService<'a> => dyn application_interface::services::llm_conversation::LlmConversationManageService + 'a
@@ -213,7 +223,13 @@ impl<'a> WebApiApplicationAdapter<'a> {
     pub fn file_context(&self) -> FileContext<'a> {
         FileContext {
             app: self.primary_app_context(),
-            file_storage: self.state.file_storage.as_deref(),
+            file_storage: self
+                .state
+                .resources
+                .get::<resources::FileStorageResource>()
+                .expect("文件相关能力必须在启动前验证资源")
+                .0
+                .as_deref(),
             http_client_factory: &self.state.http_client_factory,
             root_path: &self.state.settings.file.root_path,
             public_base_url: &self.state.settings.file.public_base_url,
@@ -292,5 +308,29 @@ impl WebApiApplication for BusinessWebApiApplication {
         WebApiApplicationAdapter::new(state)
             .sync_permission_routes()
             .await
+    }
+}
+
+#[cfg(feature = "llm")]
+impl<'a> WebApiApplicationAdapter<'a> {
+    pub fn llm_context(&self) -> application_runtime::context::LlmContext<'a> {
+        application_runtime::context::LlmContext {
+            app: self.primary_app_context(),
+            distributed_lock: self.state.distributed_lock.as_ref(),
+            client_factory: self
+                .state
+                .resources
+                .get::<llm_resources::LlmClientFactoryResource>()
+                .expect("LLM 调用能力必须在启动前验证客户端工厂")
+                .0
+                .as_ref(),
+            model_config_resolver: self
+                .state
+                .resources
+                .get::<llm_resources::LlmModelConfigResource>()
+                .expect("LLM 调用能力必须在启动前验证配置解析器")
+                .0
+                .as_ref(),
+        }
     }
 }

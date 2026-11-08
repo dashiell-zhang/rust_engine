@@ -3,7 +3,13 @@ name = "application_runtime"
 version = "0.1.0"
 edition = "2024"
 
+[features]
+default = []
+llm = ["dep:llm"]
+
 [dependencies]
+llm = { path = "../../infrastructure/llm", optional = true }
+jwt_auth = { path = "../../infrastructure/jwt_auth" }
 sms = { path = "../../infrastructure/sms" }
 email = { path = "../../infrastructure/email" }
 file_storage = { path = "../../infrastructure/file_storage", default-features = false }
@@ -14,6 +20,5 @@ common = { path = "../../infrastructure/common" }
 distributed_cache = { path = "../../infrastructure/distributed_cache" }
 distributed_lock = { path = "../../infrastructure/distributed_lock" }
 identifier_generator = { path = "../../infrastructure/identifier_generator" }
-jsonwebtoken = { version = "11.1.0", features = ["rust_crypto"] }
 sea-orm = { version = "2.0.4", features = ["sqlx-postgres", "runtime-tokio-rustls"] }
 serde = { version = "1.0.229", features = ["derive"] }

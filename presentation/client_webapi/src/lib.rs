@@ -42,8 +42,6 @@ pub const CLIENT_WEBAPI_PROFILE: WebApiHostProfile = WebApiHostProfile {
     build_cache: host_support::build_cache,
     build_logger_runtime: host_support::build_logger_runtime,
     build_event_transport: host_support::build_event_transport,
-    build_file_storage: host_support::build_file_storage,
-    build_email_sender: host_support::build_email_sender,
 };
 
 /// 启动客户端 WebAPI 宿主

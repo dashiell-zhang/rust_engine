@@ -26,8 +26,6 @@ dependencies = [
  "distributed_lock",
  "distributed_lock_memory",
  "distributed_lock_redis",
- "email",
- "email_smtp",
  "event_bus",
  "event_bus_database",
  "event_bus_redis",
@@ -42,6 +40,7 @@ dependencies = [
  "logger_local_file",
  "mime_guess",
  "p256 0.14.0",
+ "repository_core",
  "reqwest",
  "serde",
  "serde_json",
@@ -245,7 +244,8 @@ dependencies = [
  "file_storage",
  "http_client",
  "identifier_generator",
- "jsonwebtoken",
+ "jwt_auth",
+ "llm",
  "sea-orm",
  "serde",
  "sms",
@@ -300,7 +300,6 @@ dependencies = [
  "chrono",
  "common",
  "futures-util",
- "http_client",
  "llm",
  "regex",
  "repository",
@@ -1069,8 +1068,6 @@ dependencies = [
  "distributed_lock",
  "distributed_lock_memory",
  "distributed_lock_redis",
- "email",
- "email_smtp",
  "event_bus",
  "event_bus_database",
  "event_bus_redis",
@@ -1086,6 +1083,7 @@ dependencies = [
  "logger_local_file",
  "mime_guess",
  "openssl",
+ "repository_core",
  "reqwest",
  "serde",
  "serde_json",
@@ -3131,6 +3129,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "jwt_auth"
+version = "0.1.0"
+dependencies = [
+ "common",
+ "jsonwebtoken",
+ "serde",
+]
+
+[[package]]
 name = "kqueue"
 version = "1.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3307,7 +3314,9 @@ dependencies = [
  "async-stream",
  "async-trait",
  "cancellation",
+ "common",
  "futures-util",
+ "http_client",
  "hyper",
  "indexmap",
  "mime",
@@ -4503,6 +4512,7 @@ dependencies = [
  "async-trait",
  "cancellation",
  "chrono",
+ "common",
  "distributed_lock",
  "identifier_generator",
  "regex",
@@ -6494,7 +6504,6 @@ version = "0.1.0"
 dependencies = [
  "application_interface",
  "application_model",
- "application_runtime",
  "async-trait",
  "axum",
  "base64 0.23.1",
@@ -6504,9 +6513,7 @@ dependencies = [
  "dashmap",
  "distributed_cache",
  "distributed_lock",
- "email",
  "event_bus",
- "file_storage",
  "flate2",
  "futures-util",
  "http-body",
@@ -6514,14 +6521,13 @@ dependencies = [
  "httpdate",
  "identifier_generator",
  "jsonwebtoken",
+ "jwt_auth",
  "logger",
  "mime",
  "multer",
  "openssl",
  "p256 0.14.0",
  "percent-encoding",
- "repository_core",
- "sea-orm",
  "serde",
  "serde_json",
  "sha2 0.11.1",
@@ -6550,6 +6556,9 @@ dependencies = [
  "application_service_llm",
  "async-trait",
  "event_bus",
+ "file_storage",
+ "http_client",
+ "llm",
  "logger",
  "logger_database",
  "repository",

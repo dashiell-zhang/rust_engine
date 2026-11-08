@@ -2,7 +2,6 @@ use std::io;
 
 use sea_orm::ConnectOptions;
 use serde::Deserialize;
-use std::time::Duration;
 
 /// 数据库连接池配置
 #[derive(Deserialize, Clone)]
@@ -72,18 +71,19 @@ impl TaskServiceStartup {
         connection: impl Into<String>,
         pool: &DatabasePoolSettings,
     ) -> ConnectOptions {
-        let mut options = ConnectOptions::new(connection.into());
-
-        options.test_before_acquire(pool.test_before_acquire);
-
-        options
-            .max_connections(pool.max_connections)
-            .min_connections(pool.min_connections)
-            .connect_timeout(Duration::from_secs(pool.connect_timeout_seconds))
-            .idle_timeout(Duration::from_secs(pool.idle_timeout_seconds))
-            .sqlx_logging(pool.sqlx_logging);
-
-        options
+        repository_core::connection::build_postgres_connect_options(
+            connection,
+            repository_core::connection::PostgresPoolOptions {
+                test_before_acquire: pool.test_before_acquire,
+                max_connections: pool.max_connections,
+                min_connections: pool.min_connections,
+                connect_timeout_seconds: pool.connect_timeout_seconds,
+                idle_timeout_seconds: pool.idle_timeout_seconds,
+                acquire_timeout_seconds: None,
+                max_lifetime_seconds: None,
+                sqlx_logging: pool.sqlx_logging,
+            },
+        )
     }
 
     /// Debug 模式下等待人工确认是否启用任务宿主

@@ -1,6 +1,6 @@
 use async_trait::async_trait;
 use futures_util::{StreamExt, stream::BoxStream};
-use llm::{ChatMessage, ChatRequest, ChatRole, ChatStreamChunk, LlmModelConfig, create_client};
+use llm::{ChatMessage, ChatRequest, ChatRole, ChatStreamChunk, LlmModelConfig};
 
 use application_interface::{
     error::AppError,
@@ -9,7 +9,6 @@ use application_interface::{
         AppLlmRole, AppLlmStreamChoice, AppLlmStreamChunk, AppLlmStreamDelta, AppLlmUsage,
     },
 };
-use http_client::HttpClientFactory;
 
 /// 基于单个模型配置的应用层 LLM 客户端适配器
 pub struct ModelConfigAppLlmClient {
@@ -21,9 +20,10 @@ impl ModelConfigAppLlmClient {
     /// 创建模型配置客户端
     pub fn new(
         config: LlmModelConfig,
-        http_client_factory: &HttpClientFactory,
+        client_factory: &dyn llm::LlmClientFactory,
     ) -> Result<Self, AppError> {
-        let client = create_client(http_client_factory.streaming_client(), config)
+        let client = client_factory
+            .create_client(config)
             .map_err(|error| AppError::internal(format!("初始化 LLM 客户端失败: {error}")))?;
 
         Ok(Self { client })

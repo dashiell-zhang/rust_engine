@@ -1,6 +1,6 @@
 # NetEngine 与 rust_engine：框架架构差异清单
 
-审查日期：2026-11-08。本文保存 AR-01～AR-04 的实施结果，以及提交后复核发现的 AR-05～AR-07。七项均已完成；AR-05～AR-07 的实际改动与独立验证记录见第 10～11 节，未复用前四项编译记录代替本轮验证。
+审查日期：2026-11-08。AR-01～AR-09 已完成。AR-05～AR-07 结果见第 10～11 节，AR-08、AR-09 的本轮实施与验证见第 14～15 节；第 12 节保留实施前依据。AR-10、AR-11 为后续可选扩展，未实施、未纳入本目标。
 
 ## 1. 当前方向与基线
 
@@ -38,6 +38,10 @@
 | AR-05 | 部分基础设施组件反向依赖应用契约与运行时 | 依赖方向；下一阶段优先 | 已完成；本轮容器验证通过 |
 | AR-06 | TaskService 公共核心固定装配业务资源 | 宿主可组合性；随后处理 | 已完成；本轮容器验证通过 |
 | AR-07 | WebAPI 服务工厂要求整套业务能力一起实现 | 按需组合；随后处理 | 已完成；本轮容器验证通过 |
+| AR-08 | WebAPI 公共核心仍绑定部分业务资源与应用运行时 | 公共宿主边界；优先处理 | 已完成；本轮容器验证通过 |
+| AR-09 | LLM 客户端工厂及模型配置解析不能独立替换 | 组件替换能力；优先处理 | 已完成；本轮容器验证通过 |
+| AR-10 | 缺少统一的通用后台服务扩展入口 | 生命周期扩展；按需求处理 | 已静态确认，不纳入下一目标 |
+| AR-11 | 横切能力缺少通用自定义行为扩展机制 | 调用管道扩展；按需求处理 | 已静态确认，不纳入下一目标 |
 
 ### AR-01：应用契约层混入运行时实现
 
@@ -150,7 +154,7 @@
 - 本轮未进行真实数据库迁移、多数据库运行联调、外部提供商调用或全量业务回归；结构与调用链审查、编译和静态检查不等于这些运行验证。
 - 没有添加或运行测试，没有固定工具链/镜像版本，没有提交、推送、部署或修改 NetEngine；此前授权的源项目六处改动保留。
 
-恢复上下文时先读总表、第 8～9 节及当前 git diff。AR-01～AR-04 的问题描述为历史依据；AR-05～AR-07 的完成记录见第 10～11 节，不要重新执行已完成架构项或 B1～B8。
+恢复上下文时先读总表、第 12～15 节及当前 git diff。AR-01～AR-04 的问题描述为历史依据；AR-05～AR-07 的完成记录见第 10～11 节，不要重新执行已完成架构项或 B1～B8。
 
 ## 8. 提交后架构复核：AR-05～AR-07
 
@@ -244,3 +248,103 @@
 源码接入变化：HTTP 导入改为 `http_client::HttpClientFactory`；TaskService 档案用可选 build_resources 替代三个固定提供商工厂；WebAPI 按能力注册，调用方使用 `services().能力()?`。自定义能力可扩展 ServiceKey，替换某一实现只更换其构造函数和资源校验，不需要实现其他业务方法。
 
 本轮没有变更 HTTP 路由、业务规则、数据库 schema 或默认提供商协议；没有运行真实数据库迁移、多宿主联调或云提供商调用。编译与源码复核不能代替这些运行验证。未添加或运行测试，未新增模拟程序。当前三项完成标准均已闭合，本目标到此结束，不自动进入下一轮功能对齐。
+
+## 12. 再次提交后的架构复核：AR-08～AR-11
+
+复核基线：Rust `a176933225bda107e3ab962a6d066ebe062f68e9`，用户已提交并推送 AR-05～AR-07，复核开始时工作区干净。NetEngine 仍为 `23a7d0002938d0308c975dc48c04ac66aae0dda8` 及原六处已授权修改；未拉取远端，以当前本地源码比较，排除 Admin.App。本次仅审查源码和项目引用，未修改生产代码或重新编译。
+
+以下是剩余的宿主边界与扩展能力差异，不代表已确认现有业务故障。以上保留复核时判断；AR-08、AR-09 后续已获授权并完成，结果见第 14～15 节。AR-10、AR-11 仅登记，不自动扩大目标。保留 Rust 的显式注册、借用生命周期、trait 和 SeaORM，不要求复制 .NET 的完整 DI、自动扫描或 EF 变更跟踪。
+
+### AR-08：WebAPI 公共核心仍绑定部分业务资源与应用运行时
+
+**双方依据**：NetEngine 的 [WebAPI.Core 项目](D:/ZWork/NetEngine/ProjectCore/WebAPI.Core/WebAPI.Core.csproj) 引用 Application.Model、Common 和 DistributedLock，不引用文件、邮件提供商或数据库实现，具体资源由入口选择。Rust 的 [宿主档案](../project_core/webapi_core/src/host/mod.rs) 仍要求邮件和文件构造入口，[AppState](../project_core/webapi_core/src/host/runtime/state.rs) 固定保存两类资源；[依赖声明](../project_core/webapi_core/Cargo.toml) 仍引用 application_runtime、repository_core 和 SeaORM，[startup](../project_core/webapi_core/src/startup.rs) 包含 PostgreSQL 连接选项构造。JWT 编解码和 CurrentUser 的引用经过 application_runtime，连带引入应用数据库上下文。
+
+**影响**：复用公共 WebAPI 宿主仍需处理与所选 API 无关的业务资源和数据库依赖。现有两端都创建邮件发送器，但源码未发现两端业务调用使用该状态字段；文件能力仍有真实调用，不能直接删除。AR-02 已完成数据库连接的创建职责外移，AR-06 只处理 TaskService，本项收尾 WebAPI 的剩余固定资源和依赖。
+
+**实施范围**：沿用 WebApiResources 和按能力注册机制，由 presentation 选择文件、邮件等业务资源；通用 HTTP 工厂继续宿主共享。将数据库连接选项等机制归回合适的仓储组件，梳理共享 JWT 实现和 CurrentUser 的导入归属，使公共 WebAPI 核心不通过应用运行时引入数据库上下文。保留已有配置兼容入口，不为迁移配置而重建通用配置框架。
+
+**完成标准**：
+
+- [x] WebAPI 核心不再强制邮件、文件业务资源构造；需要文件能力的现有入口显式注册，并在启动时校验。
+- [x] webapi_core 不再依赖 application_runtime、SeaORM 或 repository_core；JWT 共享实现与通用用户模型不通过应用数据库上下文引用，不以重导出掩盖间接依赖。
+- [x] 数据库连接选项在所属公共组件复用，两个 WebAPI、TaskService 和工具的受影响调用保持原连接参数与目标，不重复复制实现。
+- [x] 现有 API、鉴权续签、文件行为、健康检查、共享 HTTP 工厂及停机预算保持兼容；未使用的邮件能力可不装配。
+- [x] 组件独立编译、依赖图检查及调用链审查提供证据，更新接入文档。
+
+### AR-09：LLM 客户端工厂及模型配置解析不能独立替换
+
+**双方依据**：NetEngine 定义 [ILlmClientFactory](D:/ZWork/NetEngine/Infrastructure/LLM/ILlmClientFactory.cs) 和 [ILlmModelConfigResolver](D:/ZWork/NetEngine/Infrastructure/LLM/ILlmModelConfigResolver.cs)，[LlmInvokeService](D:/ZWork/NetEngine/Application/Application.Service.LLM/LlmInvokeService.cs) 与 [LlmAppService](D:/ZWork/NetEngine/Application/Application.Service.LLM/LlmAppService.cs) 注入两者；默认配置解析实现在应用层。Rust 的 [client_adapter](../application/application_service_llm/src/llm/client_adapter.rs) 直接调用 llm::create_client，[调用服务](../application/application_service_llm/src/llm/invoke_service.rs) 和 [应用管理服务](../application/application_service_llm/src/llm/app_service.rs) 直接构造该适配器，配置解析绑定到 load_enabled_model_config 函数。
+
+**影响**：AR-07 已支持替换整项 LLM 业务服务，但只替换协议客户端创建方式或模型配置来源时，仍需修改应用实现或替换整项服务；底层依赖的替换粒度不足。
+
+**实施范围**：补充独立客户端工厂和模型配置解析契约，通用 LLM 契约归属基础设施，数据库查询实现留在应用层。宿主选择默认实现并注入 LLM 上下文；不把业务数据库查询移入基础设施，不新增协议或更改模型表。
+
+**完成标准**：
+
+- [x] 客户端工厂和配置解析器可分别替换，接入自定义实现不要求替换整个 LLM 业务服务。
+- [x] 管理端试用、客户端普通调用和流式调用均使用所选依赖，不绕过注入重新创建默认实现。
+- [x] 默认实现保留三个现有协议、模型启用/软删除条件、HTTP 复用及期限、错误转换、取消、流生命周期和会话保存行为。
+- [x] 具体实现由 presentation 选择；启动检查所需资源，关闭 webapi_support 的 llm 特性仍可独立编译，不新增基础设施到应用层的反向依赖。
+- [x] 完成必要独立编译、依赖审查和接入文档更新，区分源码验证与未进行的真实模型调用。
+
+### AR-10：缺少统一的通用后台服务扩展入口
+
+**双方依据**：NetEngine 的 [BackgroundServiceGenerator](D:/ZWork/NetEngine/SourceGenerator/SourceGenerator.Core/DependencyInjection/BackgroundServiceGenerator.cs) 生成 AddHostedService 注册并聚合到宿主入口。Rust 的 [WebApiFeature](../project_core/webapi_core/src/host/features.rs) 提供路由、校验和事件注册，[TaskServiceFeature](../project_core/task_service_core/src/features.rs) 提供任务与事件注册；[WebAPI 运行器](../project_core/webapi_core/src/host/runtime/builder.rs) 和 [任务运行器](../project_core/task_service_core/src/builder.rs) 管理各自固定的运行流程，未提供任意常驻服务的统一注册入口。
+
+**影响与边界**：已有任务、事件、日志等生命周期能力不因此缺失；增加新的常驻监听或刷新服务时，需要另行接入启动、失败传播、取消和停机。它是扩展机制差异，不能把现有组件内部的后台任务视为尚未实现。
+
+**后续可选完成标准**：提供轻量常驻服务契约和显式注册，统一失败处理、取消与剩余停机预算；至少让一个合适的现有生产后台流程使用该机制，不用空演示代替接入。不要求自动扫描或完整 Generic Host。当前不实施、不改现有任务调度。
+
+### AR-11：横切能力缺少通用自定义行为扩展机制
+
+**双方依据**：NetEngine 的 [ProxyBehaviorAttribute](D:/ZWork/NetEngine/SourceGenerator/SourceGenerator.Runtime/Attributes/ProxyBehaviorAttribute.cs)、[IInvocationAsyncBehavior](D:/ZWork/NetEngine/SourceGenerator/SourceGenerator.Runtime/Pipeline/IInvocationAsyncBehavior.cs) 和 [IInvocationBehavior](D:/ZWork/NetEngine/SourceGenerator/SourceGenerator.Runtime/Pipeline/IInvocationBehavior.cs) 支持外部定义行为并接入统一调用管道。Rust 的 [过程宏入口](../source_generator/source_generator_core/src/lib.rs) 和 [运行时辅助](../source_generator/source_generator_runtime/src/lib.rs) 提供既有日志、重试、缓存和并发限制，但没有同等通用的行为注册与调用管道契约。
+
+**影响与边界**：已有四类横切能力不能据此认定有缺陷；新增一类可复用行为时，目前要新增专用宏或手工包装。宏顺序、同步/异步及流式支持须按实际现有实现判断，不套用旧文档限制。
+
+**后续可选完成标准**：允许外部自定义行为接入，明确进入/退出顺序、错误与取消传播、借用及流式生命周期，并复用既有方法键和运行时辅助；接入至少一类已有生产行为，避免额外维护两套相互独立的机制。不复制运行时反射或全套 .NET 代理系统。当前不实施。
+
+## 13. 本轮目标范围：仅连续完成 AR-08、AR-09
+
+用户已启用并完成本目标，本节保留授权范围与停止条件。按 AR-08 → AR-09 连续推进，不逐阶段等待确认，允许为共享依赖调整内部顺序。
+
+- 以第 12 节双方源码依据和完成标准为范围，保留 AR-01～AR-07、B1～B8 的成果；先核对两仓库基线与已有改动，只复查受影响部分。
+- 完成公共 WebAPI 核心剩余资源和依赖解耦，以及 LLM 工厂、配置解析的独立注入；必须落实到现有宿主实际调用，不以空实现、未接入抽象或文档代替完成。
+- 自主处理常规实现选择和编译问题。只有确实无法继续的外部条件、破坏性操作或超范围决定需要用户介入；继续推进不受影响的部分。
+- 保持 API、业务规则、数据库结构、默认配置兼容、健康检查、取消和停机预算。沿用显式注册、trait、工厂和过程宏，不构建完整 DI 或新配置框架。
+- AR-10、AR-11 保留待办，不自动实施；新发现的无关问题只登记，不扩大目标或循环重审全仓库。
+- 全部 Rust 操作仅在 Docker Compose dev 内执行；不在本机安装组件，保持 stable/latest 与 /cargo-target，不添加或运行测试、测试依赖或模拟验证程序。
+- 最后在容器内通过 `cargo fmt --all -- --check`、`cargo check --workspace --locked`、`cargo build --workspace --locked`、`cargo clippy --workspace --lib --bins --locked -- -D warnings`，补充拆分组件和可选特性的必要独立编译、依赖图检查。只因新改动、失败或未解疑点重复验证。
+- 持续更新本清单的状态、关键决定、验证依据及接入变化；更新相关 README、AGENTS.md 和接入文档，明确真实数据库/云服务联调等未覆盖边界。
+- 不提交、推送、部署，不修改 NetEngine，不执行真实数据库迁移。两项完成标准均达到、验证通过、文档更新后结束，交付可统一审查的工作区，不自动开启下一目标。
+
+## 14. AR-08、AR-09 完成结果
+
+本轮从 Rust `a176933225bda107e3ab962a6d066ebe062f68e9` 实施，保留起始两份清单文档改动；NetEngine 提交和原六处修改未变。AR-10、AR-11 没有实施，不自动开始下一轮。
+
+- **AR-08 已完成**：[jwt_auth](../infrastructure/jwt_auth/src/lib.rs) 独立承接原 JWT 编解码实现，application_runtime::auth 仅兼容导出，公共宿主直接引用 jwt_auth 与 application_model 的 CurrentUser。[数据库纯配置](../infrastructure/common/src/database_settings.rs) 不引用驱动；[连接选项构造](../infrastructure/repository_core/src/connection.rs) 被 WebAPI、TaskService 与仓储工具共同使用，保留各入口参数及驱动默认值。webapi_core 的直接和传递依赖均不含 application_runtime、repository_core 或 SeaORM。
+- **业务资源按需装配**：WebAPI 资源回调接收已经配置的同一个 HTTP 工厂；两端入口注册 FileStorageResource，本地模式显式传 None。File 及使用默认文件上下文的 User/Article/Link/Site 在启动时检查资源。核心 AppState 和档案移除邮件及文件固定构造要求，两端未使用的邮件实例取消，任务邮件资源保持原样。
+- **AR-09 已完成**：[LLM 工厂与解析契约](../infrastructure/llm/src/factory.rs) 归属基础设施；[默认数据库解析器](../application/application_service_llm/src/llm/model_config_resolver.rs) 归属应用层，持有原业务写池的 Arc 克隆。工厂和解析器分别以 [LLM 资源](../presentation/webapi_support/src/llm_resources.rs) 注册，替换其中一项不要求替换业务服务。
+- **实际接入**：[管理端资源入口](../presentation/admin_webapi/src/business_resources.rs) 和 [客户端资源入口](../presentation/client_webapi/src/business_resources.rs) 显式选择两项默认依赖。管理端试用、普通对话、流式对话经注入契约调用，LlmApp/LlmInvoke 启动校验两个资源。模型 CRUD 改用 LlmModelContext，会话查询保持只读连接，两者不强制依赖运行工厂及解析器。
+- **兼容性复核**：配置字段和默认值未改，WebAPI 最小池 5、连接期限 10 秒；TaskService 最小池 30、连接期限 50 秒；工具最小池 1、连接期限 50 秒。任务及工具未设置的获取期限、最大存活通过 None 保留驱动默认值。JWT 算法与密钥解析、API 路由、健康检查、日志排空、任务租约与停机流程未改；文件仍共享宿主 HTTP 工厂。
+- **LLM 行为复核**：启用/软删除/ID 查询条件和写池身份保持，未增加缓存；三个协议的创建函数与协议实现未改。适配器只改为调用所选工厂，错误转换保持原样。应用契约的取消包装继续覆盖配置读取和提供商调用，流仍持有其所需资源并按原规则保存会话，没有新增后台查询或脱离宿主的任务。
+
+源码接入变化详见 [业务模块与宿主装配](database-modules.md)：资源工厂新增 Arc<HttpClientFactory> 参数；公共 AppState 的 file_storage/email_sender 字段与档案对应工厂字段移除；WebApiStartup 的连接选项方法改为 repository_core::connection 的函数；LlmContext 的 HTTP 工厂字段替换为两个契约引用并需启用 application_runtime 的 llm 特性，模型管理使用 LlmModelContext。旧 JWT 类型和数据库纯配置类型保留单向兼容导出。README、AGENTS.md、HTTP 与任务接入文档已同步。
+
+## 15. AR-08、AR-09 验证与停止记录
+
+全部 Rust 操作在现有 Docker Compose dev 内执行，产物仍在 /cargo-target，stable/latest 未改，未在本机安装组件。
+
+| 检查 | 本轮结果 |
+| --- | --- |
+| `cargo fmt --all -- --check` | 通过 |
+| `cargo check --workspace --locked` | 通过 |
+| `cargo clippy --workspace --lib --bins --locked -- -D warnings` | 通过，无警告 |
+| `cargo build --workspace --locked` | 通过，含两个 WebAPI、任务宿主及工具 |
+| 单独 `cargo check -p <组件> --locked` | jwt_auth、webapi_core、llm、repository_core、task_service_core、repository_tool 均通过 |
+| 关闭可选特性独立编译 | application_runtime、webapi_support 的 --no-default-features 均通过 |
+| 分包依赖图 | webapi_core/jwt_auth 无 application_runtime、repository_core、SeaORM；llm 无应用或仓库依赖；application_runtime/webapi_support 关闭默认特性时无 llm、application_service_llm |
+| 迁移与版本比较 | JWT 实现与原文件逐字一致；全部 WebAPI 连接池默认函数一致；外部 Cargo 包版本及 checksum 集合未变 |
+| 调用链与生命周期复核 | 两项 LLM 运行依赖独立选择，三个调用入口接通；原应用取消契约、协议创建/流实现、HTTP 工厂和任务运行器文件未变 |
+| 文档与差异检查 | 本轮更新文档的本地链接及 `git diff --check` 通过 |
+
+本轮没有新增或运行测试，也没有进行真实数据库迁移、云模型调用或服务器部署。源码及编译证据不能替代这些运行联调。两项完成标准已达到，保留当前工作区供统一审查；未提交、推送或修改 NetEngine。本目标完成后停止，AR-10、AR-11 仍为待选扩展。

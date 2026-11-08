@@ -153,15 +153,19 @@ pub struct MessageContext<'a> {
     pub email_sender: Option<&'a dyn AppEmailSender>,
 }
 
-/// LLM 模块上下文
+/// LLM 模型管理上下文，不需要协议客户端或运行配置解析器。
+#[derive(Clone, Copy)]
+pub struct LlmModelContext<'a> {
+    pub app: AppContext<'a>,
+    pub distributed_lock: &'a dyn DistributedLock,
+}
+
+/// LLM 应用与调用上下文；运行时依赖由宿主选择，不在服务内部创建。
+#[cfg(feature = "llm")]
 #[derive(Clone, Copy)]
 pub struct LlmContext<'a> {
-    /// 通用上下文
     pub app: AppContext<'a>,
-
-    /// LLM 配置并发控制锁
     pub distributed_lock: &'a dyn DistributedLock,
-
-    /// 共享 HTTP 客户端工厂
-    pub http_client_factory: &'a HttpClientFactory,
+    pub client_factory: &'a dyn llm::LlmClientFactory,
+    pub model_config_resolver: &'a dyn llm::LlmModelConfigResolver,
 }

@@ -5,9 +5,12 @@ edition = "2024"
 
 [features]
 default = []
-llm = ["dep:application_service_llm"]
+llm = ["dep:application_service_llm", "dep:llm", "dep:http_client"]
 
 [dependencies]
+llm = { path = "../../infrastructure/llm", optional = true }
+http_client = { path = "../../infrastructure/http_client", optional = true }
+file_storage = { path = "../../infrastructure/file_storage", default-features = false }
 application_runtime = { path = "../../application/application_runtime" }
 application_model = { path = "../../application/application_model" }
 webapi_core = { path = "../../project_core/webapi_core" }

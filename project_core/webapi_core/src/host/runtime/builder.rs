@@ -14,11 +14,10 @@ use crate::rate_limit::RateLimiter;
 use crate::{
     builder::WebApiRouterBuilder, openapi::apply_openapi_enhancements, startup::WebApiStartup,
 };
-use application_runtime::auth::EcJwtCodec;
 use axum::Router;
-use email::AppEmailSender;
 use http_client::HttpClientFactory;
 use identifier_generator::IdentifierGenerator;
+use jwt_auth::EcJwtCodec;
 use logger::LoggerRuntime;
 use utoipa::OpenApi;
 
@@ -26,12 +25,6 @@ use utoipa::OpenApi;
 pub struct WebApiHostBuilder {
     /// 宿主配置
     settings: Settings,
-
-    /// 文件存储
-    build_file_storage: crate::host::BuildWebApiFileStorage,
-
-    /// 邮件发送器
-    email_sender: Arc<dyn AppEmailSender>,
 
     /// 分布式锁构建方法
     build_distributed_lock: BuildWebApiLock,
@@ -74,16 +67,12 @@ impl WebApiHostBuilder {
     /// 创建 WebAPI 宿主构建器
     pub fn new(
         settings: Settings,
-        build_file_storage: crate::host::BuildWebApiFileStorage,
-        email_sender: Arc<dyn AppEmailSender>,
         build_distributed_lock: BuildWebApiLock,
         build_cache: BuildWebApiCache,
         build_logger_runtime: BuildWebApiLoggerRuntime,
     ) -> Self {
         Self {
             settings,
-            build_file_storage,
-            email_sender,
             build_distributed_lock,
             build_cache,
             build_logger_runtime,
@@ -173,7 +162,6 @@ impl WebApiHostBuilder {
             )?;
         }
         let http_client_factory = Arc::new(http_client_factory);
-        let file_storage = (self.build_file_storage)(&self.settings, http_client_factory.clone())?;
         let identifier_generator = IdentifierGenerator::from_settings(
             &self.settings.identifier_generator,
             &self.settings.cache.connection,
@@ -183,7 +171,14 @@ impl WebApiHostBuilder {
         let cache = Arc::clone(&distributed_cache);
 
         let resources = match self.build_resources {
-            Some(build) => build(&self.settings, self.check_log_read_health).await?,
+            Some(build) => {
+                build(
+                    &self.settings,
+                    self.check_log_read_health,
+                    http_client_factory.clone(),
+                )
+                .await?
+            }
             None => crate::host::resources::WebApiResources::default(),
         };
 
@@ -262,9 +257,7 @@ impl WebApiHostBuilder {
             resources,
             id_generator,
             distributed_lock,
-            file_storage,
             cache,
-            email_sender: self.email_sender,
             http_client_factory,
             settings: self.settings,
             permission_routes,

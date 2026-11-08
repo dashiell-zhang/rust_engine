@@ -11,7 +11,7 @@ use sea_orm::{
 use application_interface::error::AppError;
 use application_model::shared::models::{page_offset, validate_page_request};
 use application_model::user::models::PageListDto;
-use application_runtime::context::{CurrentUser, LlmContext};
+use application_runtime::context::{CurrentUser, LlmModelContext};
 
 use super::models::{
     EditLlmModelDto, LlmModelDto, LlmModelPageListDto, LlmModelPageRequest, LlmModelSelectDto,
@@ -20,12 +20,12 @@ use super::models::{
 /// LLM 模型配置服务
 pub struct LlmModelService<'a> {
     /// 应用层上下文
-    context: LlmContext<'a>,
+    context: LlmModelContext<'a>,
 }
 
 impl<'a> LlmModelService<'a> {
     /// 创建 LLM 模型配置服务
-    pub fn new(context: LlmContext<'a>) -> Self {
+    pub fn new(context: LlmModelContext<'a>) -> Self {
         Self { context }
     }
 

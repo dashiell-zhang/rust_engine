@@ -47,7 +47,7 @@ pub struct DatabaseSettings {
     /// 显式模块目标；已声明但缺少写连接时不回退默认库。
     #[serde(default)]
     pub modules:
-        std::collections::BTreeMap<String, repository_core::module::ModuleConnectionSettings>,
+        std::collections::BTreeMap<String, common::database_settings::ModuleConnectionSettings>,
     /// PostgreSQL 连接字符串
     #[serde(default)]
     pub connection: String,

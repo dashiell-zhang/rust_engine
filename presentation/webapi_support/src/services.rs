@@ -47,8 +47,20 @@ fn validate_business(resources: &WebApiResources) -> Result<(), String> {
         .get::<repository::BusinessModule>()?;
     Ok(())
 }
+fn validate_file_business(resources: &WebApiResources) -> Result<(), String> {
+    validate_business(resources)?;
+    resources.get::<super::resources::FileStorageResource>()?;
+    Ok(())
+}
 fn validate_logs(resources: &WebApiResources) -> Result<(), String> {
     resources.get::<LogQueryResource>()?;
+    Ok(())
+}
+#[cfg(feature = "llm")]
+fn validate_llm(resources: &WebApiResources) -> Result<(), String> {
+    validate_business(resources)?;
+    resources.get::<super::llm_resources::LlmClientFactoryResource>()?;
+    resources.get::<super::llm_resources::LlmModelConfigResource>()?;
     Ok(())
 }
 // 声明键和快捷访问方法，不生成默认实现或全量注册。
@@ -99,16 +111,16 @@ default_factories! {
     AppSetting, app_setting, validate_business;
     Pay, pay, validate_business;
     Role, role, validate_business;
-    File, file, validate_business;
-    User, user_webapi, validate_business;
-    Article, article_webapi, validate_business;
-    Link, link_webapi, validate_business;
-    Site, site_webapi, validate_business;
+    File, file, validate_file_business;
+    User, user_webapi, validate_file_business;
+    Article, article_webapi, validate_file_business;
+    Link, link_webapi, validate_file_business;
+    Site, site_webapi, validate_file_business;
 }
 #[cfg(feature = "llm")]
 default_factories! {
-    LlmApp, llm_app, validate_business;
+    LlmApp, llm_app, validate_llm;
     LlmModel, llm_model, validate_business;
-    LlmInvoke, llm_invoke, validate_business;
+    LlmInvoke, llm_invoke, validate_llm;
     LlmConversation, llm_conversation_manage, validate_business;
 }
