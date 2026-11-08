@@ -4,7 +4,7 @@ use common::app_error::AppError;
 use llm::{LlmModelConfig, LlmModelConfigResolver};
 use repository::extensions::SoftDeleteQueryExt;
 use repository::llm_model;
-use sea_orm::{ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter};
+use sea_orm::{ColumnTrait, DatabaseConnection, QueryFilter};
 use std::sync::Arc;
 
 pub struct DatabaseLlmModelConfigResolver {

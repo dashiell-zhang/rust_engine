@@ -261,7 +261,8 @@ async fn insert_log_lines(
     }
 
     let transaction = db_pool.begin().await?;
-    let mut existing_ids: BTreeSet<i64> = log::Entity::find()
+    // 恢复日志的幂等去重必须包含已软删除记录，避免重放同一主键。
+    let mut existing_ids: BTreeSet<i64> = log::Entity::find_with_deleted()
         .select_only()
         .column(log::Column::Id)
         .filter(log::Column::Id.is_in(ids))

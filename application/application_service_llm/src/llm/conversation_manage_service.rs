@@ -2,8 +2,7 @@ use repository::extensions::SoftDeleteQueryExt;
 use repository::{llm_app, llm_conversation, user};
 use repository_core::pagination::SignedPage;
 use sea_orm::{
-    ColumnTrait, Condition, EntityTrait, ExprTrait, PaginatorTrait, QueryFilter, QueryOrder,
-    QuerySelect,
+    ColumnTrait, Condition, ExprTrait, PaginatorTrait, QueryFilter, QueryOrder, QuerySelect,
 };
 
 use application_model::shared::models::{page_offset, validate_page_request};

@@ -5,8 +5,8 @@ use common::{app_error::AppError, crypto_helper::hash_password_pbkdf2_sha256};
 use repository::{function, function_authorize, function_route, role, user, user_role};
 use repository_core::versioned::VersionedActiveModel;
 use sea_orm::{
-    ColumnTrait, DatabaseTransaction, DbErr, EntityTrait, IntoActiveModel, PaginatorTrait,
-    QueryFilter, Set, TransactionTrait,
+    ColumnTrait, DatabaseTransaction, DbErr, IntoActiveModel, PaginatorTrait, QueryFilter, Set,
+    TransactionTrait,
 };
 use std::collections::HashMap;
 
@@ -37,7 +37,7 @@ impl AuthorizeService<'_> {
         seed: AuthorizeSeedData,
     ) -> Result<AuthorizeSeedResult, DbErr> {
         // 查找包含软删除记录，重复执行恢复原记录，保留主键和创建审计。
-        let existing = user::Entity::find()
+        let existing = user::Entity::find_with_deleted()
             .filter(user::Column::UserName.eq(&seed.admin_user.user_name))
             .one(tx)
             .await?;
@@ -67,7 +67,7 @@ impl AuthorizeService<'_> {
             admin.update_versioned(tx).await?
         };
 
-        let existing = role::Entity::find()
+        let existing = role::Entity::find_with_deleted()
             .filter(role::Column::Code.eq(&seed.admin_role.code))
             .one(tx)
             .await?;
@@ -97,7 +97,7 @@ impl AuthorizeService<'_> {
             .map(|item| item.sign.clone())
             .collect();
         let mut functions = HashMap::new();
-        for model in function::Entity::find()
+        for model in function::Entity::find_with_deleted()
             .filter(function::Column::Sign.is_in(signs))
             .all(tx)
             .await?
@@ -152,7 +152,7 @@ impl AuthorizeService<'_> {
             .map(|item| item.route.clone())
             .collect();
         let mut route_map = HashMap::new();
-        for model in function_route::Entity::find()
+        for model in function_route::Entity::find_with_deleted()
             .filter(function_route::Column::Module.is_in(modules))
             .filter(function_route::Column::Route.is_in(routes))
             .all(tx)
@@ -190,7 +190,7 @@ impl AuthorizeService<'_> {
             route_map.insert(key, model);
         }
 
-        let existing = user_role::Entity::find()
+        let existing = user_role::Entity::find_with_deleted()
             .filter(user_role::Column::UserId.eq(user_id))
             .filter(user_role::Column::RoleId.eq(role_id))
             .one(tx)
@@ -226,7 +226,7 @@ impl AuthorizeService<'_> {
         }
 
         let mut grants = HashMap::new();
-        for model in function_authorize::Entity::find()
+        for model in function_authorize::Entity::find_with_deleted()
             .filter(function_authorize::Column::RoleId.eq(role_id))
             .filter(function_authorize::Column::UserId.is_null())
             .all(tx)

@@ -2,9 +2,7 @@ use application_runtime::context::AppContext;
 use common::app_error::AppError;
 use repository::extensions::SoftDeleteQueryExt;
 use repository::{region_area, region_city, region_province, region_town};
-use sea_orm::{
-    ColumnTrait, ConnectionTrait, DatabaseConnection, EntityTrait, QueryFilter, QueryOrder,
-};
+use sea_orm::{ColumnTrait, ConnectionTrait, DatabaseConnection, QueryFilter, QueryOrder};
 use std::collections::HashMap;
 
 use super::models::{RegionDto, TownDto};

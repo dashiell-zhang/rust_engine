@@ -9,8 +9,8 @@ use repository::{
 use repository_core::pagination::SignedPage;
 use repository_core::versioned::VersionedActiveModel;
 use sea_orm::{
-    ColumnTrait, ConnectionTrait, DatabaseConnection, DbErr, EntityTrait, IntoActiveModel,
-    PaginatorTrait, QueryFilter, QueryOrder, Set, sea_query::Condition,
+    ColumnTrait, ConnectionTrait, DatabaseConnection, DbErr, IntoActiveModel, PaginatorTrait,
+    QueryFilter, QueryOrder, Set, sea_query::Condition,
 };
 use serde_json::json;
 use std::collections::HashSet;
@@ -1071,7 +1071,7 @@ mod webapi_impl {
     use application_runtime::context::{CurrentUser, WebApiContext};
     use repository::user;
     use repository_core::versioned::VersionedActiveModel;
-    use sea_orm::{ColumnTrait, EntityTrait, IntoActiveModel, QueryFilter, Set};
+    use sea_orm::{ColumnTrait, IntoActiveModel, QueryFilter, Set};
     use std::time::Duration;
 
     /// WebAPI 宿主用户应用服务

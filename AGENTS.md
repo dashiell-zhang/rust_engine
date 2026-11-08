@@ -186,7 +186,7 @@
 - 新增与 xmin 回读必须使用同一事务或保存点；版本字段不能写入或创建为普通列。编写新迁移时使用 `repository_core::versioned::create_table_from_entity` 构建并固化建表 SQL，已登记迁移不得再读取当前实体生成结构。集合更新和原生 SQL 仅用于有明确原子条件的操作，不默认获得行版本保护。
 - PostgreSQL 分区能力位于 `repository_core::partition`；声明使用 `PartitionTable` 派生宏，新迁移从实体取得并固化分区元数据，运行时维护读取当前声明。历史迁移保留其原始元数据，初始子分区仍按 SQL 生成时刻计算。时间固定 UTC+8，雪花位布局复用 `identifier_generator::layout`，不要复制另一套时间常量。
 - 分区维护仅补未来范围，保留已有边界；不得自动转换普通表、填补历史空洞或删除旧分区。同一存储的实例必须共享维护锁连接、前缀和数据库标识，不能使用宿主独有的业务锁前缀。
-- 对带 `DeleteTime` 的实体，查询活跃数据时优先使用 `SoftDeleteEntityExt::find_active()` 或 `find_by_id_active()`，不要直接从 `Entity::find()` 开始再忘记补过滤。
+- 软删除 Model 在实体声明处派生 `repository_core::SoftDelete`；生成的 `Entity::find()`/`find_by_id()` 默认只读活跃记录，历史/恢复查询显式使用 `find_with_deleted()`/`find_by_id_with_deleted()`。泛型读取用 `SoftDeleteEntityExt::find_active()`；SeaORM 原始泛型入口、原生 SQL 和普通关联方法不会自动过滤。关联活跃目标用 `SoftDeleteSelectExt::find_also_related_active`，保持 JOIN ON 过滤及左侧记录；桥接表和复杂关联逐段明确可见性，详见 [软删除查询](docs/soft-delete.md)。
 - `repository::file` 的物理表名是 `StoredFile`，与 NetEngine 的实体映射一致；旧库通过已登记的重命名迁移升级，不修改历史 `File` 建表快照，也不通过删表重建来迁移文件记录。
 - 查询可空父节点或顶层树结构时，显式使用 `is_null()`，不要依赖 `Column.eq(None)` 去表达 `NULL` 语义。
 - 当前模型变化通过容器内 `repository_tool migration-add <名称> --target <模型>` 生成固定 Up/Down、目标模型和登记文件；审查后重新编译，再单独执行迁移。业务生成目录为 `repository_tool/src/migrator/generated`，日志和事件归属各组件的 `src/migrations/generated`；生成文件与模型快照一起提交。不要修改已应用迁移或基线，不从当前实体重建历史结构。
@@ -250,6 +250,7 @@
 ## 代码生成与宏
 
 - 通用自定义行为使用 `#[behavior]` 与 `InvocationBehavior`，复用稳定方法键；按声明顺序进入、逆序退出。流行为必须显式声明并随枚举生命周期执行，不在后台脱离调用方消费；已有缓存与流日志复用公共管道，禁止另外维护平行实现。使用方式见 [宿主扩展](docs/host-extensions.md)。
+- 组合日志、缓存、重试和自定义行为时使用显式 `#[invocation]` 边界，方法键与可选 cancellation 只在边界声明；各行为共享追踪标识、按需快照、参数键及重试次数，嵌套调用创建新上下文，不按方法键复用全局状态。不得默认采集参数或输出参数键，流上下文随返回流持有，重试不重放已消费元素；其他属性宏放在边界外层。
 
 - `#[logging]` 不是默认全量挂载；只在需要的方法上显式 `use source_generator_runtime::logging;` 后再添加属性。
 - `#[logging]` 支持同步和异步方法，默认处理 `Result`（包括别名），普通返回值或单元值使用 `result = false`；异步序列显式使用 `stream = true`，只在枚举期间记录生命周期，最多捕获前 100 项。`#[retry]`、`#[cacheable]`、`#[concurrency_limit]` 仍仅支持 `async fn`；改方法签名或扩宏时先检查这一前提。

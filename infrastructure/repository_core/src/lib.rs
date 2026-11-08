@@ -11,6 +11,7 @@ pub mod versioned;
 
 pub use extensions::{SoftDeleteEntityExt, SoftDeleteQueryExt};
 pub use read_database::ReadDatabaseConnection;
+pub use source_generator_core::SoftDelete;
 pub use source_generator_core::model_documentation;
 
 /// 明确的业务模块数据库绑定。

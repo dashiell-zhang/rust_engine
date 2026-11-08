@@ -3,23 +3,23 @@ use crate::*;
 /// 一次方法调用的日志生命周期；未正常结束的调用不会记录为成功。
 #[doc(hidden)]
 pub struct InvocationLog {
-    method: String,
-    trace_id: String,
+    context: InvocationContext,
     start: std::time::Instant,
     completed: bool,
-    arguments: serde_json::Map<String, serde_json::Value>,
     info_enabled: bool,
     error_enabled: bool,
 }
 
 impl InvocationLog {
     pub fn new(method: String) -> Self {
+        Self::with_context(InvocationContext::new(method))
+    }
+
+    pub fn with_context(context: InvocationContext) -> Self {
         Self {
-            method,
-            trace_id: new_trace_id(),
+            context,
             start: std::time::Instant::now(),
             completed: false,
-            arguments: serde_json::Map::new(),
             info_enabled: tracing::enabled!(tracing::Level::INFO),
             error_enabled: tracing::enabled!(tracing::Level::ERROR),
         }
@@ -27,7 +27,7 @@ impl InvocationLog {
 
     pub fn set_argument(&mut self, name: &str, capture: impl FnOnce() -> serde_json::Value) {
         if self.info_enabled || self.error_enabled {
-            self.arguments.insert(name.into(), capture());
+            self.context.set_argument(name, capture());
         }
     }
 
@@ -83,11 +83,12 @@ impl InvocationLog {
     ) {
         let mut payload = serde_json::json!({
             "event": event,
-            "method": self.method,
-            "traceId": self.trace_id,
+            "method": self.context.method,
+            "traceId": self.context.trace_id(),
         });
-        if !self.arguments.is_empty() {
-            payload["args"] = serde_json::Value::Object(self.arguments.clone());
+        let arguments = self.context.arguments();
+        if !arguments.is_empty() {
+            payload["args"] = serde_json::Value::Object(arguments);
         }
         if event != "executing" {
             payload["durationMs"] = u64::try_from(self.start.elapsed().as_millis())

@@ -4,8 +4,7 @@ use repository::app_setting;
 use repository::extensions::SoftDeleteQueryExt;
 use repository_core::versioned::VersionedActiveModel;
 use sea_orm::{
-    ActiveValue::Set, ColumnTrait, EntityTrait, IntoActiveModel, QueryFilter, QueryOrder,
-    QuerySelect,
+    ActiveValue::Set, ColumnTrait, IntoActiveModel, QueryFilter, QueryOrder, QuerySelect,
 };
 use serde_json::json;
 use std::collections::HashMap;

@@ -10,7 +10,7 @@ use common::{
 };
 use distributed_cache::{CacheEntryOptions, DistributedCacheExt};
 use indexmap::IndexMap;
-use repository::extensions::SoftDeleteQueryExt;
+use repository::extensions::{SoftDeleteQueryExt, SoftDeleteSelectExt};
 use repository::{
     app_setting, function, function_authorize, function_route, user, user_bind_external, user_role,
     user_token,
@@ -811,7 +811,7 @@ impl<'a> AuthorizeService<'a> {
         }
 
         let mut query = function_authorize::Entity::find()
-            .find_also_related(repository::function::Entity)
+            .find_also_related_active(repository::function::Entity)
             .not_deleted(function_authorize::Column::DeleteTime)
             .filter(repository::function::Column::DeleteTime.is_null())
             .filter(authorize_condition);
@@ -845,7 +845,7 @@ impl<'a> AuthorizeService<'a> {
     ) -> Result<Vec<FunctionRouteDto>, AppError> {
         // 先做数据库粗筛 再在内存中补充关键词匹配
         let mut query = function_route::Entity::find()
-            .find_also_related(function::Entity)
+            .find_also_related_active(function::Entity)
             .not_deleted(function_route::Column::DeleteTime);
 
         if let Some(module) = request

@@ -1,6 +1,7 @@
 use crate::*;
 
 pub(crate) struct BehaviorArgs {
+    pub(crate) context: Option<Expr>,
     behaviors: Vec<Expr>,
     key_scope: syn::LitStr,
     key_types: Vec<Type>,
@@ -88,6 +89,7 @@ impl Parse for BehaviorArgs {
             ));
         }
         Ok(Self {
+            context: None,
             behaviors,
             key_scope: key_scope.unwrap(),
             key_types: key_types.unwrap_or_default(),
@@ -121,6 +123,10 @@ pub(crate) fn expand(args: BehaviorArgs, mut input: ItemFn) -> syn::Result<Token
     let context = format_ident!(
         "__source_generator_behavior_context",
         span = proc_macro2::Span::mixed_site()
+    );
+    let context_value = args.context.map_or_else(
+        || quote! { #runtime::InvocationContext::new(#key) },
+        |value| quote! { #value },
     );
     let names = (0..args.behaviors.len())
         .map(|i| {
@@ -169,7 +175,7 @@ pub(crate) fn expand(args: BehaviorArgs, mut input: ItemFn) -> syn::Result<Token
     Ok(quote! {
         #(#attrs)*
         #vis #sig {
-            let #context = #runtime::InvocationContext::new(#key);
+            let #context = #context_value;
             #(let #names = #expressions;)*
             #execution
         }

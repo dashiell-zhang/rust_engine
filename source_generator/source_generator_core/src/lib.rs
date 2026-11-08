@@ -18,6 +18,25 @@ mod method_key;
 mod runtime_path;
 mod syntax;
 
+/// 为同一方法的显式横切属性建立共享上下文，按声明顺序进入、逆序退出。
+#[proc_macro_attribute]
+pub fn invocation(attr: TokenStream, item: TokenStream) -> TokenStream {
+    attributes::invocation::expand(
+        parse_macro_input!(attr as attributes::invocation::InvocationArgs),
+        parse_macro_input!(item as ItemFn),
+    )
+    .unwrap_or_else(|error| error.to_compile_error())
+    .into()
+}
+
+/// 为 SeaORM Model 声明软删除字段及默认活跃查询入口。
+#[proc_macro_derive(SoftDelete)]
+pub fn derive_soft_delete(input: TokenStream) -> TokenStream {
+    derive::soft_delete::expand(parse_macro_input!(input as DeriveInput))
+        .unwrap_or_else(|error| error.to_compile_error())
+        .into()
+}
+
 /// 自定义调用管道：behavior = 表达式 或 behaviors(外层, 内层)。
 /// 同步行为接收 FnOnce，异步行为接收 Future，stream = true 接收 Stream。
 /// 流的准备失败直接返回；Result 包装的流显式使用 result = true。

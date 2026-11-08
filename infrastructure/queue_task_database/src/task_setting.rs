@@ -6,6 +6,7 @@ use sea_orm::entity::prelude::*;
 #[repository_core::model_documentation]
 #[derive(Clone, Debug, PartialEq, DeriveEntityModel, Eq)]
 #[sea_orm(table_name = "TaskSetting")]
+#[derive(repository_core::SoftDelete)]
 pub struct Model {
     /// PostgreSQL 系统行版本；读取为无符号事务 ID 的文本，保存时只用于并发条件。
     #[sea_orm(
@@ -90,12 +91,6 @@ impl ActiveModelBehavior for ActiveModel {
         }
 
         Ok(self)
-    }
-}
-
-impl repository_core::SoftDeleteEntityExt for Entity {
-    fn delete_time_col() -> Column {
-        Column::DeleteTime
     }
 }
 

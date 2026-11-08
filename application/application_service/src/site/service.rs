@@ -3,9 +3,7 @@ use repository_core::versioned::VersionedActiveModel;
 use std::collections::HashMap;
 
 use repository::app_setting;
-use sea_orm::{
-    ActiveValue::Set, ColumnTrait, ConnectionTrait, EntityTrait, IntoActiveModel, QueryFilter,
-};
+use sea_orm::{ActiveValue::Set, ColumnTrait, ConnectionTrait, IntoActiveModel, QueryFilter};
 use serde_json::json;
 
 use application_interface::error::AppError;

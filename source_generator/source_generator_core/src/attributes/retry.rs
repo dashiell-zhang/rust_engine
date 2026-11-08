@@ -2,6 +2,7 @@ use crate::*;
 
 /// #[retry] 的属性参数
 pub(crate) struct RetryArgs {
+    pub(crate) context: Option<Expr>,
     /// 最大重试次数，默认 3
     max_retries: Option<Expr>,
 
@@ -9,7 +10,7 @@ pub(crate) struct RetryArgs {
     delay: RetryDelay,
 
     /// 可选的调用方取消令牌表达式。
-    cancellation: Option<Expr>,
+    pub(crate) cancellation: Option<Expr>,
 
     /// 自定义错误类型的取消判定；缺省使用公共取消契约。
     is_cancelled: Option<Expr>,
@@ -43,6 +44,7 @@ impl Default for RetryArgs {
     /// 返回默认重试配置：最多重试 3 次，不等待
     fn default() -> Self {
         Self {
+            context: None,
             max_retries: None,
 
             delay: RetryDelay::Default,
@@ -300,6 +302,11 @@ pub(crate) fn expand_retry(args: RetryArgs, mut input: ItemFn) -> syn::Result<To
         ),
     };
 
+    let context = args.context.map_or_else(
+        || quote! { #runtime::InvocationContext::new(#method_key) },
+        |value| quote! { #value },
+    );
+
     let expanded: TokenStream2 = quote! {
 
 
@@ -311,6 +318,9 @@ pub(crate) fn expand_retry(args: RetryArgs, mut input: ItemFn) -> syn::Result<To
             let __retry_max: u32 = #max_retries;
 
             let __retry_delay_ms: u64 = #delay_ms;
+
+            let __retry_context = #context;
+            __retry_context.set_retry_count(0);
 
             #(#retry_copy_assertions)*
 
@@ -332,7 +342,6 @@ pub(crate) fn expand_retry(args: RetryArgs, mut input: ItemFn) -> syn::Result<To
 
             let __retry_max = u64::from(__retry_max);
 
-            let mut __retry_context = ::core::option::Option::None;
 
 
             loop {
@@ -362,19 +371,14 @@ pub(crate) fn expand_retry(args: RetryArgs, mut input: ItemFn) -> syn::Result<To
                             return ::core::result::Result::Err(__err);
                         }
 
-                        let __retry_context = __retry_context.get_or_insert_with(|| {
-
-                            (#method_key, #runtime::new_trace_id())
-
-                        });
 
                         if __retry_count >= __retry_max {
 
                             #runtime::log_retry_exhausted_debug(
 
-                                &__retry_context.0,
+                                &__retry_context.method,
 
-                                &__retry_context.1,
+                                __retry_context.trace_id(),
 
                                 __retry_count,
 
@@ -393,9 +397,9 @@ pub(crate) fn expand_retry(args: RetryArgs, mut input: ItemFn) -> syn::Result<To
 
                         #runtime::log_retry_scheduled_debug(
 
-                            &__retry_context.0,
+                            &__retry_context.method,
 
-                            &__retry_context.1,
+                            __retry_context.trace_id(),
 
                             __retry_count,
 
@@ -408,6 +412,8 @@ pub(crate) fn expand_retry(args: RetryArgs, mut input: ItemFn) -> syn::Result<To
                         // 等待指定间隔后进行下一次重试，delay_ms 为 0 时直接跳过
 
                         #retry_wait
+
+                        __retry_context.set_retry_count(__retry_count);
 
                     }
 

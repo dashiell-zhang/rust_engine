@@ -6,8 +6,8 @@ use repository::{function, function_authorize, role, user_role};
 use repository_core::pagination::SignedPage;
 use repository_core::versioned::VersionedActiveModel;
 use sea_orm::{
-    ColumnTrait, DatabaseConnection, DbErr, EntityTrait, IntoActiveModel, PaginatorTrait,
-    QueryFilter, QueryOrder, Set,
+    ColumnTrait, DatabaseConnection, DbErr, IntoActiveModel, PaginatorTrait, QueryFilter,
+    QueryOrder, Set,
 };
 use std::collections::HashSet;
 

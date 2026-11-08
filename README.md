@@ -19,6 +19,8 @@
 
 文件、短信与邮件配置的归属和兼容映射见 [组件配置](docs/component-configuration.md)。
 
+软删除实体的默认入口、历史读取与关联过滤见 [软删除查询约定](docs/soft-delete.md)。
+
 按需启用的请求字段解密见 [RSA 请求字段解密](docs/webapi-rsa.md)。
 
 模型属性读取、显示名称和 Excel 导出见 [公共数据工具](docs/common-data.md)。

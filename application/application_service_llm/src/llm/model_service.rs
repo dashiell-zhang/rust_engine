@@ -4,8 +4,7 @@ use repository::{llm_app, llm_model};
 use repository_core::pagination::SignedPage;
 use repository_core::versioned::VersionedActiveModel;
 use sea_orm::{
-    ColumnTrait, EntityTrait, ExprTrait, IntoActiveModel, PaginatorTrait, QueryFilter, QueryOrder,
-    Set,
+    ColumnTrait, ExprTrait, IntoActiveModel, PaginatorTrait, QueryFilter, QueryOrder, Set,
 };
 
 use application_interface::error::AppError;

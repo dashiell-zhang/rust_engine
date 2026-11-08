@@ -5,6 +5,7 @@ use sea_orm::entity::prelude::*;
 #[derive(Clone, Debug, PartialEq, DeriveEntityModel, Eq, source_generator_core::PartitionTable)]
 #[sea_orm(table_name = "Log")]
 #[partition(interval = 1, unit = "Month")]
+#[derive(repository_core::SoftDelete)]
 pub struct Model {
     /// PostgreSQL 系统行版本；读取为无符号事务 ID 的文本，保存时只用于并发条件。
     #[sea_orm(
@@ -54,11 +55,5 @@ pub enum Relation {}
 
 /// 默认实体行为
 impl ActiveModelBehavior for ActiveModel {}
-
-impl repository_core::SoftDeleteEntityExt for Entity {
-    fn delete_time_col() -> Column {
-        Column::DeleteTime
-    }
-}
 
 repository_core::impl_versioned_entity!(Entity, Column::RowVersion);

@@ -2,6 +2,7 @@ use crate::*;
 
 /// #[logging] 的方法标识参数
 pub(crate) struct LoggingArgs {
+    pub(crate) context: Option<Expr>,
     /// 是否按 Result 返回值记录成功或失败，别名同样适用。
     result: bool,
     /// 借用返回值仍持有参数时，可显式关闭调用后的参数刷新。
@@ -100,6 +101,7 @@ impl Parse for LoggingArgs {
             ));
         }
         Ok(Self {
+            context: None,
             result: result.unwrap_or(true),
             refresh_arguments: refresh_arguments.unwrap_or(true),
             stream: stream.unwrap_or(false),
@@ -221,6 +223,10 @@ pub(crate) fn expand_logging(args: LoggingArgs, mut input: ItemFn) -> syn::Resul
         &runtime,
     )?;
 
+    let context = args.context.map_or_else(
+        || quote! { #runtime::InvocationContext::new(#method_key) },
+        |value| quote! { #value },
+    );
     if args.stream {
         let prepare = if sig.asyncness.is_some() {
             quote! { (async move #body).await }
@@ -267,14 +273,14 @@ pub(crate) fn expand_logging(args: LoggingArgs, mut input: ItemFn) -> syn::Resul
             #(#attrs)*
             #vis #sig {
                 use #runtime::CaptureLogValue as _;
-                let __log_method = #method_key;
+                let __log_context = #context;
                 let mut __log_arguments = ::std::vec::Vec::new();
                 #(#stream_snapshots)*
                 // 准备阶段失败直接传播，日志从返回流的首次 poll 开始。
                 let __log_source = #prepare;
-                let __log_stream = #runtime::LoggedStream::new(
+                let __log_stream = #runtime::LoggedStream::with_context(
                     __log_source,
-                    __log_method,
+                    __log_context,
                     __log_arguments,
                     |item, capture, capture_error| { #capture },
                 );
@@ -292,7 +298,7 @@ pub(crate) fn expand_logging(args: LoggingArgs, mut input: ItemFn) -> syn::Resul
         #vis #sig {
 
 
-            let mut __log_invocation = #runtime::InvocationLog::new(#method_key);
+            let mut __log_invocation = #runtime::InvocationLog::with_context(#context);
             use #runtime::CaptureLogValue as _;
             #(#snapshots)*
             __log_invocation.start();

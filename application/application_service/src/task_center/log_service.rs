@@ -7,7 +7,7 @@ use common::app_error::AppError;
 use logger_database::{log, query::LogQueryService};
 use repository::extensions::SoftDeleteQueryExt;
 use repository_core::pagination::SignedPage;
-use sea_orm::{ColumnTrait, EntityTrait, ExprTrait, PaginatorTrait, QueryFilter, QueryOrder};
+use sea_orm::{ColumnTrait, ExprTrait, PaginatorTrait, QueryFilter, QueryOrder};
 
 /// 任务执行日志查询独立于业务任务表，始终读取日志组件的只读连接。
 pub struct TaskExecutionLogService<'a> {

@@ -5,7 +5,7 @@ use chrono::Utc;
 use futures_util::{StreamExt, stream::BoxStream};
 use repository::extensions::SoftDeleteQueryExt;
 use repository::{llm_app, llm_conversation};
-use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, Set};
+use sea_orm::{ColumnTrait, QueryFilter, Set};
 
 use application_interface::{
     error::AppError,

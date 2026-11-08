@@ -1,8 +1,14 @@
 //! 静态类型调用管道。行为可由外部类型或捕获借用的闭包提供，不使用反射、Any 结果或全局容器。
 use futures_util::Stream;
 use std::{
+    any::{Any, TypeId},
+    collections::HashMap,
     future::Future,
     pin::Pin,
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicU64, Ordering},
+    },
     task::{Context, Poll},
 };
 
@@ -10,11 +16,103 @@ use std::{
 pub struct InvocationContext {
     /// 与既有横切属性相同的稳定方法键，不包含参数值或凭据。
     pub method: String,
+    shared: Arc<InvocationMetadata>,
+}
+
+struct InvocationMetadata {
+    trace_id: String,
+    cancellation: Option<crate::CancellationToken>,
+    retry_count: AtomicU64,
+    arguments: Mutex<serde_json::Map<String, serde_json::Value>>,
+    arguments_key: Mutex<Option<String>>,
+    features: Mutex<HashMap<TypeId, Arc<dyn Any + Send + Sync>>>,
 }
 
 impl InvocationContext {
     pub fn new(method: String) -> Self {
-        Self { method }
+        Self::with_cancellation(method, None)
+    }
+
+    pub fn with_cancellation(
+        method: String,
+        cancellation: Option<crate::CancellationToken>,
+    ) -> Self {
+        Self {
+            method,
+            shared: Arc::new(InvocationMetadata {
+                trace_id: crate::new_trace_id(),
+                cancellation,
+                retry_count: AtomicU64::new(0),
+                arguments: Mutex::new(serde_json::Map::new()),
+                arguments_key: Mutex::new(None),
+                features: Mutex::new(HashMap::new()),
+            }),
+        }
+    }
+
+    pub fn trace_id(&self) -> &str {
+        &self.shared.trace_id
+    }
+    pub fn cancellation(&self) -> Option<&crate::CancellationToken> {
+        self.shared.cancellation.as_ref()
+    }
+    /// 首次尝试为 0；只由重试行为在开始下一次尝试前更新。
+    pub fn retry_count(&self) -> u64 {
+        self.shared.retry_count.load(Ordering::Relaxed)
+    }
+    #[doc(hidden)]
+    pub fn set_retry_count(&self, count: u64) {
+        self.shared.retry_count.store(count, Ordering::Relaxed);
+    }
+    /// 仅保存显式日志行为捕获的独立快照，不自动扫描参数。
+    pub fn set_argument(&self, name: &str, value: serde_json::Value) {
+        self.shared
+            .arguments
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(name.into(), value);
+    }
+    pub fn arguments(&self) -> serde_json::Map<String, serde_json::Value> {
+        self.shared
+            .arguments
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
+    }
+    /// None 表示尚未生成或生成失败，不把不完整内容作为缓存键。
+    pub fn arguments_key(&self) -> Option<String> {
+        self.shared
+            .arguments_key
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
+    }
+    pub fn set_arguments_key(&self, key: Option<String>) {
+        *self
+            .shared
+            .arguments_key
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = key;
+    }
+    /// 特性是调用方显式提供的数据，不是服务定位器；锁不跨用户代码或 await。
+    pub fn set_feature<T: Any + Send + Sync>(&self, feature: Arc<T>) {
+        let previous = self
+            .shared
+            .features
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(TypeId::of::<T>(), feature);
+        drop(previous);
+    }
+    pub fn feature<T: Any + Send + Sync>(&self) -> Option<Arc<T>> {
+        self.shared
+            .features
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(&TypeId::of::<T>())
+            .cloned()?
+            .downcast()
+            .ok()
     }
 }
 

@@ -2,6 +2,7 @@ use crate::*;
 
 /// #[cacheable] 的属性参数
 pub(crate) struct CacheableArgs {
+    pub(crate) context: Option<Expr>,
     /// 缓存实例表达式
     cache: Expr,
 
@@ -168,6 +169,7 @@ impl Parse for CacheableArgs {
         )?;
 
         Ok(Self {
+            context: None,
             cache,
             ttl_seconds,
             lock,
@@ -272,6 +274,10 @@ pub(crate) fn expand_cacheable(args: CacheableArgs, mut input: ItemFn) -> syn::R
     )?;
 
     let attrs = &input.attrs;
+    let context = args.context.map_or_else(
+        || quote! { #runtime::InvocationContext::new(#method_key) },
+        |value| quote! { #value },
+    );
     let vis = &input.vis;
     let body = &input.block;
     let cache_body = format_ident!(
@@ -327,7 +333,9 @@ pub(crate) fn expand_cacheable(args: CacheableArgs, mut input: ItemFn) -> syn::R
 
             let __cache_ttl_seconds: u64 = #ttl_seconds;
             assert!(__cache_ttl_seconds > 0, "ttl_seconds 必须大于 0");
-            let __cache_method_key = #method_key;
+            let __cache_context = #context;
+            let __cache_method_key = __cache_context.method.clone();
+            __cache_context.set_arguments_key(None);
             #(#parameter_safety_checks)*
 
             let #argument_value_ident = #argument_value;
@@ -350,10 +358,10 @@ pub(crate) fn expand_cacheable(args: CacheableArgs, mut input: ItemFn) -> syn::R
             let __cache = #runtime::distributed_cache_ref(__cache_source);
             let __cache_lock_source = &(#lock_expr);
             let __cache_lock = #runtime::distributed_lock_ref(__cache_lock_source);
-            #runtime::invoke_cacheable(
+            #runtime::invoke_cacheable_with_context(
                 __cache,
                 __cache_lock,
-                &__cache_method_key,
+                __cache_context,
                 &__cache_arguments_key,
                 __cache_ttl_seconds,
                 #lock_expiry_seconds,

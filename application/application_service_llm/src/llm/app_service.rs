@@ -10,8 +10,7 @@ use regex::Regex;
 use repository::extensions::SoftDeleteQueryExt;
 use repository::{llm_app, llm_model};
 use sea_orm::{
-    ColumnTrait, EntityTrait, ExprTrait, IntoActiveModel, PaginatorTrait, QueryFilter, QueryOrder,
-    Set,
+    ColumnTrait, ExprTrait, IntoActiveModel, PaginatorTrait, QueryFilter, QueryOrder, Set,
 };
 
 use application_interface::{

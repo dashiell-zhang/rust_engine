@@ -56,6 +56,8 @@ pub use retry::*;
 
 /// 显式自定义调用行为，支持同步、异步以及延迟枚举的流。
 pub use source_generator_core::behavior;
+/// 组合显式行为并共享一次调用的元数据；不会隐式挂载日志或重试。
+pub use source_generator_core::invocation;
 
 /// 为同步或异步方法自动注入结构化调用日志的属性宏
 ///

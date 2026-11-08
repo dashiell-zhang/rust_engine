@@ -2,9 +2,7 @@ use repository::extensions::SoftDeleteQueryExt;
 use repository::link;
 use repository_core::pagination::SignedPage;
 use repository_core::versioned::VersionedActiveModel;
-use sea_orm::{
-    ColumnTrait, EntityTrait, IntoActiveModel, PaginatorTrait, QueryFilter, QueryOrder, Set,
-};
+use sea_orm::{ColumnTrait, IntoActiveModel, PaginatorTrait, QueryFilter, QueryOrder, Set};
 use serde_json::json;
 
 use application_interface::error::AppError;

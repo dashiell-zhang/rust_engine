@@ -4,7 +4,7 @@ use crate::state::AppState;
 use application_model::article::models::ArticleDto;
 use common::app_error::AppError;
 use futures_util::{Stream, stream};
-use source_generator_runtime::{cacheable, generate_direct_service_factory, logging};
+use source_generator_runtime::{generate_direct_service_factory, invocation};
 use tokio::time::sleep;
 
 /// 宿主演示服务工厂，每次请求创建服务，只借用宿主基础设施。
@@ -48,8 +48,8 @@ impl<'a> DemoService<'a> {
         format!("hello, {name}")
     }
 
-    #[cacheable(cache = self.state.cache, lock = self.state.distributed_lock, ttl_seconds = 120,
-        key_scope = "client.demo.add", key_include_self = false)]
+    #[invocation(key_scope = "client.demo.add", key_include_self = false)]
+    #[cacheable(cache = self.state.cache, lock = self.state.distributed_lock, ttl_seconds = 120)]
     pub async fn add(&self, a: i32, b: i32) -> Result<i32, AppError> {
         sleep(Duration::from_millis(10)).await;
         Ok(a.wrapping_add(b))
@@ -80,8 +80,8 @@ impl<'a> Demo2Service<'a> {
         format!("hello, {name}")
     }
 
+    #[invocation(key_scope = "client.demo2.add", key_include_self = false)]
     #[cacheable(cache = self.state.cache, lock = self.state.distributed_lock, ttl_seconds = 120,
-        key_scope = "client.demo2.add", key_include_self = false,
         key = (a, b, source_generator_runtime::trusted_serde_key(article)))]
     pub async fn add(&self, a: i32, b: i32, article: &ArticleDto) -> Result<i32, AppError> {
         let _ = article;
@@ -89,11 +89,8 @@ impl<'a> Demo2Service<'a> {
         Ok(a.wrapping_add(b))
     }
 
-    #[logging(
-        key_scope = "client.demo2.add-ref",
-        key_include_self = false,
-        result = false
-    )]
+    #[invocation(key_scope = "client.demo2.add-ref", key_include_self = false)]
+    #[logging(result = false)]
     pub fn add_ref(&self, a: &mut i32, b: i32) -> i32 {
         let sum = a.wrapping_add(b);
         *a = 2019;

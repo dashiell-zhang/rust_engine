@@ -8,3 +8,4 @@ pub(crate) mod property_model;
 pub(crate) mod protocol_model;
 pub(crate) mod query_model;
 pub(crate) mod rsa;
+pub(crate) mod soft_delete;

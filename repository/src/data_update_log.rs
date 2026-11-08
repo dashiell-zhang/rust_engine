@@ -4,6 +4,7 @@ use sea_orm::entity::prelude::*;
 #[repository_core::model_documentation]
 #[derive(Clone, Debug, PartialEq, DeriveEntityModel, Eq)]
 #[sea_orm(table_name = "DataUpdateLog")]
+#[derive(repository_core::SoftDelete)]
 pub struct Model {
     /// PostgreSQL 系统行版本；读取为无符号事务 ID 的文本，保存时只用于并发条件。
     #[sea_orm(

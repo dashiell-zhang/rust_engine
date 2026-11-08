@@ -1201,7 +1201,7 @@ mod webapi_impl {
     use application_runtime::context::{CurrentUser, WebApiContext};
     use distributed_cache::{CacheEntryOptions, DistributedCacheExt};
     use repository::article;
-    use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
+    use sea_orm::{ColumnTrait, QueryFilter};
 
     /// WebAPI 宿主文章应用服务
     pub struct ArticleWebApiService<'a> {

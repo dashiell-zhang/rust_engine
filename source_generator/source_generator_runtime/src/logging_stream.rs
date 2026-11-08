@@ -69,7 +69,7 @@ pub struct StreamLogObserver<C> {
 
 impl<T, C: FnMut(&T, bool, bool) -> StreamItemLog> StreamObserver<T> for StreamLogObserver<C> {
     fn on_start(&mut self, context: &InvocationContext) {
-        let mut invocation = InvocationLog::new(context.method.clone());
+        let mut invocation = InvocationLog::with_context(context.clone());
         for (name, value) in self.arguments.drain(..) {
             invocation.set_argument(name, || value);
         }
@@ -138,9 +138,17 @@ impl<S: Stream, C: FnMut(&S::Item, bool, bool) -> StreamItemLog> LoggedStream<S,
         arguments: Vec<(&'static str, Value)>,
         inspect: C,
     ) -> Self {
+        Self::with_context(source, InvocationContext::new(method), arguments, inspect)
+    }
+
+    pub fn with_context(
+        source: S,
+        context: InvocationContext,
+        arguments: Vec<(&'static str, Value)>,
+        inspect: C,
+    ) -> Self {
         Self {
-            inner: StreamLoggingBehavior::new(arguments, inspect)
-                .invoke(InvocationContext::new(method), source),
+            inner: StreamLoggingBehavior::new(arguments, inspect).invoke(context, source),
         }
     }
 }

@@ -11,8 +11,8 @@ use chrono::{TimeDelta, Utc};
 use common::io_helper::file_length_to_string;
 use repository::file;
 use sea_orm::{
-    ActiveValue::Set, ColumnTrait, Condition, ConnectionTrait, EntityTrait, IntoActiveModel,
-    QueryFilter, QueryOrder,
+    ActiveValue::Set, ColumnTrait, Condition, ConnectionTrait, IntoActiveModel, QueryFilter,
+    QueryOrder,
 };
 use serde_json::json;
 use tokio::fs;

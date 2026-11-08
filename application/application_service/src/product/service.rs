@@ -3,9 +3,7 @@ use repository::product;
 use repository_core::pagination::SignedPage;
 use repository_core::versioned::VersionedActiveModel;
 use sea_orm::entity::prelude::Decimal;
-use sea_orm::{
-    ColumnTrait, EntityTrait, IntoActiveModel, PaginatorTrait, QueryFilter, QueryOrder, Set,
-};
+use sea_orm::{ColumnTrait, IntoActiveModel, PaginatorTrait, QueryFilter, QueryOrder, Set};
 use serde_json::json;
 use std::str::FromStr;
 

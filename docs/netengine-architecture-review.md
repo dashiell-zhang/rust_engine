@@ -1,6 +1,6 @@
 # NetEngine 与 rust_engine：框架架构差异清单
 
-更新日期：2026-11-08。AR-01～AR-11 已完成并提交；AR-12 已完成并通过容器编译检查，结果见第 20～21 节。AR-13、AR-14 保留待办。本轮依据与原目标见第 18～19 节；早期章节保留当时的判断、范围与停止记录，不代表当前待办。
+更新日期：2026-11-08。AR-01～AR-12 已完成并提交；AR-13、AR-14 已完成并通过容器编译检查，结果见第 22～23 节。当前 AR 清单无未实施条目。第 18～21 节保留前轮依据与停止记录，不代表当前待办。
 
 ## 1. 当前方向与基线
 
@@ -482,3 +482,40 @@ Rust 的 [WebAPI Settings](../project_core/webapi_core/src/host/runtime/settings
 提交前复核修正：TaskService 原先通过 `serde(flatten)` 合并文件提供商配置，导致环境变量字符串无法沿用 config 的布尔值转换。现改为路径/消息配置与 `FileStorageConfiguration` 分别从同一启动快照直接解析，再组合为运行态配置；保留 `[file]` 字段、默认值、根目录回退及覆盖顺序。修复后已在容器重新通过工作区 check、build、Clippy（`-D warnings`）与格式检查；未新增测试或运行真实宿主联调。
 
 AR-12 完成标准已达到，更新 README、AGENTS.md、任务文档和组件配置文档后停止，保留未提交改动供统一审查。AR-13、AR-14 仍为待办，未自动实施；不启动新的全仓库循环对齐。
+
+## 22. AR-13、AR-14 连续实施结果
+
+用户提交并推送 AR-12 后明确授权连续完成两项，无需逐阶段确认。本轮 Rust 基线为 `714a47ca49a0d197626758d552437e05a3bf550f`，开始时工作区干净；NetEngine 基线仍为 `23a7d0002938d0308c975dc48c04ac66aae0dda8` 及原有六处修改，未修改源项目、未拉取远端。仅推进上述两项，不扩展下一轮全仓库对齐。
+
+| 项目 | 实施结果 |
+| --- | --- |
+| AR-13 调用元数据 | [InvocationContext](../source_generator/source_generator_runtime/src/pipeline.rs) 拥有一次调用的追踪标识、可选取消令牌、重试次数、按需参数快照与完整参数键，以及显式类型化特性；clone 共享元数据，返回值及错误保持静态类型 |
+| AR-13 组合入口 | 新增 [invocation 属性](../source_generator/source_generator_core/src/attributes/invocation.rs)，统一展开显式 logging/cacheable/retry/behavior；按声明顺序进入，方法键只在边界声明，禁止多个重试或缓存键；保留独立属性兼容 |
+| AR-13 内置接入 | 普通/流日志使用同一 InvocationContext；缓存参数键写入上下文且实际执行沿用公共管道；重试日志与其他行为使用同一 trace_id，等待成功后更新次数；[客户端既有演示](../presentation/client_webapi/src/services.rs) 已接入，未额外挂载日志或重试 |
+| AR-13 生命周期 | 嵌套调用/递归创建新边界，无任务局部继承；流成功准备后持有上下文，首次枚举才开始行为，未消费不记录日志；重试覆盖 Future，不重放流元素；取消分类、先耗尽后检查令牌及停机边界不变 |
+| AR-14 实体声明 | 新增 [SoftDelete 派生](../source_generator/source_generator_core/src/derive/soft_delete.rs)，25 个业务实体及 3 个组件实体在 Model 声明处接入；移除散落的手写 trait 实现与中央注册名单 |
+| AR-14 默认/历史入口 | 固有 find/find_by_id 默认使用 DeleteTime IS NULL；find_with_deleted/find_by_id_with_deleted 显式读取历史，泛型契约仍可用 find_active/find_by_id_active；没有改动 xmin 或写入语义 |
+| AR-14 关联接入 | [SoftDeleteSelectExt](../infrastructure/repository_core/src/extensions.rs) 在 JOIN ON 中过滤关联目标并保留既有关系条件；授权功能列表、路由绑定列表接入。路由仍返回，已删除关联功能变为 None；LLM 应用名称映射随默认入口排除已删除模型 |
+| AR-14 历史保留 | 权限初始化六处恢复查询、数据库日志积压 ID 去重显式包含删除记录；xmin 泛型回读、数据库事件原生 SQL 状态游标保持原语义 |
+
+设计及使用边界见[宿主扩展](host-extensions.md)和[软删除查询](soft-delete.md)，README 与 AGENTS.md 已同步。共享上下文不提供服务定位器、不默认采集参数；快照及键仍复用既有算法，不输出缓存参数键。软删除固有方法保护具体实体的常见入口，不宣称拦截全部 SeaORM 查询；原始泛型入口、普通关联方法、桥接表与原生 SQL 仍需明确过滤。未改变数据库 schema、迁移、队列状态转换、事件游标或业务事务。
+
+## 23. AR-13、AR-14 验证与停止记录
+
+Rust 操作全部在 Docker Compose dev 中执行，保持 stable/latest 和 `/cargo-target`，未在本机安装任何组件。
+
+| 验证 | 结果 |
+| --- | --- |
+| `cargo check --workspace --locked` | 通过，无警告 |
+| `cargo build --workspace --locked` | 通过，包含三个宿主与工作区工具 |
+| `cargo clippy --workspace --lib --bins --locked -- -D warnings` | 通过，未关闭诊断；清理因实体固有查询入口新增而不再使用的 EntityTrait 导入 |
+| `cargo fmt --all -- --check`、`git diff --check` | 通过 |
+| `cargo check --locked -p source_generator_core -p source_generator_runtime -p repository_core` | 通过，过程宏、运行时与仓储核心协同检查 |
+| 实体与查询复核 | 28 个 Model 声明覆盖既有软删除实体；核对普通查询、两处关联查询、六处初始化恢复、日志去重及 xmin 泛型回读；事件状态 SQL 未改 |
+| 配置/依赖边界 | 未新增 Cargo 依赖或修改锁文件、工具链和容器配置；未向公共宿主引入业务/提供商依赖 |
+
+没有新增或运行测试、模拟验证程序，没有连接真实数据库或云服务，没有执行迁移、提交、推送或部署；NetEngine 的原六处未提交修改保持原状。编译和源码复核不能代替全部自定义行为组合、取消时序、流枚举或数据库 JOIN 的运行验收；复杂关联仍按文档显式处理。
+
+AR-13、AR-14 按本轮限定的调用上下文和常见查询边界完成，清单、接入文档与 AGENTS.md 已同步。当前工作区留待用户审查和阶段性提交，不自动启动新一轮架构或业务对齐。
+
+提交前复核修正：组合属性原先让各层直接引用边界的同一上下文变量，`retry → behavior → logging` 和 `cacheable → behavior → logging` 中的 `async move` 会消耗可重复调用闭包捕获的句柄。现在统一在每层展开的作用域内克隆上层句柄，内层只移动局部克隆；每次重试重新建立句柄，元数据仍共享同一 Arc。修复后容器工作区 check、build、Clippy（`-D warnings`）、格式检查及 `git diff --check` 均通过。组合所有权路径已按生成代码复核；遵守工作区约定，未新增测试或模拟编译程序，未声称现有生产调用点覆盖全部组合。
