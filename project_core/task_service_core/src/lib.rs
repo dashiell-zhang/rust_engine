@@ -50,6 +50,7 @@ pub type BuildTaskServiceCache = for<'a> fn(
 /// 运行入口按需创建资源；不注册时使用空集合。
 pub type BuildTaskServiceResources = for<'a> fn(
     &'a Settings,
+    &'a mut common::resource_cleanup::ResourceCleanup,
 ) -> Pin<
     Box<dyn Future<Output = Result<common::resources::Resources, String>> + Send + 'a>,
 >;
@@ -93,6 +94,7 @@ impl TaskServiceDatabases {
 }
 pub type BuildTaskServiceDatabases = for<'a> fn(
     &'a Settings,
+    &'a mut common::resource_cleanup::ResourceCleanup,
 ) -> Pin<
     Box<dyn Future<Output = Result<TaskServiceDatabases, String>> + Send + 'a>,
 >;

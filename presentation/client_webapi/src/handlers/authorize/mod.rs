@@ -16,7 +16,9 @@ use webapi_support::WebApiApplicationExt;
 use crate::state::AppState;
 
 /// 显式同步当前客户端宿主需要鉴权的路由。
-#[utoipa::path(
+#[webapi_core::webapi_endpoint(
+    policy = anonymous,
+    permission = none,
     get,
     path = "/Authorize/UpdateRoute",
     responses(
@@ -31,7 +33,9 @@ pub async fn update_route(State(app_state): State<Arc<AppState>>) -> Result<Resp
 }
 
 /// 获取配置中的 RSA 公钥。
-#[utoipa::path(
+#[webapi_core::webapi_endpoint(
+    policy = anonymous,
+    permission = none,
     get,
     path = "/Authorize/GetPublicKey",
     responses(
@@ -49,7 +53,10 @@ pub async fn get_public_key(State(app_state): State<Arc<AppState>>) -> Result<Re
 }
 
 /// 用户名密码登录，成功返回 JWT Token
-#[utoipa::path(
+#[webapi_core::webapi_endpoint(
+    policy = anonymous,
+    permission = none,
+    json_body = "login",
     post,
     path = "/Authorize/GetToken",
     request_body = GetTokenRequest,
@@ -74,7 +81,10 @@ pub async fn get_token(
 }
 
 /// 手机号短信验证码登录，成功返回 JWT Token
-#[utoipa::path(
+#[webapi_core::webapi_endpoint(
+    policy = anonymous,
+    permission = none,
+    json_body = "login",
     post,
     path = "/Authorize/GetTokenBySMS",
     request_body = GetTokenBySmsRequest,
@@ -99,7 +109,9 @@ pub async fn get_token_by_sms(
 }
 
 /// 获取当前用户可访问的功能列表
-#[utoipa::path(
+#[webapi_core::webapi_endpoint(
+    policy = authorized,
+    permission = "获取授权功能列表",
     get,
     path = "/Authorize/GetFunctionList",
     params(ClientGetFunctionListRequest),
@@ -108,7 +120,6 @@ pub async fn get_token_by_sms(
         (status = 401, description = "未授权或无权限"),
         (status = 500, description = "服务器内部错误"),
     ),
-    security(("bearer_auth" = [])),
     tag = "授权"
 )]
 pub async fn get_function_list(
@@ -129,7 +140,10 @@ pub async fn get_function_list(
 }
 
 /// 发送短信验证码
-#[utoipa::path(
+#[webapi_core::webapi_endpoint(
+    policy = anonymous,
+    permission = none,
+    json_body = "sendVerifyCode",
     post,
     path = "/Authorize/SendSMSVerifyCode",
     request_body = SendSmsVerifyCodeRequest,
@@ -154,7 +168,10 @@ pub async fn send_sms_verify_code(
 }
 
 /// 微信小程序登录，成功返回 JWT Token
-#[utoipa::path(
+#[webapi_core::webapi_endpoint(
+    policy = anonymous,
+    permission = none,
+    json_body = "login",
     post,
     path = "/Authorize/GetTokenByWeiXinMiniApp",
     request_body = GetTokenByWxMiniAppRequest,
@@ -179,7 +196,10 @@ pub async fn get_token_by_wx_mini_app(
 }
 
 /// 微信公众号网页登录，成功返回 JWT Token
-#[utoipa::path(
+#[webapi_core::webapi_endpoint(
+    policy = anonymous,
+    permission = none,
+    json_body = "login",
     post,
     path = "/Authorize/GetTokenByWeiXinApp",
     request_body = GetTokenByWxAppRequest,
@@ -203,7 +223,10 @@ pub async fn get_token_by_wx_app(
 }
 
 /// 通过短信验证码修改密码
-#[utoipa::path(
+#[webapi_core::webapi_endpoint(
+    policy = authorized,
+    permission = "通过短信验证码修改账户密码",
+    json_body = "updatePassword",
     post,
     path = "/Authorize/UpdatePasswordBySMS",
     request_body = UpdatePasswordBySmsRequest,
@@ -213,7 +236,6 @@ pub async fn get_token_by_wx_app(
         (status = 401, description = "未授权"),
         (status = 500, description = "服务器内部错误"),
     ),
-    security(("bearer_auth" = [])),
     tag = "授权"
 )]
 pub async fn update_password_by_sms(
@@ -234,7 +256,10 @@ pub async fn update_password_by_sms(
 }
 
 /// 通过旧密码修改密码
-#[utoipa::path(
+#[webapi_core::webapi_endpoint(
+    policy = authorized,
+    permission = "通过老密码修改密码",
+    json_body = "updatePassword",
     post,
     path = "/Authorize/UpdatePasswordByOldPassword",
     request_body = UpdatePasswordByOldPasswordRequest,
@@ -244,7 +269,6 @@ pub async fn update_password_by_sms(
         (status = 401, description = "未授权"),
         (status = 500, description = "服务器内部错误"),
     ),
-    security(("bearer_auth" = [])),
     tag = "授权"
 )]
 pub async fn update_password_by_old_password(

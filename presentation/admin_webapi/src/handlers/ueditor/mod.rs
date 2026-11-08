@@ -117,6 +117,13 @@ pub async fn get_ueditor_config(State(app_state): State<Arc<AppState>>) -> Json<
 }
 
 /// 处理 UEditor 统一请求
+#[webapi_core::webapi_endpoint(
+    policy = authorized,
+    permission = "处理 UEditor 配置、上传和远程图片抓取请求",
+    document = false,
+    get, post,
+    path = "/Ueditor/ProcessRequest",
+)]
 pub async fn process_request(
     State(app_state): State<Arc<AppState>>,
     user_ctx: UserContext,

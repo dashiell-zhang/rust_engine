@@ -15,7 +15,9 @@ use webapi_support::WebApiApplicationExt;
 use crate::state::AppState;
 
 /// 获取友情链接分页列表
-#[utoipa::path(
+#[webapi_core::webapi_endpoint(
+    policy = authorized_signed,
+    permission = "获取友情链接列表",
     get,
     path = "/Site/GetLinkList",
     params(LinkPageRequest),
@@ -25,7 +27,6 @@ use crate::state::AppState;
         (status = 401, description = "未授权"),
         (status = 500, description = "服务器内部错误"),
     ),
-    security(("bearer_auth" = [])),
     tag = "友情链接"
 )]
 pub async fn get_link_list(
@@ -42,7 +43,9 @@ pub async fn get_link_list(
 }
 
 /// 获取单个友情链接
-#[utoipa::path(
+#[webapi_core::webapi_endpoint(
+    policy = authorized_signed,
+    permission = "获取友情链接",
     get,
     path = "/Site/GetLink",
     params(LinkIdQuery),
@@ -51,7 +54,6 @@ pub async fn get_link_list(
         (status = 401, description = "未授权"),
         (status = 500, description = "服务器内部错误"),
     ),
-    security(("bearer_auth" = [])),
     tag = "友情链接"
 )]
 pub async fn get_link(
@@ -68,7 +70,10 @@ pub async fn get_link(
 }
 
 /// 创建友情链接，返回新链接 ID
-#[utoipa::path(
+#[webapi_core::webapi_endpoint(
+    policy = authorized_signed,
+    permission = "创建友情链接",
+    json_body = "createLink",
     post,
     path = "/Site/CreateLink",
     request_body = EditLinkDto,
@@ -78,7 +83,6 @@ pub async fn get_link(
         (status = 401, description = "未授权"),
         (status = 500, description = "服务器内部错误"),
     ),
-    security(("bearer_auth" = [])),
     tag = "友情链接"
 )]
 pub async fn create_link(
@@ -96,7 +100,10 @@ pub async fn create_link(
 }
 
 /// 更新友情链接信息
-#[utoipa::path(
+#[webapi_core::webapi_endpoint(
+    policy = authorized_signed,
+    permission = "更新友情链接",
+    json_body = "updateLink",
     post,
     path = "/Site/UpdateLink",
     params(LinkIdQuery),
@@ -107,7 +114,6 @@ pub async fn create_link(
         (status = 401, description = "未授权"),
         (status = 500, description = "服务器内部错误"),
     ),
-    security(("bearer_auth" = [])),
     tag = "友情链接"
 )]
 pub async fn update_link(
@@ -126,7 +132,9 @@ pub async fn update_link(
 }
 
 /// 软删除友情链接
-#[utoipa::path(
+#[webapi_core::webapi_endpoint(
+    policy = authorized_signed,
+    permission = "删除友情链接",
     delete,
     path = "/Site/DeleteLink",
     params(DeleteLinkQuery),
@@ -136,7 +144,6 @@ pub async fn update_link(
         (status = 401, description = "未授权"),
         (status = 500, description = "服务器内部错误"),
     ),
-    security(("bearer_auth" = [])),
     tag = "友情链接"
 )]
 pub async fn delete_link(

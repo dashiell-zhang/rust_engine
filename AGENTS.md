@@ -109,6 +109,8 @@
 - WebAPI 业务能力按 `webapi_support::services::ServiceKey` 独立注册，入口只选择启用功能所需的能力；不要恢复全量 ServiceFactory。新增 Feature 必须在 `validate_resources` 中声明所需能力，处理器通过 `services().能力()?` 或 `get::<Key>()?` 调用。LLM 默认实现需显式启用 webapi_support 的 llm 特性。
 - TaskService 业务资源通过 presentation 的可选 `build_resources` 注册；公共调度核心不得固定要求邮件、短信、文件或 HTTP 工厂。具体日志连接由入口构建，继续使用核心传入的 ID 生成器和统一异步停机流程。
 - 新增常驻后台服务通过 `common::background_service` 和宿主构建器或 Feature 钩子显式注册；注册时不 spawn，名称不得重复。错误和 panic 交给宿主停机，清理共用宿主绝对期限，超时 abort；不要绕开注册表另写不受管理的监听循环。`webapi.health` 已使用此机制，保留原有检查周期与项目。
+- HTTP 处理器使用 `#[webapi_core::webapi_endpoint]` 统一声明方法、路径、policy、permission 和文档；Feature 的 `endpoints()` 只列举一次处理器，不再维护独立路由/权限/文档路径清单。`openapi()` 仅补 schema 和标签；Ueditor 保留双方法、无签名及不公开文档，缓存和请求队列沿用原方法身份与执行顺序。
+- 资源工厂接收宿主持有的 `ResourceCleanup`；新异步资源优先通过 `acquire` 创建并立即登记，模块池使用 `connect_managed`。停机先排空消费者和日志，再逆序清理资源，共用绝对期限；不得重复登记已有日志/事件/后台组件的收尾，不在 Drop 中另起异步清理任务。构建后不启动的宿主需显式 `shutdown().await`；接入细节见 [宿主扩展](docs/host-extensions.md)。
 - `webapi_core` 不得依赖 application_runtime、repository_core 或 SeaORM。CurrentUser 直接来自 application_model；JWT 编解码使用 jwt_auth，原 application_runtime::auth 仅兼容导出。
 - WebAPI 资源工厂接收宿主已配置的共享 HTTP 工厂，文件提供商通过 `FileStorageResource` 显式注册；本地存储注册 `FileStorageResource(None)`，不能把缺少注册当作本地模式。邮件能力由有实际需要的入口装配，不回填到公共 AppState。
 - 文件、短信、SMTP 的具体配置归属各组件；文件提供商选择复用 `presentation/file_storage_support`，短信/邮件组合配置归属任务入口，不在公共宿主重新声明具体提供商枚举或参数。`Settings::load` 保留合并后的启动快照，入口通过 `extension<T>()` 解析并用 `validate_configuration` 在资源创建前校验，不另读文件或环境变量；配置映射见 [组件配置](docs/component-configuration.md)。

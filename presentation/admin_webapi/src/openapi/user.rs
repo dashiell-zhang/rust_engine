@@ -4,22 +4,9 @@ use application_model::user::models::{
 };
 use utoipa::OpenApi;
 
-use crate::handlers::user;
-
 /// 用户模块 OpenAPI 文档
 #[derive(OpenApi)]
 #[openapi(
-    paths(
-        user::get_user_list,
-        user::get_user,
-        user::get_user_role_list,
-        user::set_user_role,
-        user::get_user_function,
-        user::set_user_function,
-        user::create_user,
-        user::update_user,
-        user::delete_user,
-    ),
     components(
         schemas(
             PageListDto<UserDto>,

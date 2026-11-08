@@ -107,7 +107,9 @@ pub struct DeleteFileQuery {
 }
 
 /// 接收 multipart 表单并将文件存入文件服务，成功后返回文件 ID
-#[utoipa::path(
+#[webapi_core::webapi_endpoint(
+    policy = authorized,
+    permission = "单文件上传接口",
     post,
     path = "/File/UploadFile",
     params(UploadFileQuery),
@@ -118,7 +120,6 @@ pub struct DeleteFileQuery {
         (status = 401, description = "未授权"),
         (status = 500, description = "服务器内部错误"),
     ),
-    security(("bearer_auth" = [])),
     tag = "文件管理"
 )]
 pub async fn upload_file(
@@ -191,7 +192,10 @@ fn build_temp_upload_path(temp_dir: &Path, file_name: &str) -> PathBuf {
 /// 通过远程地址下载并上传文件
 ///
 /// 由客户端提交远程文件地址，服务端下载后按普通文件写入存储
-#[utoipa::path(
+#[webapi_core::webapi_endpoint(
+    policy = authorized,
+    permission = "远程单文件上传接口",
+    json_body = "uploadFile",
     post,
     path = "/File/RemoteUploadFile",
     request_body = RemoteUploadFileDto,
@@ -201,7 +205,6 @@ fn build_temp_upload_path(temp_dir: &Path, file_name: &str) -> PathBuf {
         (status = 401, description = "未授权"),
         (status = 500, description = "服务器内部错误"),
     ),
-    security(("bearer_auth" = [])),
     tag = "文件管理"
 )]
 pub async fn remote_upload_file(
@@ -219,7 +222,9 @@ pub async fn remote_upload_file(
 }
 
 /// 获取文件访问地址
-#[utoipa::path(
+#[webapi_core::webapi_endpoint(
+    policy = authorized,
+    permission = "通过文件ID获取文件静态访问路径",
     get,
     path = "/File/GetFileUrl",
     params(GetFileUrlQuery),
@@ -228,7 +233,6 @@ pub async fn remote_upload_file(
         (status = 401, description = "未授权"),
         (status = 500, description = "服务器内部错误"),
     ),
-    security(("bearer_auth" = [])),
     tag = "文件管理"
 )]
 pub async fn get_file_url(
@@ -247,7 +251,9 @@ pub async fn get_file_url(
 }
 
 /// 获取文件内容
-#[utoipa::path(
+#[webapi_core::webapi_endpoint(
+    policy = anonymous,
+    permission = none,
     get,
     path = "/File/GetFile",
     params(GetFileQuery),
@@ -273,7 +279,9 @@ pub async fn get_file(
 /// 获取图片原文件或指定尺寸的 PNG
 ///
 /// 未指定尺寸或任一目标边超过原图时下载原文件，其他情况返回 PNG
-#[utoipa::path(
+#[webapi_core::webapi_endpoint(
+    policy = anonymous,
+    permission = none,
     get,
     path = "/File/GetImage",
     params(GetImageQuery),
@@ -302,7 +310,9 @@ pub async fn get_image(
 }
 
 /// 删除文件
-#[utoipa::path(
+#[webapi_core::webapi_endpoint(
+    policy = authorized,
+    permission = "通过文件ID删除文件方法",
     delete,
     path = "/File/DeleteFile",
     params(DeleteFileQuery),
@@ -311,7 +321,6 @@ pub async fn get_image(
         (status = 401, description = "未授权"),
         (status = 500, description = "服务器内部错误"),
     ),
-    security(("bearer_auth" = [])),
     tag = "文件管理"
 )]
 pub async fn delete_file(

@@ -1,19 +1,8 @@
-use std::sync::Arc;
-use utoipa::{OpenApi, openapi::OpenApi as OpenApiDocument};
+use crate::openapi::user::UserApiDoc;
+use utoipa::OpenApi;
+use utoipa::openapi::OpenApi as OpenApiDocument;
+use webapi_core::host::features::WebApiFeature;
 use webapi_core::queue_limit::{QueueLimitOptions, queue_limit_method_router};
-use webapi_core::routes::WebApiRoutes as Router;
-
-use crate::{
-    features::protect_method_router,
-    handlers::user::{
-        create_user, delete_user, get_user, get_user_function, get_user_list, get_user_role_list,
-        set_user_function, set_user_role, update_user,
-    },
-    openapi::user::UserApiDoc,
-    state::AppState,
-};
-
-use super::{WebApiFeature, WebApiRoutePermission};
 
 /// 用户管理特性
 pub struct UserFeature;
@@ -26,161 +15,41 @@ impl WebApiFeature for UserFeature {
         webapi_support::services::require::<webapi_support::services::User>(resources)?;
         Ok(())
     }
-    /// 注册当前特性的路由
-    fn register(
-        &self,
-        router: Router<Arc<AppState>>,
-        app_state: Arc<AppState>,
-    ) -> Router<Arc<AppState>> {
-        let permission_module = app_state.settings.permission_module.clone();
 
-        router
-            .route(
-                "/User/GetUserList",
-                protect_method_router(
-                    webapi_core::routes::get(get_user_list),
-                    app_state.clone(),
-                    permission_module.clone(),
-                    "/User/GetUserList",
-                    false,
-                ),
-            )
-            .route(
-                "/User/GetUser",
-                protect_method_router(
-                    webapi_core::routes::get(get_user),
-                    app_state.clone(),
-                    permission_module.clone(),
-                    "/User/GetUser",
-                    false,
-                ),
-            )
-            .route(
-                "/User/CreateUser",
-                protect_method_router(
-                    webapi_core::routes::post(create_user).json_body("createUser"),
-                    app_state.clone(),
-                    permission_module.clone(),
-                    "/User/CreateUser",
-                    false,
-                ),
-            )
-            .route(
-                "/User/UpdateUser",
-                protect_method_router(
-                    webapi_core::routes::post(update_user).json_body("updateUser"),
-                    app_state.clone(),
-                    permission_module.clone(),
-                    "/User/UpdateUser",
-                    false,
-                ),
-            )
-            .route(
-                "/User/DeleteUser",
-                protect_method_router(
-                    webapi_core::routes::delete(delete_user),
-                    app_state.clone(),
-                    permission_module.clone(),
-                    "/User/DeleteUser",
-                    false,
-                ),
-            )
-            .route(
-                "/User/GetUserRoleList",
-                protect_method_router(
-                    webapi_core::routes::get(get_user_role_list),
-                    app_state.clone(),
-                    permission_module.clone(),
-                    "/User/GetUserRoleList",
-                    false,
-                ),
-            )
-            .route(
-                "/User/SetUserRole",
-                protect_method_router(
+    fn endpoints(&self) -> Vec<webapi_core::endpoint::Endpoint> {
+        vec![
+            webapi_core::endpoint!(crate::handlers::user::get_user_list),
+            webapi_core::endpoint!(crate::handlers::user::get_user),
+            webapi_core::endpoint!(crate::handlers::user::create_user),
+            webapi_core::endpoint!(crate::handlers::user::update_user),
+            webapi_core::endpoint!(crate::handlers::user::delete_user),
+            webapi_core::endpoint!(crate::handlers::user::get_user_role_list),
+            webapi_core::endpoint!(crate::handlers::user::set_user_role).configure_action(
+                |route, app_state| {
                     queue_limit_method_router(
-                        webapi_core::routes::post(set_user_role).json_body("setUserRole"),
+                        route,
                         app_state.distributed_lock.clone(),
                         QueueLimitOptions::new(1),
                         concat!(module_path!(), "::set_user_role"),
-                    ),
-                    app_state.clone(),
-                    permission_module.clone(),
-                    "/User/SetUserRole",
-                    false,
-                ),
-            )
-            .route(
-                "/User/GetUserFunction",
-                protect_method_router(
-                    webapi_core::routes::get(get_user_function),
-                    app_state.clone(),
-                    permission_module.clone(),
-                    "/User/GetUserFunction",
-                    false,
-                ),
-            )
-            .route(
-                "/User/SetUserFunction",
-                protect_method_router(
+                    )
+                },
+            ),
+            webapi_core::endpoint!(crate::handlers::user::get_user_function),
+            webapi_core::endpoint!(crate::handlers::user::set_user_function).configure_action(
+                |route, app_state| {
                     queue_limit_method_router(
-                        webapi_core::routes::post(set_user_function).json_body("setUserFunction"),
+                        route,
                         app_state.distributed_lock.clone(),
                         QueueLimitOptions::new(1),
                         concat!(module_path!(), "::set_user_function"),
-                    ),
-                    app_state.clone(),
-                    permission_module.clone(),
-                    "/User/SetUserFunction",
-                    false,
-                ),
-            )
+                    )
+                },
+            ),
+        ]
     }
 
-    /// 获取当前特性的 OpenAPI 子文档
+    /// 补充类型与标签，端点操作由 endpoints 自动生成。
     fn openapi(&self) -> Option<OpenApiDocument> {
         Some(UserApiDoc::openapi())
-    }
-
-    /// 获取当前特性的权限路由列表
-    fn permission_routes(&self) -> Vec<WebApiRoutePermission> {
-        vec![
-            WebApiRoutePermission {
-                route: "/User/GetUserList",
-                remark: "获取用户列表",
-            },
-            WebApiRoutePermission {
-                route: "/User/GetUser",
-                remark: "通过 UserId 获取用户信息",
-            },
-            WebApiRoutePermission {
-                route: "/User/CreateUser",
-                remark: "创建用户",
-            },
-            WebApiRoutePermission {
-                route: "/User/UpdateUser",
-                remark: "更新用户信息",
-            },
-            WebApiRoutePermission {
-                route: "/User/DeleteUser",
-                remark: "删除用户",
-            },
-            WebApiRoutePermission {
-                route: "/User/GetUserRoleList",
-                remark: "获取用户角色列表",
-            },
-            WebApiRoutePermission {
-                route: "/User/SetUserRole",
-                remark: "设置用户角色",
-            },
-            WebApiRoutePermission {
-                route: "/User/GetUserFunction",
-                remark: "获取某个用户的功能权限",
-            },
-            WebApiRoutePermission {
-                route: "/User/SetUserFunction",
-                remark: "设置用户的功能",
-            },
-        ]
     }
 }

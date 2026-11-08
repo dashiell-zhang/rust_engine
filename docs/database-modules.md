@@ -69,8 +69,8 @@ read_connection = "<业务只读连接；留空则使用同模块写库地址>"
 新增模块的接入顺序：
 
 1. 在所属仓库定义模块类型、实体及自己的迁移元数据，在配置的 `database.modules.<名称>` 声明连接。
-2. 在 presentation 资源回调中按该名称读取配置、执行 `validate`，构造 `ModuleDatabase::<M>::connect` 的写/读选项，再注册到 `DatabaseModules`。配置只提供参数，不会自动推断实体或加载业务模块。
-3. WebAPI 使用 `build_resources_with_modules` 传入额外模块集合；模板 BusinessModule 由该函数补齐，重复声明会报错。其他业务服务通过所属模块连接创建，在宿主工厂中绑定契约。
+2. 在 presentation 资源回调中按该名称读取配置、执行 `validate`，调用 `ModuleDatabase::<M>::connect_managed(write_options, read_options, cleanup)`，再注册到 `DatabaseModules`。工厂接收宿主的 `&mut ResourceCleanup`，每个池创建成功后立即登记，读池连接失败时仍会清理写池。配置只提供参数，不会自动推断实体或加载业务模块。
+3. WebAPI 使用 `build_resources_with_modules` 传入已通过同一 cleanup 登记的额外模块集合；模板 BusinessModule 由该函数补齐，额外模块不重复登记清理，重复声明会报错。其他业务服务通过所属模块连接创建，在宿主工厂中绑定契约。
 4. TaskService 的 `build_databases` 回调装配模块集合，通过 `TaskServiceDatabases::for_module::<M>` 明确选择当前 Worker 的队列目标。任务特性从同一集合取得所属模块。一个 Worker 仍只处理选定模块；需要多个数据库的 Worker 时分别装配宿主实例，不把不同库任务混入同一个默认队列。
 
 模板消息任务只依赖 `TaskServiceFactory`；具体 Message/SMS 实现由 `presentation/task_service/src/service_factory.rs` 创建。注册表持有共享工厂和基础设施，每次执行仍创建新的任务处理器及应用服务。

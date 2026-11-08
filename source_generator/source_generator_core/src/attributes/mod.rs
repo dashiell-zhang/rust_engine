@@ -6,3 +6,4 @@ pub(crate) mod logging;
 pub(crate) mod model_documentation;
 pub(crate) mod retry;
 pub(crate) mod scoped_key;
+pub(crate) mod webapi_endpoint;

@@ -60,7 +60,9 @@ fn default_count() -> i32 {
 }
 
 /// 演示回显接口
-#[utoipa::path(
+#[webapi_core::webapi_endpoint(
+    policy = anonymous,
+    permission = none,
     get, path = "/api/Demo/Echo",
     params(EchoQuery),
 responses((status = 200, description = "调用成功", body = String, content_type = "text/plain")),
@@ -75,7 +77,9 @@ pub async fn echo(State(state): State<Arc<AppState>>, Query(query): Query<EchoQu
 }
 
 /// 演示加法接口
-#[utoipa::path(
+#[webapi_core::webapi_endpoint(
+    policy = anonymous,
+    permission = none,
     get, path = "/api/Demo/Add",
     params(AddQuery),
 responses((status = 200, description = "调用成功", body = i32, content_type = "application/json")),
@@ -94,7 +98,9 @@ pub async fn add(
 }
 
 /// 第二组演示回显接口
-#[utoipa::path(
+#[webapi_core::webapi_endpoint(
+    policy = anonymous,
+    permission = none,
     get, path = "/api/Demo/Echo2",
     params(EchoQuery),
 responses((status = 200, description = "调用成功", body = String, content_type = "text/plain")),
@@ -109,7 +115,10 @@ pub async fn echo2(State(state): State<Arc<AppState>>, Query(query): Query<EchoQ
 }
 
 /// 第二组演示加法接口
-#[utoipa::path(
+#[webapi_core::webapi_endpoint(
+    policy = anonymous,
+    permission = none,
+    json_body = "dtoArticle",
     post, path = "/api/Demo/Add2",
     params(AddQuery),
 request_body = ArticleDto,
@@ -130,7 +139,9 @@ pub async fn add2(
 }
 
 /// 演示引用参数加法接口
-#[utoipa::path(
+#[webapi_core::webapi_endpoint(
+    policy = anonymous,
+    permission = none,
     get, path = "/api/Demo/ARef",
     params(AddQuery),
 responses((status = 200, description = "调用成功", body = i32, content_type = "application/json")),
@@ -142,7 +153,9 @@ pub async fn a_ref(State(state): State<Arc<AppState>>, Query(query): Query<AddQu
 }
 
 /// 演示数字流接口
-#[utoipa::path(
+#[webapi_core::webapi_endpoint(
+    policy = anonymous,
+    permission = none,
     get, path = "/api/Demo/StreamNumbers",
     params(StreamNumbersQuery),
 responses((status = 200, description = "调用成功", body = Vec<i32>, content_type = "application/json")),
@@ -161,7 +174,9 @@ pub async fn stream_numbers(
 }
 
 /// 演示异步数字流接口
-#[utoipa::path(
+#[webapi_core::webapi_endpoint(
+    policy = anonymous,
+    permission = none,
     get, path = "/api/Demo/StreamNumbers2",
     params(StreamNumbersQuery),
 responses((status = 200, description = "调用成功", body = Vec<i32>, content_type = "application/json")),
@@ -181,7 +196,9 @@ pub async fn stream_numbers2(
 }
 
 /// 测试普通 LLM 调用
-#[utoipa::path(
+#[webapi_core::webapi_endpoint(
+    policy = anonymous,
+    permission = none,
     get, path = "/api/Demo/TestLLM",
     responses((status = 200, description = "调用成功", body = String, content_type = "text/plain")),
     tag = "Demo"
@@ -212,7 +229,9 @@ pub async fn test_llm(
 }
 
 /// 测试流式 LLM 调用并聚合返回
-#[utoipa::path(
+#[webapi_core::webapi_endpoint(
+    policy = anonymous,
+    permission = none,
     get, path = "/api/Demo/TestLLMStream",
     responses((status = 200, description = "调用成功", body = String, content_type = "text/plain")),
     tag = "Demo"

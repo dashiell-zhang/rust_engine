@@ -13,7 +13,9 @@ use webapi_support::WebApiApplicationExt;
 use crate::state::AppState;
 
 /// 获取日志分页列表
-#[utoipa::path(
+#[webapi_core::webapi_endpoint(
+    policy = authorized_signed,
+    permission = "获取日志列表",
     get,
     path = "/Operations/GetLogList",
     params(LogPageRequest),
@@ -23,7 +25,6 @@ use crate::state::AppState;
         (status = 401, description = "未授权"),
         (status = 500, description = "服务器内部错误"),
     ),
-    security(("bearer_auth" = [])),
     tag = "日志管理"
 )]
 pub async fn get_log_list(

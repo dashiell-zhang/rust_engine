@@ -16,7 +16,9 @@ use webapi_support::WebApiApplicationExt;
 use crate::state::AppState;
 
 /// 获取角色列表
-#[utoipa::path(
+#[webapi_core::webapi_endpoint(
+    policy = authorized_signed,
+    permission = "获取角色列表",
     get,
     path = "/Role/GetRoleList",
     params(RolePageRequest),
@@ -26,7 +28,6 @@ use crate::state::AppState;
         (status = 401, description = "未授权"),
         (status = 500, description = "服务器内部错误"),
     ),
-    security(("bearer_auth" = [])),
     tag = "角色管理"
 )]
 pub async fn get_role_list(
@@ -43,7 +44,9 @@ pub async fn get_role_list(
 }
 
 /// 获取单个角色信息
-#[utoipa::path(
+#[webapi_core::webapi_endpoint(
+    policy = authorized_signed,
+    permission = "通过ID获取角色信息",
     get,
     path = "/Role/GetRole",
     params(RoleIdQuery),
@@ -52,7 +55,6 @@ pub async fn get_role_list(
         (status = 401, description = "未授权"),
         (status = 500, description = "服务器内部错误"),
     ),
-    security(("bearer_auth" = [])),
     tag = "角色管理"
 )]
 pub async fn get_role(
@@ -69,7 +71,10 @@ pub async fn get_role(
 }
 
 /// 创建角色
-#[utoipa::path(
+#[webapi_core::webapi_endpoint(
+    policy = authorized_signed,
+    permission = "创建角色",
+    json_body = "role",
     post,
     path = "/Role/CreateRole",
     request_body = EditRoleDto,
@@ -79,7 +84,6 @@ pub async fn get_role(
         (status = 401, description = "未授权"),
         (status = 500, description = "服务器内部错误"),
     ),
-    security(("bearer_auth" = [])),
     tag = "角色管理"
 )]
 pub async fn create_role(
@@ -96,7 +100,10 @@ pub async fn create_role(
 }
 
 /// 更新角色
-#[utoipa::path(
+#[webapi_core::webapi_endpoint(
+    policy = authorized_signed,
+    permission = "编辑角色",
+    json_body = "role",
     post,
     path = "/Role/UpdateRole",
     params(RoleIdQuery),
@@ -107,7 +114,6 @@ pub async fn create_role(
         (status = 401, description = "未授权"),
         (status = 500, description = "服务器内部错误"),
     ),
-    security(("bearer_auth" = [])),
     tag = "角色管理"
 )]
 pub async fn update_role(
@@ -125,7 +131,9 @@ pub async fn update_role(
 }
 
 /// 删除角色
-#[utoipa::path(
+#[webapi_core::webapi_endpoint(
+    policy = authorized_signed,
+    permission = "删除角色",
     delete,
     path = "/Role/DeleteRole",
     params(DeleteRoleQuery),
@@ -135,7 +143,6 @@ pub async fn update_role(
         (status = 401, description = "未授权"),
         (status = 500, description = "服务器内部错误"),
     ),
-    security(("bearer_auth" = [])),
     tag = "角色管理"
 )]
 pub async fn delete_role(
@@ -152,7 +159,9 @@ pub async fn delete_role(
 }
 
 /// 获取角色功能树
-#[utoipa::path(
+#[webapi_core::webapi_endpoint(
+    policy = authorized_signed,
+    permission = "获取某个角色的功能权限",
     get,
     path = "/Role/GetRoleFunction",
     params(RoleIdQuery),
@@ -161,7 +170,6 @@ pub async fn delete_role(
         (status = 401, description = "未授权"),
         (status = 500, description = "服务器内部错误"),
     ),
-    security(("bearer_auth" = [])),
     tag = "角色管理"
 )]
 pub async fn get_role_function(
@@ -178,7 +186,10 @@ pub async fn get_role_function(
 }
 
 /// 设置角色功能勾选状态
-#[utoipa::path(
+#[webapi_core::webapi_endpoint(
+    policy = authorized_signed,
+    permission = "设置角色的功能",
+    json_body = "setRoleFunction",
     post,
     path = "/Role/SetRoleFunction",
     request_body = SetRoleFunctionDto,
@@ -187,7 +198,6 @@ pub async fn get_role_function(
         (status = 401, description = "未授权"),
         (status = 500, description = "服务器内部错误"),
     ),
-    security(("bearer_auth" = [])),
     tag = "角色管理"
 )]
 pub async fn set_role_function(
@@ -208,7 +218,9 @@ pub async fn set_role_function(
 }
 
 /// 获取角色下拉列表
-#[utoipa::path(
+#[webapi_core::webapi_endpoint(
+    policy = authorized_signed,
+    permission = "获取角色选项列表",
     get,
     path = "/Role/GetRoleSelect",
     responses(
@@ -216,7 +228,6 @@ pub async fn set_role_function(
         (status = 401, description = "未授权"),
         (status = 500, description = "服务器内部错误"),
     ),
-    security(("bearer_auth" = [])),
     tag = "角色管理"
 )]
 pub async fn get_role_select(

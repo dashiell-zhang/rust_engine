@@ -1,9 +1,4 @@
-use webapi_core::{
-    auth::{HasJwtCodec, JwtDecodingState, PermissionState, TokenRenewalState},
-    builder,
-    host::features::WebApiFeature,
-    sign_verify::sign_verify_method_router,
-};
+use webapi_core::host::features::WebApiFeature;
 
 /// 基础工具特性
 pub mod base;
@@ -40,36 +35,6 @@ pub mod user;
 
 /// UEditor 特性
 pub mod ueditor;
-
-/// 复用共享路由权限描述
-pub use webapi_core::host::features::WebApiRoutePermission;
-
-/// 为管理端单个路由同时挂载权限守卫与签名验证
-pub fn protect_method_router<TState>(
-    route: webapi_core::routes::MethodRouter<std::sync::Arc<TState>>,
-    state: std::sync::Arc<TState>,
-    module: impl Into<String>,
-    route_path: impl Into<String>,
-    allow_unbound: bool,
-) -> webapi_core::routes::MethodRouter<std::sync::Arc<TState>>
-where
-    TState: HasJwtCodec
-        + JwtDecodingState
-        + PermissionState
-        + TokenRenewalState
-        + Send
-        + Sync
-        + 'static,
-{
-    // 授权过滤先执行，签名属于授权通过后的 Action 过滤阶段。
-    builder::protect_method_router(
-        sign_verify_method_router(route, state.clone()),
-        state,
-        module,
-        route_path,
-        allow_unbound,
-    )
-}
 
 /// 获取管理端宿主启用的业务特性
 pub fn features() -> Vec<Box<dyn WebApiFeature>> {

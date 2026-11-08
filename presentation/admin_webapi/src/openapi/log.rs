@@ -2,14 +2,9 @@ use application_model::log::models::LogDto;
 use application_model::shared::models::PageListDto;
 use utoipa::OpenApi;
 
-use crate::handlers::log;
-
 /// 日志管理模块 OpenAPI 文档
 #[derive(OpenApi)]
 #[openapi(
-    paths(
-        log::get_log_list,
-    ),
     components(
         schemas(
             PageListDto<LogDto>,

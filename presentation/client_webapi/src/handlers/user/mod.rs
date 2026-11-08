@@ -14,7 +14,9 @@ use crate::state::AppState;
 /// 获取单个用户信息
 ///
 /// 传 user_id 则查指定用户 不传则查当前登录用户
-#[utoipa::path(
+#[webapi_core::webapi_endpoint(
+    policy = authorized,
+    permission = "通过 UserId 获取用户信息",
     get,
     path = "/User/GetUser",
     params(UserIdQuery),
@@ -23,7 +25,6 @@ use crate::state::AppState;
         (status = 401, description = "未授权"),
         (status = 500, description = "服务器内部错误"),
     ),
-    security(("bearer_auth" = [])),
     tag = "用户管理"
 )]
 pub async fn get_user(
@@ -42,7 +43,10 @@ pub async fn get_user(
 }
 
 /// 通过短信验证码修改当前用户手机号
-#[utoipa::path(
+#[webapi_core::webapi_endpoint(
+    policy = authorized,
+    permission = "通过短信验证码修改账户手机号",
+    json_body = "request",
     post,
     path = "/User/EditUserPhoneBySms",
     request_body = EditUserPhoneBySmsDto,
@@ -52,7 +56,6 @@ pub async fn get_user(
         (status = 401, description = "未授权"),
         (status = 500, description = "服务器内部错误"),
     ),
-    security(("bearer_auth" = [])),
     tag = "用户管理"
 )]
 pub async fn edit_user_phone_by_sms(

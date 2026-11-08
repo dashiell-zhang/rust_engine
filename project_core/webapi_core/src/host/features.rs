@@ -1,4 +1,3 @@
-use crate::routes::WebApiRoutes as Router;
 use std::sync::Arc;
 use utoipa::openapi::OpenApi;
 
@@ -41,18 +40,9 @@ pub trait WebApiFeature: Send + Sync {
         Ok(())
     }
 
-    /// 注册当前特性的路由
-    fn register(
-        &self,
-        router: Router<Arc<AppState>>,
-        app_state: Arc<AppState>,
-    ) -> Router<Arc<AppState>>;
+    /// 端点只枚举一次；路由、权限清单与操作文档均由该集合派生。
+    fn endpoints(&self) -> Vec<crate::endpoint::Endpoint>;
 
-    /// 获取当前特性的 OpenAPI 子文档
+    /// 补充 schema、标签等文档，不重复枚举 paths。
     fn openapi(&self) -> Option<OpenApi>;
-
-    /// 获取当前特性需要同步的权限路由
-    fn permission_routes(&self) -> Vec<WebApiRoutePermission> {
-        vec![]
-    }
 }

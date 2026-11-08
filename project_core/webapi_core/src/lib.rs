@@ -1,4 +1,7 @@
 mod action;
+/// 端点声明、权限策略与文档装配。
+pub mod endpoint;
+pub use source_generator_runtime::{endpoint, webapi_endpoint};
 /// 鉴权能力
 pub mod auth;
 mod form_disposition;

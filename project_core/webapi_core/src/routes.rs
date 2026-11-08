@@ -18,6 +18,26 @@ pub use crate::action::BoundHandler;
 type Binding<S> = Box<dyn FnOnce(AxumMethodRouter<S>, bool) -> AxumMethodRouter<S> + Send>;
 type Configure<S> = Box<dyn FnOnce(AxumMethodRouter<S>) -> AxumMethodRouter<S> + Send>;
 
+/// 由端点声明中的同一方法集合构建运行路由。
+pub fn on<S, H, T>(methods: &[Method], handler: H) -> MethodRouter<S>
+where
+    S: Clone + Send + Sync + 'static,
+    H: Clone + Send + Sync + 'static,
+    BoundHandler<H, S>: Handler<T, S>,
+    T: 'static,
+{
+    let first = methods.first().expect("端点至少声明一个 HTTP 方法");
+    let filter = methods.iter().skip(1).fold(
+        MethodFilter::try_from(first.clone()).expect("支持的 HTTP 方法"),
+        |filter, method| {
+            filter.or(MethodFilter::try_from(method.clone()).expect("支持的 HTTP 方法"))
+        },
+    );
+    let mut route = MethodRouter::on(filter, first.clone(), handler);
+    route.methods = methods.to_vec();
+    route
+}
+
 /// 控制器方法及分阶段执行管线。
 pub struct MethodRouter<S> {
     action: AxumMethodRouter<S>,
@@ -124,7 +144,11 @@ impl<S: Clone + Send + Sync + 'static> MethodRouter<S> {
             let allow = allow.clone();
             async move { (StatusCode::METHOD_NOT_ALLOWED, [(header::ALLOW, allow)]).into_response() }
         };
-        result.head(reject.clone()).fallback(reject)
+        // 只覆盖 GET 隐含的 HEAD；显式声明的 HEAD 已有处理器，不能重复注册。
+        if !methods.contains(&Method::HEAD) {
+            result = result.head(reject.clone());
+        }
+        result.fallback(reject)
     }
 }
 

@@ -37,3 +37,4 @@ impl WebApiResources {
         futures_util::future::join_all(self.health.iter().map(|check| check.check(stopping))).await
     }
 }
+pub use common::resource_cleanup::ResourceCleanup;

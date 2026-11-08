@@ -30,6 +30,45 @@ impl<M: DatabaseModule> Clone for ModuleDatabase<M> {
     }
 }
 impl<M: DatabaseModule> ModuleDatabase<M> {
+    /// 宿主连接在每个池创建后立即登记；读池创建失败时写池仍由宿主清理。
+    pub async fn connect_managed(
+        write: ConnectOptions,
+        read: ConnectOptions,
+        cleanup: &mut common::resource_cleanup::ResourceCleanup,
+    ) -> Result<Self, String> {
+        let write =
+            cleanup
+                .acquire(
+                    format!("{}.Write", M::NAME),
+                    async {
+                        sea_orm::Database::connect(write)
+                            .await
+                            .map(Arc::new)
+                            .map_err(|error| error.to_string())
+                    },
+                    |pool, _| async move {
+                        pool.close_by_ref().await.map_err(|error| error.to_string())
+                    },
+                )
+                .await?;
+        let read = cleanup
+            .acquire(
+                format!("{}.Read", M::NAME),
+                async {
+                    ReadDatabaseConnection::connect(read)
+                        .await
+                        .map(Arc::new)
+                        .map_err(|error| error.to_string())
+                },
+                |pool, _| async move { pool.close().await.map_err(|error| error.to_string()) },
+            )
+            .await?;
+        Ok(Self {
+            write,
+            read,
+            marker: PhantomData,
+        })
+    }
     pub async fn connect(write: ConnectOptions, read: ConnectOptions) -> Result<Self, DbErr> {
         let write = Arc::new(sea_orm::Database::connect(write).await?);
         let read = Arc::new(ReadDatabaseConnection::connect(read).await?);

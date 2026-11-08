@@ -17,9 +17,6 @@ pub mod pay;
 /// 用户管理特性
 pub mod user;
 
-/// 复用共享路由权限描述
-pub use webapi_core::host::features::WebApiRoutePermission;
-
 /// 获取客户端宿主启用的业务特性
 pub fn features() -> Vec<Box<dyn WebApiFeature>> {
     vec![

@@ -1,6 +1,43 @@
-# 宿主后台服务与自定义调用行为
+# 宿主端点、资源、后台服务与自定义调用行为
 
-本页对应架构清单 AR-10、AR-11、AR-13。使用显式注册和 Rust 类型约束，不依赖反射、程序集扫描或全局服务容器。
+本页对应架构清单 AR-10、AR-11、AR-13、AR-15、AR-16。使用显式注册和 Rust 类型约束，不依赖反射、程序集扫描或全局服务容器。
+
+## 统一端点声明（AR-15）
+
+处理器通过 `#[webapi_core::webapi_endpoint(...)]` 声明 HTTP 方法、`path`、`policy`、`permission` 和原有 utoipa 文档参数。Feature 的 `endpoints()` 只用 `webapi_core::endpoint!(crate::handlers::模块::处理器)` 列举一次；宿主从同一集合建立运行路由、权限同步清单及 OpenAPI 操作。可参考[文章处理器](../presentation/admin_webapi/src/handlers/article/mod.rs)与[文章特性](../presentation/admin_webapi/src/features/article.rs)。
+
+| 参数/入口 | 约定 |
+| --- | --- |
+| `get`、`post` 等及 `path` | 同时生成运行方法映射与文档路径；可以声明多个方法，重复方法报编译错误 |
+| `policy = anonymous` | 不挂认证、权限或签名；处理器自身的业务检查保持原样 |
+| `policy = signed` | 只挂签名，保留管理端基础工具及文件读取策略 |
+| `policy = authorized` | 挂认证、续签、权限；用于客户端受保护接口和管理端 Ueditor |
+| `policy = authorized_signed` | 认证、续签、权限先执行，签名仍在 Action 阶段；用于管理端普通受保护接口 |
+| `permission = "说明"` / `none` | 必须显式选择是否进入 UpdateRoute 清单；说明原样保留。匿名及仅签名端点不允许登记权限 |
+| `json_body = "参数名"` | 生成正文绑定名称，沿用原有错误诊断与参数规则 |
+| `document = false` | 显式不生成 OpenAPI；Ueditor 的 GET/POST 仍运行并同步为一条权限路径 |
+| `configure_action` | 缓存、重复请求队列等装配，外层认证仍先执行；方法身份字符串保持原值 |
+| `configure` | 保留上传正文限制、multipart 验证等外层配置 |
+
+`responses`、`params`、`request_body`、`tag` 等继续交给 utoipa；`security` 根据 policy 生成，不能另行覆盖文档方法、路径前缀或鉴权。每个端点的文档使用 utoipa 的 OpenApi 派生收集关联 schema，避免只取 Operation 导致类型丢失。Feature 的 `openapi()` 仅补充类型和标签，宿主拒绝其中单独声明 paths。当前两端 112 个端点全部迁移；Ueditor 不公开文档，支付回调及 Demo 保持匿名。
+
+同一宿主的路径按运行路由的 ASCII 大小写规则和方法检查重复；管理端、客户端分别装配。接口清单仍由 UpdateRoute 显式同步，宿主启动不写权限库。`WebApiFeature::register` 和 `permission_routes` 已移除，这是 Rust 扩展接口变化，不改变对外 HTTP 路由。
+
+显式 `head` 使用声明的处理器；共享路由仅在该路径未声明 HEAD 时追加 405 拒绝处理，避免 GET 隐式开放 HEAD。该判断使用同一路径全部端点合并后的方法集合，Allow 头保持显式方法列表。
+
+## 资源异步清理（AR-16）
+
+公共契约为 [common::resource_cleanup::ResourceCleanup](../infrastructure/common/src/resource_cleanup.rs)，WebAPI 也从 `host::resources` 重导出。`BuildWebApiResources`、`BuildTaskServiceResources`、`BuildTaskServiceDatabases` 工厂新增同生命周期的 `&mut ResourceCleanup` 参数。登记簿由宿主独占，不能藏在资源集合内部直到工厂成功后才移交，否则无法清理部分装配结果。
+
+- `acquire(name, 创建Future, 清理回调).await` 在创建前拒绝重复名称，成功后立即登记清理并返回资源；创建与登记之间没有新的 await 点。清理持有共享句柄的克隆，正常使用方仍获得原句柄。
+- `manage(name, 已有句柄, 清理回调)` 用于移交已有资源；`register(name, 回调)` 用于单独登记。名称必须非空且宿主内唯一，开始停机后拒绝登记。被拒绝的已有值没有转移清理所有权，只做普通 Drop；新资源优先使用 acquire。
+- 回调为 `FnOnce(Instant) -> Future<Output = Result<(), String>>`，接收同一绝对期限。先登记依赖、后登记消费者，退出时逆序调用；不建立自动依赖图。不要给已经由后台服务、日志或事件组件收尾的资源再登记第二次。
+- 宿主先停止并排空请求/任务、后台服务和事件，再等待日志排空，最后清理登记资源。业务池及 WebAPI 日志写池、健康检查池和只读池已接入；日志排空前不会关闭其写池。具体数据库实现仍在 repository_core 和 presentation，公共 WebAPI 不依赖数据库驱动。
+- 普通装配错误或装配 panic 会等待已登记资源清理；WebAPI 监听绑定失败走同一清理流程。启动取消、运行失败和正常退出都使用一次三十秒期限，后续阶段只使用剩余时间。
+- 一个回调失败、panic 或超时不会跳过其余回调；错误按资源名与失败类别汇总，返回入口时同时保留原始失败。期限耗尽后的回调仍会尝试，但未完成 Future 会被取消，不承诺已成功关闭。回调必须协作让出执行权，不启动脱离宿主管理的清理任务。
+- 重复 shutdown 不重跑已取出的回调，也不延长期限。无异步清理需求的资源继续普通 Drop；Resources 的类型查找和依赖边界不变。
+
+成功构建的宿主应执行 `run().await`，决定不启动时使用 `shutdown().await`。直接丢弃宿主、外部强行取消 build/run Future、进程强杀或 panic=abort 无法通过 Rust Drop 完成异步排空；本机制不创建后台补偿任务来掩盖这一边界。数据库连接创建 Future 自身报错时，由连接库负责其内部未返回状态；已返回并登记的池由宿主处理。
 
 ## 常驻后台服务
 

@@ -15,7 +15,9 @@ use webapi_support::WebApiApplicationExt;
 use crate::state::AppState;
 
 /// 获取用户列表（分页，支持关键词搜索）
-#[utoipa::path(
+#[webapi_core::webapi_endpoint(
+    policy = authorized_signed,
+    permission = "获取用户列表",
     get,
     path = "/User/GetUserList",
     params(UserPageRequest),
@@ -25,7 +27,6 @@ use crate::state::AppState;
         (status = 401, description = "未授权"),
         (status = 500, description = "服务器内部错误"),
     ),
-    security(("bearer_auth" = [])),
     tag = "用户管理"
 )]
 pub async fn get_user_list(
@@ -42,7 +43,9 @@ pub async fn get_user_list(
 }
 
 /// 获取单个用户信息，传 user_id 则查指定用户，不传则查当前登录用户
-#[utoipa::path(
+#[webapi_core::webapi_endpoint(
+    policy = authorized_signed,
+    permission = "通过 UserId 获取用户信息",
     get,
     path = "/User/GetUser",
     params(UserIdQuery),
@@ -51,7 +54,6 @@ pub async fn get_user_list(
         (status = 401, description = "未授权"),
         (status = 500, description = "服务器内部错误"),
     ),
-    security(("bearer_auth" = [])),
     tag = "用户管理"
 )]
 pub async fn get_user(
@@ -69,7 +71,9 @@ pub async fn get_user(
 }
 
 /// 获取用户角色分配列表
-#[utoipa::path(
+#[webapi_core::webapi_endpoint(
+    policy = authorized_signed,
+    permission = "获取用户角色列表",
     get,
     path = "/User/GetUserRoleList",
     params(UpdateUserQuery),
@@ -79,7 +83,6 @@ pub async fn get_user(
         (status = 401, description = "未授权"),
         (status = 500, description = "服务器内部错误"),
     ),
-    security(("bearer_auth" = [])),
     tag = "用户管理"
 )]
 pub async fn get_user_role_list(
@@ -96,7 +99,10 @@ pub async fn get_user_role_list(
 }
 
 /// 设置用户角色分配
-#[utoipa::path(
+#[webapi_core::webapi_endpoint(
+    policy = authorized_signed,
+    permission = "设置用户角色",
+    json_body = "setUserRole",
     post,
     path = "/User/SetUserRole",
     request_body = SetUserRoleDto,
@@ -106,7 +112,6 @@ pub async fn get_user_role_list(
         (status = 401, description = "未授权"),
         (status = 500, description = "服务器内部错误"),
     ),
-    security(("bearer_auth" = [])),
     tag = "用户管理"
 )]
 pub async fn set_user_role(
@@ -124,7 +129,9 @@ pub async fn set_user_role(
 }
 
 /// 获取用户功能分配树
-#[utoipa::path(
+#[webapi_core::webapi_endpoint(
+    policy = authorized_signed,
+    permission = "获取某个用户的功能权限",
     get,
     path = "/User/GetUserFunction",
     params(UpdateUserQuery),
@@ -134,7 +141,6 @@ pub async fn set_user_role(
         (status = 401, description = "未授权"),
         (status = 500, description = "服务器内部错误"),
     ),
-    security(("bearer_auth" = [])),
     tag = "用户管理"
 )]
 pub async fn get_user_function(
@@ -151,7 +157,10 @@ pub async fn get_user_function(
 }
 
 /// 设置用户功能分配
-#[utoipa::path(
+#[webapi_core::webapi_endpoint(
+    policy = authorized_signed,
+    permission = "设置用户的功能",
+    json_body = "setUserFunction",
     post,
     path = "/User/SetUserFunction",
     request_body = SetUserFunctionDto,
@@ -161,7 +170,6 @@ pub async fn get_user_function(
         (status = 401, description = "未授权"),
         (status = 500, description = "服务器内部错误"),
     ),
-    security(("bearer_auth" = [])),
     tag = "用户管理"
 )]
 pub async fn set_user_function(
@@ -179,7 +187,10 @@ pub async fn set_user_function(
 }
 
 /// 创建用户，返回新用户 ID
-#[utoipa::path(
+#[webapi_core::webapi_endpoint(
+    policy = authorized_signed,
+    permission = "创建用户",
+    json_body = "createUser",
     post,
     path = "/User/CreateUser",
     request_body = EditUserDto,
@@ -189,7 +200,6 @@ pub async fn set_user_function(
         (status = 401, description = "未授权"),
         (status = 500, description = "服务器内部错误"),
     ),
-    security(("bearer_auth" = [])),
     tag = "用户管理"
 )]
 pub async fn create_user(
@@ -207,7 +217,10 @@ pub async fn create_user(
 }
 
 /// 更新用户信息
-#[utoipa::path(
+#[webapi_core::webapi_endpoint(
+    policy = authorized_signed,
+    permission = "更新用户信息",
+    json_body = "updateUser",
     post,
     path = "/User/UpdateUser",
     params(UpdateUserQuery),
@@ -218,7 +231,6 @@ pub async fn create_user(
         (status = 401, description = "未授权"),
         (status = 500, description = "服务器内部错误"),
     ),
-    security(("bearer_auth" = [])),
     tag = "用户管理"
 )]
 pub async fn update_user(
@@ -237,7 +249,9 @@ pub async fn update_user(
 }
 
 /// 软删除用户
-#[utoipa::path(
+#[webapi_core::webapi_endpoint(
+    policy = authorized_signed,
+    permission = "删除用户",
     delete,
     path = "/User/DeleteUser",
     params(DeleteUserQuery),
@@ -247,7 +261,6 @@ pub async fn update_user(
         (status = 401, description = "未授权"),
         (status = 500, description = "服务器内部错误"),
     ),
-    security(("bearer_auth" = [])),
     tag = "用户管理"
 )]
 pub async fn delete_user(

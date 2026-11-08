@@ -57,7 +57,9 @@ pub struct GetVerifyCodeQuery {
 }
 
 /// 生成二维码图片
-#[utoipa::path(
+#[webapi_core::webapi_endpoint(
+    policy = anonymous,
+    permission = none,
     get,
     path = "/Base/GetQrCode",
     params(GetQrCodeQuery),
@@ -82,7 +84,9 @@ pub async fn get_qr_code(
 }
 
 /// 获取省市级联地址数据
-#[utoipa::path(
+#[webapi_core::webapi_endpoint(
+    policy = anonymous,
+    permission = none,
     get,
     path = "/Base/GetRegion",
     params(GetRegionQuery),
@@ -112,7 +116,9 @@ pub async fn get_region(
 }
 
 /// 获取完整省市区树
-#[utoipa::path(
+#[webapi_core::webapi_endpoint(
+    policy = anonymous,
+    permission = none,
     get,
     path = "/Base/GetRegionAll",
     responses(
@@ -129,7 +135,9 @@ pub async fn get_region_all(State(app_state): State<Arc<AppState>>) -> Result<Re
 }
 
 /// 获取图形验证码图片
-#[utoipa::path(
+#[webapi_core::webapi_endpoint(
+    policy = anonymous,
+    permission = none,
     get,
     path = "/Base/GetVerifyCode",
     params(GetVerifyCodeQuery),
@@ -161,7 +169,9 @@ pub async fn get_verify_code(
 }
 
 /// 获取指定组 ID 的键值对列表
-#[utoipa::path(
+#[webapi_core::webapi_endpoint(
+    policy = anonymous,
+    permission = none,
     get,
     path = "/Base/GetValueList",
     params(GetValueListQuery),
@@ -188,7 +198,9 @@ pub async fn get_value_list(
 }
 
 /// 获取一个雪花 ID
-#[utoipa::path(
+#[webapi_core::webapi_endpoint(
+    policy = anonymous,
+    permission = none,
     get,
     path = "/Base/GetSnowflakeId",
     responses(

@@ -18,7 +18,9 @@ use crate::state::AppState;
 ///
 /// 负责参数接收、通知地址组装与应用服务调用
 /// 创建支付宝 PC 支付地址
-#[utoipa::path(
+#[webapi_core::webapi_endpoint(
+    policy = anonymous,
+    permission = none,
     get,
     path = "/Pay/CreateAliPayPC",
     params(PaymentOrderQuery),
@@ -55,7 +57,9 @@ pub async fn create_alipay_pc(
 /// 创建支付宝 H5 支付地址
 ///
 /// 接收订单号并转交应用服务生成 H5 跳转链接
-#[utoipa::path(
+#[webapi_core::webapi_endpoint(
+    policy = anonymous,
+    permission = none,
     get,
     path = "/Pay/CreateAliPayH5",
     params(PaymentOrderQuery),
@@ -92,7 +96,9 @@ pub async fn create_alipay_h5(
 /// 创建支付宝小程序支付交易号
 ///
 /// 接收订单号并返回支付宝小程序调起支付所需的 trade_no
-#[utoipa::path(
+#[webapi_core::webapi_endpoint(
+    policy = anonymous,
+    permission = none,
     get,
     path = "/Pay/CreateAliPayMiniApp",
     params(PaymentOrderQuery),
@@ -129,7 +135,9 @@ pub async fn create_alipay_mini_app(
 /// 处理支付宝异步通知
 ///
 /// 接收支付宝表单回调并将原始参数透传给应用服务验签处理
-#[utoipa::path(
+#[webapi_core::webapi_endpoint(
+    policy = anonymous,
+    permission = none,
     post,
     path = "/Pay/AliPayNotify",
     request_body(content = Object, content_type = "application/x-www-form-urlencoded"),
@@ -157,7 +165,9 @@ pub async fn alipay_notify(
 /// 创建微信支付 JSAPI 预支付参数
 ///
 /// 向微信支付下单并返回前端调起支付所需的签名参数，适用于公众号、小程序等微信内场景
-#[utoipa::path(
+#[webapi_core::webapi_endpoint(
+    policy = anonymous,
+    permission = none,
     get,
     path = "/Pay/CreateWeiXinPayJSAPI",
     params(CreateWxPayJsapiQuery),
@@ -192,7 +202,9 @@ pub async fn create_wx_pay_jsapi(
 /// 创建微信支付 App 预支付参数
 ///
 /// 向微信支付下单并返回原生 App 调起支付所需的签名参数
-#[utoipa::path(
+#[webapi_core::webapi_endpoint(
+    policy = anonymous,
+    permission = none,
     get,
     path = "/Pay/CreateWeiXinPayApp",
     params(PaymentOrderQuery),
@@ -227,7 +239,9 @@ pub async fn create_wx_pay_app(
 /// 创建微信支付 H5 支付链接
 ///
 /// 向微信支付下单并返回移动端浏览器跳转支付链接，客户端 IP 由服务端从请求头提取
-#[utoipa::path(
+#[webapi_core::webapi_endpoint(
+    policy = anonymous,
+    permission = none,
     get,
     path = "/Pay/CreateWeiXinPayH5",
     params(PaymentOrderQuery),
@@ -265,7 +279,9 @@ pub async fn create_wx_pay_h5(
 /// 创建微信支付 PC 扫码支付链接
 ///
 /// 向微信支付下单并返回二维码内容链接，前端将其渲染为二维码图片供用户扫码
-#[utoipa::path(
+#[webapi_core::webapi_endpoint(
+    policy = anonymous,
+    permission = none,
     get,
     path = "/Pay/CreateWeiXinPayPC",
     params(PaymentOrderQuery),
@@ -300,7 +316,10 @@ pub async fn create_wx_pay_pc(
 ///
 /// 路径中的 `{mch_id}` 由下单时附加到通知地址末尾，微信回调时原样携带，用于区分多商户
 /// 与 NetEngine 对齐：处理失败时返回 HTTP 501，成功时返回 HTTP 200
-#[utoipa::path(
+#[webapi_core::webapi_endpoint(
+    policy = anonymous,
+    permission = none,
+    json_body = "weiXinPayNotify",
     post,
     path = "/Pay/WeiXinPayNotify/{mch_id}",
     params(

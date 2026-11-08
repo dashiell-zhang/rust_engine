@@ -18,6 +18,23 @@ mod method_key;
 mod runtime_path;
 mod syntax;
 
+/// 同一声明生成运行端点、权限元数据与 utoipa 文档。
+#[proc_macro_attribute]
+pub fn webapi_endpoint(attr: TokenStream, item: TokenStream) -> TokenStream {
+    attributes::webapi_endpoint::expand(
+        parse_macro_input!(attr as attributes::webapi_endpoint::EndpointArgs),
+        parse_macro_input!(item as ItemFn),
+    )
+    .unwrap_or_else(|error| error.to_compile_error())
+    .into()
+}
+
+/// 从处理器路径引用其端点定义，不再单独枚举文档处理器。
+#[proc_macro]
+pub fn endpoint(input: TokenStream) -> TokenStream {
+    attributes::webapi_endpoint::registration(parse_macro_input!(input as Path)).into()
+}
+
 /// 为同一方法的显式横切属性建立共享上下文，按声明顺序进入、逆序退出。
 #[proc_macro_attribute]
 pub fn invocation(attr: TokenStream, item: TokenStream) -> TokenStream {

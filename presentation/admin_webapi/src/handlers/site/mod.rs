@@ -12,7 +12,9 @@ use webapi_support::WebApiApplicationExt;
 use crate::state::AppState;
 
 /// 获取服务器基本信息（主机名、OS、CPU、内存、端口等）
-#[utoipa::path(
+#[webapi_core::webapi_endpoint(
+    policy = authorized_signed,
+    permission = "获取服务器信息",
     get,
     path = "/Site/GetServerInfo",
     responses(
@@ -20,7 +22,6 @@ use crate::state::AppState;
         (status = 401, description = "未授权"),
         (status = 500, description = "服务器内部错误"),
     ),
-    security(("bearer_auth" = [])),
     tag = "站点管理"
 )]
 pub async fn get_server_info(
@@ -120,7 +121,9 @@ fn get_process_memory_bytes() -> Option<u64> {
 }
 
 /// 获取站点信息
-#[utoipa::path(
+#[webapi_core::webapi_endpoint(
+    policy = authorized_signed,
+    permission = "获取站点信息",
     get,
     path = "/Site/GetSite",
     responses(
@@ -128,7 +131,6 @@ fn get_process_memory_bytes() -> Option<u64> {
         (status = 401, description = "未授权"),
         (status = 500, description = "服务器内部错误"),
     ),
-    security(("bearer_auth" = [])),
     tag = "站点管理"
 )]
 pub async fn get_site(
@@ -145,7 +147,10 @@ pub async fn get_site(
 }
 
 /// 更新站点信息
-#[utoipa::path(
+#[webapi_core::webapi_endpoint(
+    policy = authorized_signed,
+    permission = "编辑站点信息",
+    json_body = "editSite",
     post,
     path = "/Site/EditSite",
     request_body = EditSiteDto,
@@ -154,7 +159,6 @@ pub async fn get_site(
         (status = 401, description = "未授权"),
         (status = 500, description = "服务器内部错误"),
     ),
-    security(("bearer_auth" = [])),
     tag = "站点管理"
 )]
 pub async fn update_site(

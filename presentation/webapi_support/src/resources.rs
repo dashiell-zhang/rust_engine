@@ -6,6 +6,7 @@ use repository_core::module::{
 use repository_core::{ReadDatabaseConnection, database_health};
 use sea_orm::{Database, DatabaseConnection};
 use std::{future::Future, pin::Pin, sync::Arc};
+use webapi_core::host::resources::ResourceCleanup;
 use webapi_core::{
     health::{HEALTH_STATUS_HEALTHY, HEALTH_STATUS_UNHEALTHY, HealthComponentResponse},
     host::{
@@ -52,17 +53,24 @@ impl<C: database_health::DatabaseHealthConnection + Send + Sync> ResourceHealthC
 }
 
 /// 只创建业务数据库、日志写连接与健康检查；服务能力由入口分别注册。
-pub fn build_resources(
-    settings: &Settings,
+pub fn build_resources<'a>(
+    settings: &'a Settings,
     check_log_read_health: bool,
-) -> Pin<Box<dyn Future<Output = Result<WebApiResources, String>> + Send + '_>> {
-    build_resources_with_modules(settings, check_log_read_health, DatabaseModules::default())
+    cleanup: &'a mut ResourceCleanup,
+) -> Pin<Box<dyn Future<Output = Result<WebApiResources, String>> + Send + 'a>> {
+    build_resources_with_modules(
+        settings,
+        check_log_read_health,
+        DatabaseModules::default(),
+        cleanup,
+    )
 }
-pub fn build_resources_with_modules(
-    settings: &Settings,
+pub fn build_resources_with_modules<'a>(
+    settings: &'a Settings,
     check_log_read_health: bool,
     mut modules: DatabaseModules,
-) -> Pin<Box<dyn Future<Output = Result<WebApiResources, String>> + Send + '_>> {
+    cleanup: &'a mut ResourceCleanup,
+) -> Pin<Box<dyn Future<Output = Result<WebApiResources, String>> + Send + 'a>> {
     Box::pin(async move {
         let config = settings
             .database
@@ -74,7 +82,7 @@ pub fn build_resources_with_modules(
                 read_connection: settings.database.read_connection.clone(),
             });
         config.validate(BusinessModule::NAME)?;
-        let database = ModuleDatabase::<BusinessModule>::connect(
+        let database = ModuleDatabase::<BusinessModule>::connect_managed(
             repository_core::connection::build_postgres_connect_options(
                 &config.connection,
                 &settings.host.database_pool,
@@ -83,6 +91,7 @@ pub fn build_resources_with_modules(
                 config.read_connection(),
                 &settings.host.database_pool,
             ),
+            cleanup,
         )
         .await
         .map_err(|error| format!("业务模块连接初始化失败: {error}"))?;
@@ -97,11 +106,22 @@ pub fn build_resources_with_modules(
             );
             // 日志数据库自身的 SQL 不回流日志管线，避免递归记录。
             options.sqlx_logging(false);
-            Some(Arc::new(
-                Database::connect(options)
-                    .await
-                    .map_err(|error| format!("日志写连接初始化失败: {error}"))?,
-            ))
+            Some(
+                cleanup
+                    .acquire(
+                        "Log.Write",
+                        async {
+                            Database::connect(options)
+                                .await
+                                .map(Arc::new)
+                                .map_err(|error| format!("日志写连接初始化失败: {error}"))
+                        },
+                        |pool, _| async move {
+                            pool.close_by_ref().await.map_err(|error| error.to_string())
+                        },
+                    )
+                    .await?,
+            )
         } else {
             None
         };
@@ -119,11 +139,20 @@ pub fn build_resources_with_modules(
                     .sqlx_logging(false)
                     .min_connections(0)
                     .connect_lazy(true);
-                Arc::new(
-                    Database::connect(options)
-                        .await
-                        .map_err(|error| format!("日志健康检查连接配置失败: {error}"))?,
-                )
+                cleanup
+                    .acquire(
+                        "Log.Health",
+                        async {
+                            Database::connect(options)
+                                .await
+                                .map(Arc::new)
+                                .map_err(|error| format!("日志健康检查连接配置失败: {error}"))
+                        },
+                        |pool, _| async move {
+                            pool.close_by_ref().await.map_err(|error| error.to_string())
+                        },
+                    )
+                    .await?
             }
         };
         let mut resources = WebApiResources::default();
@@ -147,7 +176,7 @@ pub fn build_resources_with_modules(
             connection: log_health_db_pool,
         }))?;
         if check_log_read_health {
-            let connection = build_log_read_connection(settings).await?;
+            let connection = build_log_read_connection(settings, cleanup).await?;
             resources.add_health_check(Arc::new(DatabaseCheck {
                 name: "Log.Read".into(),
                 connection: connection.clone(),
@@ -175,6 +204,7 @@ pub struct LogQueryResource(pub logger_database::query::LogQueryService);
 struct LogReadConnection(Arc<ReadDatabaseConnection>);
 async fn build_log_read_connection(
     settings: &Settings,
+    cleanup: &mut ResourceCleanup,
 ) -> Result<Arc<ReadDatabaseConnection>, String> {
     let mut options = repository_core::connection::build_postgres_connect_options(
         settings
@@ -183,20 +213,28 @@ async fn build_log_read_connection(
         &settings.host.database_pool,
     );
     options.sqlx_logging(false);
-    Ok(Arc::new(
-        ReadDatabaseConnection::connect(options)
-            .await
-            .map_err(|error| format!("日志只读连接初始化失败: {error}"))?,
-    ))
+    cleanup
+        .acquire(
+            "Log.Read",
+            async {
+                ReadDatabaseConnection::connect(options)
+                    .await
+                    .map(Arc::new)
+                    .map_err(|error| format!("日志只读连接初始化失败: {error}"))
+            },
+            |pool, _| async move { pool.close().await.map_err(|error| error.to_string()) },
+        )
+        .await
 }
 pub async fn register_log_query(
     resources: &mut WebApiResources,
     settings: &Settings,
+    cleanup: &mut ResourceCleanup,
 ) -> Result<(), String> {
     let connection = match resources.get::<LogReadConnection>() {
         Ok(connection) => connection.0.clone(),
         Err(_) => {
-            let connection = build_log_read_connection(settings).await?;
+            let connection = build_log_read_connection(settings, cleanup).await?;
             resources.insert(LogReadConnection(connection.clone()))?;
             connection
         }

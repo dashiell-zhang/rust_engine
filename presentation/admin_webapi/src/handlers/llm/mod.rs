@@ -17,7 +17,9 @@ use crate::llm_support::AdminLlmApplicationAdapter;
 use crate::state::AppState;
 
 /// 获取 LLM 模型配置分页列表
-#[utoipa::path(
+#[webapi_core::webapi_endpoint(
+    policy = authorized_signed,
+    permission = "获取 LLM 模型配置列表",
     get,
     path = "/LlmModel/GetLlmModelList",
     params(LlmModelPageRequest),
@@ -27,7 +29,6 @@ use crate::state::AppState;
         (status = 401, description = "未授权"),
         (status = 500, description = "服务器内部错误"),
     ),
-    security(("bearer_auth" = [])),
     tag = "LLM 管理"
 )]
 pub async fn get_llm_model_list(
@@ -45,7 +46,9 @@ pub async fn get_llm_model_list(
 }
 
 /// 获取启用的 LLM 模型下拉列表
-#[utoipa::path(
+#[webapi_core::webapi_endpoint(
+    policy = authorized_signed,
+    permission = "获取 LLM 模型下拉列表",
     get,
     path = "/LlmModel/GetLlmModelSelect",
     responses(
@@ -53,7 +56,6 @@ pub async fn get_llm_model_list(
         (status = 401, description = "未授权"),
         (status = 500, description = "服务器内部错误"),
     ),
-    security(("bearer_auth" = [])),
     tag = "LLM 管理"
 )]
 pub async fn get_llm_model_select(
@@ -70,7 +72,10 @@ pub async fn get_llm_model_select(
 }
 
 /// 创建 LLM 模型配置并返回配置 ID
-#[utoipa::path(
+#[webapi_core::webapi_endpoint(
+    policy = authorized_signed,
+    permission = "创建 LLM 模型配置",
+    json_body = "createLlmModel",
     post,
     path = "/LlmModel/CreateLlmModel",
     request_body = EditLlmModelDto,
@@ -80,7 +85,6 @@ pub async fn get_llm_model_select(
         (status = 401, description = "未授权"),
         (status = 500, description = "服务器内部错误"),
     ),
-    security(("bearer_auth" = [])),
     tag = "LLM 管理"
 )]
 pub async fn create_llm_model(
@@ -99,7 +103,10 @@ pub async fn create_llm_model(
 }
 
 /// 更新指定的 LLM 模型配置
-#[utoipa::path(
+#[webapi_core::webapi_endpoint(
+    policy = authorized_signed,
+    permission = "更新 LLM 模型配置",
+    json_body = "updateLlmModel",
     post,
     path = "/LlmModel/UpdateLlmModel",
     params(LlmModelIdQuery),
@@ -110,7 +117,6 @@ pub async fn create_llm_model(
         (status = 401, description = "未授权"),
         (status = 500, description = "服务器内部错误"),
     ),
-    security(("bearer_auth" = [])),
     tag = "LLM 管理"
 )]
 pub async fn update_llm_model(
@@ -130,7 +136,9 @@ pub async fn update_llm_model(
 }
 
 /// 软删除指定的 LLM 模型配置
-#[utoipa::path(
+#[webapi_core::webapi_endpoint(
+    policy = authorized_signed,
+    permission = "删除 LLM 模型配置",
     delete,
     path = "/LlmModel/DeleteLlmModel",
     params(LlmModelIdQuery),
@@ -140,7 +148,6 @@ pub async fn update_llm_model(
         (status = 401, description = "未授权"),
         (status = 500, description = "服务器内部错误"),
     ),
-    security(("bearer_auth" = [])),
     tag = "LLM 管理"
 )]
 pub async fn delete_llm_model(
@@ -159,7 +166,9 @@ pub async fn delete_llm_model(
 }
 
 /// 获取 LLM 应用配置分页列表
-#[utoipa::path(
+#[webapi_core::webapi_endpoint(
+    policy = authorized_signed,
+    permission = "获取 LLM 应用配置列表",
     get,
     path = "/Operations/GetLlmAppList",
     params(LlmAppPageRequest),
@@ -169,7 +178,6 @@ pub async fn delete_llm_model(
         (status = 401, description = "未授权"),
         (status = 500, description = "服务器内部错误"),
     ),
-    security(("bearer_auth" = [])),
     tag = "LLM 管理"
 )]
 pub async fn get_llm_app_list(
@@ -187,7 +195,10 @@ pub async fn get_llm_app_list(
 }
 
 /// 创建 LLM 应用配置并返回配置 ID
-#[utoipa::path(
+#[webapi_core::webapi_endpoint(
+    policy = authorized_signed,
+    permission = "创建 LLM 应用配置",
+    json_body = "createLlmApp",
     post,
     path = "/Operations/CreateLlmApp",
     request_body = EditLlmAppDto,
@@ -197,7 +208,6 @@ pub async fn get_llm_app_list(
         (status = 401, description = "未授权"),
         (status = 500, description = "服务器内部错误"),
     ),
-    security(("bearer_auth" = [])),
     tag = "LLM 管理"
 )]
 pub async fn create_llm_app(
@@ -216,7 +226,10 @@ pub async fn create_llm_app(
 }
 
 /// 更新指定的 LLM 应用配置
-#[utoipa::path(
+#[webapi_core::webapi_endpoint(
+    policy = authorized_signed,
+    permission = "更新 LLM 应用配置",
+    json_body = "updateLlmApp",
     post,
     path = "/Operations/UpdateLlmApp",
     params(LlmAppIdQuery),
@@ -227,7 +240,6 @@ pub async fn create_llm_app(
         (status = 401, description = "未授权"),
         (status = 500, description = "服务器内部错误"),
     ),
-    security(("bearer_auth" = [])),
     tag = "LLM 管理"
 )]
 pub async fn update_llm_app(
@@ -250,7 +262,9 @@ pub async fn update_llm_app(
 }
 
 /// 软删除指定的 LLM 应用配置
-#[utoipa::path(
+#[webapi_core::webapi_endpoint(
+    policy = authorized_signed,
+    permission = "删除 LLM 应用配置",
     delete,
     path = "/Operations/DeleteLlmApp",
     params(LlmAppIdQuery),
@@ -260,7 +274,6 @@ pub async fn update_llm_app(
         (status = 401, description = "未授权"),
         (status = 500, description = "服务器内部错误"),
     ),
-    security(("bearer_auth" = [])),
     tag = "LLM 管理"
 )]
 pub async fn delete_llm_app(
@@ -282,7 +295,10 @@ pub async fn delete_llm_app(
 }
 
 /// 测试一次 LLM 应用配置
-#[utoipa::path(
+#[webapi_core::webapi_endpoint(
+    policy = authorized_signed,
+    permission = "LLM 调用测试",
+    json_body = "request",
     post,
     path = "/Operations/TestLlmApp",
     request_body = TestLlmAppRequest,
@@ -292,7 +308,6 @@ pub async fn delete_llm_app(
         (status = 401, description = "未授权"),
         (status = 500, description = "服务器内部错误"),
     ),
-    security(("bearer_auth" = [])),
     tag = "LLM 管理"
 )]
 pub async fn test_llm_app(
@@ -314,7 +329,9 @@ pub async fn test_llm_app(
 }
 
 /// 获取 LLM 对话记录分页列表
-#[utoipa::path(
+#[webapi_core::webapi_endpoint(
+    policy = authorized_signed,
+    permission = "获取 LLM 调用日志列表",
     get,
     path = "/Operations/GetLlmConversationList",
     params(LlmConversationPageRequest),
@@ -324,7 +341,6 @@ pub async fn test_llm_app(
         (status = 401, description = "未授权"),
         (status = 500, description = "服务器内部错误"),
     ),
-    security(("bearer_auth" = [])),
     tag = "LLM 管理"
 )]
 pub async fn get_llm_conversation_list(

@@ -68,6 +68,7 @@ pub type BuildWebApiResources = for<'a> fn(
     &'a Settings,
     bool,
     Arc<http_client::HttpClientFactory>,
+    &'a mut common::resource_cleanup::ResourceCleanup,
 ) -> Pin<
     Box<dyn Future<Output = Result<resources::WebApiResources, String>> + Send + 'a>,
 >;

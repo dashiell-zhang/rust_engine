@@ -18,7 +18,9 @@ use webapi_support::WebApiApplicationExt;
 use crate::state::AppState;
 
 /// 从可执行文件旁的初始化文件创建或恢复权限基础数据。
-#[utoipa::path(
+#[webapi_core::webapi_endpoint(
+    policy = anonymous,
+    permission = none,
     post,
     path = "/Authorize/InitData",
     responses(
@@ -54,7 +56,10 @@ pub async fn init_data(State(app_state): State<Arc<AppState>>) -> Result<Respons
 }
 
 /// 用户名密码登录，成功返回 JWT Token
-#[utoipa::path(
+#[webapi_core::webapi_endpoint(
+    policy = anonymous,
+    permission = none,
+    json_body = "login",
     post,
     path = "/Authorize/GetToken",
     request_body = GetTokenRequest,
@@ -78,7 +83,9 @@ pub async fn get_token(
 }
 
 /// 获取当前用户可访问的功能列表
-#[utoipa::path(
+#[webapi_core::webapi_endpoint(
+    policy = authorized_signed,
+    permission = "获取授权功能列表",
     get,
     path = "/Authorize/GetFunctionList",
     params(GetFunctionListRequest),
@@ -87,7 +94,6 @@ pub async fn get_token(
         (status = 401, description = "未授权或无权限"),
         (status = 500, description = "服务器内部错误"),
     ),
-    security(("bearer_auth" = [])),
     tag = "授权"
 )]
 pub async fn get_function_list(
@@ -107,7 +113,9 @@ pub async fn get_function_list(
 }
 
 /// 更新路由信息表
-#[utoipa::path(
+#[webapi_core::webapi_endpoint(
+    policy = anonymous,
+    permission = none,
     get,
     path = "/Authorize/UpdateRoute",
     responses(
@@ -124,7 +132,9 @@ pub async fn update_route(State(app_state): State<Arc<AppState>>) -> Result<Resp
 }
 
 /// 生成 ECDSA 公私钥
-#[utoipa::path(
+#[webapi_core::webapi_endpoint(
+    policy = anonymous,
+    permission = none,
     get,
     path = "/Authorize/GenerateEcdsaKeyPair",
     responses(

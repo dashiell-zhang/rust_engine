@@ -16,7 +16,9 @@ use webapi_support::WebApiApplicationExt;
 use crate::state::AppState;
 
 /// 获取任务配置列表
-#[utoipa::path(
+#[webapi_core::webapi_endpoint(
+    policy = authorized_signed,
+    permission = "获取任务配置列表",
     get,
     path = "/Operations/GetTaskSettingList",
     params(TaskSettingPageRequest),
@@ -26,7 +28,6 @@ use crate::state::AppState;
         (status = 401, description = "未授权"),
         (status = 500, description = "服务器内部错误"),
     ),
-    security(("bearer_auth" = [])),
     tag = "任务中心"
 )]
 pub async fn get_task_setting_list(
@@ -43,7 +44,10 @@ pub async fn get_task_setting_list(
 }
 
 /// 更新任务配置信息
-#[utoipa::path(
+#[webapi_core::webapi_endpoint(
+    policy = authorized_signed,
+    permission = "更新任务配置信息",
+    json_body = "updateTaskSetting",
     post,
     path = "/Operations/UpdateTaskSetting",
     params(TaskSettingIdQuery),
@@ -54,7 +58,6 @@ pub async fn get_task_setting_list(
         (status = 401, description = "未授权"),
         (status = 500, description = "服务器内部错误"),
     ),
-    security(("bearer_auth" = [])),
     tag = "任务中心"
 )]
 pub async fn update_task_setting(
@@ -76,7 +79,9 @@ pub async fn update_task_setting(
 }
 
 /// 获取支持参数的定时任务名称列表
-#[utoipa::path(
+#[webapi_core::webapi_endpoint(
+    policy = authorized_signed,
+    permission = "获取定时任务名称列表（去重）",
     get,
     path = "/Operations/GetArgsScheduleTaskNameList",
     responses(
@@ -84,7 +89,6 @@ pub async fn update_task_setting(
         (status = 401, description = "未授权"),
         (status = 500, description = "服务器内部错误"),
     ),
-    security(("bearer_auth" = [])),
     tag = "任务中心"
 )]
 pub async fn get_args_schedule_task_name_list(
@@ -100,7 +104,10 @@ pub async fn get_args_schedule_task_name_list(
 }
 
 /// 创建带参定时任务
-#[utoipa::path(
+#[webapi_core::webapi_endpoint(
+    policy = authorized_signed,
+    permission = "新增带参定时任务（动态添加支持参数的 ScheduleTask）",
+    json_body = "createTaskSetting",
     post,
     path = "/Operations/CreateScheduleTask",
     request_body = CreateScheduleTaskDto,
@@ -110,7 +117,6 @@ pub async fn get_args_schedule_task_name_list(
         (status = 401, description = "未授权"),
         (status = 500, description = "服务器内部错误"),
     ),
-    security(("bearer_auth" = [])),
     tag = "任务中心"
 )]
 pub async fn create_schedule_task(
@@ -128,7 +134,9 @@ pub async fn create_schedule_task(
 }
 
 /// 获取队列任务列表
-#[utoipa::path(
+#[webapi_core::webapi_endpoint(
+    policy = authorized_signed,
+    permission = "获取队列任务列表",
     get,
     path = "/Operations/GetQueueTaskList",
     params(QueueTaskPageRequest),
@@ -138,7 +146,6 @@ pub async fn create_schedule_task(
         (status = 401, description = "未授权"),
         (status = 500, description = "服务器内部错误"),
     ),
-    security(("bearer_auth" = [])),
     tag = "任务中心"
 )]
 pub async fn get_queue_task_list(
@@ -155,7 +162,9 @@ pub async fn get_queue_task_list(
 }
 
 /// 重试队列任务
-#[utoipa::path(
+#[webapi_core::webapi_endpoint(
+    policy = authorized_signed,
+    permission = "重试队列任务（仅限未成功的任务）",
     post,
     path = "/Operations/RetryQueueTask",
     params(QueueTaskIdQuery),
@@ -165,7 +174,6 @@ pub async fn get_queue_task_list(
         (status = 401, description = "未授权"),
         (status = 500, description = "服务器内部错误"),
     ),
-    security(("bearer_auth" = [])),
     tag = "任务中心"
 )]
 pub async fn retry_queue_task(

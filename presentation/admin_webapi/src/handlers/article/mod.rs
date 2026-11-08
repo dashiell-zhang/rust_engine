@@ -18,7 +18,9 @@ use webapi_support::WebApiApplicationExt;
 use crate::state::AppState;
 
 /// 获取栏目分页列表
-#[utoipa::path(
+#[webapi_core::webapi_endpoint(
+    policy = authorized_signed,
+    permission = "获取栏目列表",
     get,
     path = "/Article/GetCategoryList",
     params(CategoryPageRequest),
@@ -28,7 +30,6 @@ use crate::state::AppState;
         (status = 401, description = "未授权"),
         (status = 500, description = "服务器内部错误"),
     ),
-    security(("bearer_auth" = [])),
     tag = "文章管理"
 )]
 pub async fn get_category_list(
@@ -45,7 +46,9 @@ pub async fn get_category_list(
 }
 
 /// 获取栏目树形选择列表
-#[utoipa::path(
+#[webapi_core::webapi_endpoint(
+    policy = authorized_signed,
+    permission = "获取栏目树形列表",
     get,
     path = "/Article/GetCategorySelectList",
     responses(
@@ -53,7 +56,6 @@ pub async fn get_category_list(
         (status = 401, description = "未授权"),
         (status = 500, description = "服务器内部错误"),
     ),
-    security(("bearer_auth" = [])),
     tag = "文章管理"
 )]
 pub async fn get_category_select_list(
@@ -69,7 +71,9 @@ pub async fn get_category_select_list(
 }
 
 /// 获取单个栏目详情
-#[utoipa::path(
+#[webapi_core::webapi_endpoint(
+    policy = authorized_signed,
+    permission = "通过栏目Id 获取栏目信息",
     get,
     path = "/Article/GetCategory",
     params(CategoryIdQuery),
@@ -78,7 +82,6 @@ pub async fn get_category_select_list(
         (status = 401, description = "未授权"),
         (status = 500, description = "服务器内部错误"),
     ),
-    security(("bearer_auth" = [])),
     tag = "文章管理"
 )]
 pub async fn get_category(
@@ -95,7 +98,10 @@ pub async fn get_category(
 }
 
 /// 创建栏目，返回新栏目 ID
-#[utoipa::path(
+#[webapi_core::webapi_endpoint(
+    policy = authorized_signed,
+    permission = "创建栏目",
+    json_body = "createCategory",
     post,
     path = "/Article/CreateCategory",
     request_body = EditCategoryDto,
@@ -105,7 +111,6 @@ pub async fn get_category(
         (status = 401, description = "未授权"),
         (status = 500, description = "服务器内部错误"),
     ),
-    security(("bearer_auth" = [])),
     tag = "文章管理"
 )]
 pub async fn create_category(
@@ -123,7 +128,10 @@ pub async fn create_category(
 }
 
 /// 更新栏目信息
-#[utoipa::path(
+#[webapi_core::webapi_endpoint(
+    policy = authorized_signed,
+    permission = "更新栏目信息",
+    json_body = "updateCategory",
     post,
     path = "/Article/UpdateCategory",
     params(CategoryIdQuery),
@@ -134,7 +142,6 @@ pub async fn create_category(
         (status = 401, description = "未授权"),
         (status = 500, description = "服务器内部错误"),
     ),
-    security(("bearer_auth" = [])),
     tag = "文章管理"
 )]
 pub async fn update_category(
@@ -156,7 +163,9 @@ pub async fn update_category(
 }
 
 /// 软删除栏目
-#[utoipa::path(
+#[webapi_core::webapi_endpoint(
+    policy = authorized_signed,
+    permission = "删除栏目",
     delete,
     path = "/Article/DeleteCategory",
     params(DeleteCategoryQuery),
@@ -166,7 +175,6 @@ pub async fn update_category(
         (status = 401, description = "未授权"),
         (status = 500, description = "服务器内部错误"),
     ),
-    security(("bearer_auth" = [])),
     tag = "文章管理"
 )]
 pub async fn delete_category(
@@ -184,7 +192,9 @@ pub async fn delete_category(
 }
 
 /// 获取文章分页列表
-#[utoipa::path(
+#[webapi_core::webapi_endpoint(
+    policy = authorized_signed,
+    permission = "获取文章列表",
     get,
     path = "/Article/GetArticleList",
     params(PageRequestDto),
@@ -194,7 +204,6 @@ pub async fn delete_category(
         (status = 401, description = "未授权"),
         (status = 500, description = "服务器内部错误"),
     ),
-    security(("bearer_auth" = [])),
     tag = "文章管理"
 )]
 pub async fn get_article_list(
@@ -211,7 +220,9 @@ pub async fn get_article_list(
 }
 
 /// 获取单篇文章详情
-#[utoipa::path(
+#[webapi_core::webapi_endpoint(
+    policy = authorized_signed,
+    permission = "通过文章ID 获取文章信息",
     get,
     path = "/Article/GetArticle",
     params(ArticleIdQuery),
@@ -220,7 +231,6 @@ pub async fn get_article_list(
         (status = 401, description = "未授权"),
         (status = 500, description = "服务器内部错误"),
     ),
-    security(("bearer_auth" = [])),
     tag = "文章管理"
 )]
 pub async fn get_article(
@@ -237,7 +247,10 @@ pub async fn get_article(
 }
 
 /// 创建文章，返回新文章 ID
-#[utoipa::path(
+#[webapi_core::webapi_endpoint(
+    policy = authorized_signed,
+    permission = "创建文章",
+    json_body = "createArticle",
     post,
     path = "/Article/CreateArticle",
     params(CreateArticleQuery),
@@ -248,7 +261,6 @@ pub async fn get_article(
         (status = 401, description = "未授权"),
         (status = 500, description = "服务器内部错误"),
     ),
-    security(("bearer_auth" = [])),
     tag = "文章管理"
 )]
 pub async fn create_article(
@@ -270,7 +282,10 @@ pub async fn create_article(
 }
 
 /// 更新文章信息
-#[utoipa::path(
+#[webapi_core::webapi_endpoint(
+    policy = authorized_signed,
+    permission = "更新文章信息",
+    json_body = "updateArticle",
     post,
     path = "/Article/UpdateArticle",
     params(UpdateArticleQuery),
@@ -281,7 +296,6 @@ pub async fn create_article(
         (status = 401, description = "未授权"),
         (status = 500, description = "服务器内部错误"),
     ),
-    security(("bearer_auth" = [])),
     tag = "文章管理"
 )]
 pub async fn update_article(
@@ -303,7 +317,9 @@ pub async fn update_article(
 }
 
 /// 软删除文章
-#[utoipa::path(
+#[webapi_core::webapi_endpoint(
+    policy = authorized_signed,
+    permission = "删除文章",
     delete,
     path = "/Article/DeleteArticle",
     params(DeleteArticleQuery),
@@ -313,7 +329,6 @@ pub async fn update_article(
         (status = 401, description = "未授权"),
         (status = 500, description = "服务器内部错误"),
     ),
-    security(("bearer_auth" = [])),
     tag = "文章管理"
 )]
 pub async fn delete_article(

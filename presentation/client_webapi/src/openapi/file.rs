@@ -1,19 +1,9 @@
 use application_model::file::models::{FileInfoDto, RemoteUploadFileDto};
 use utoipa::OpenApi;
 
-use crate::handlers::file;
-
 /// 文件管理模块 OpenAPI 文档
 #[derive(OpenApi)]
 #[openapi(
-    paths(
-        file::upload_file,
-        file::remote_upload_file,
-        file::get_file_url,
-        file::get_file,
-        file::get_image,
-        file::delete_file,
-    ),
     components(
         schemas(
             FileInfoDto,
@@ -26,3 +16,4 @@ use crate::handlers::file;
     )
 )]
 pub struct FileApiDoc;
+use crate::handlers::file;

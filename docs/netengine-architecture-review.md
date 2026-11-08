@@ -1,6 +1,6 @@
 # NetEngine 与 rust_engine：框架架构差异清单
 
-更新日期：2026-11-08。AR-01～AR-12 已完成并提交；AR-13、AR-14 已完成并通过容器编译检查，结果见第 22～23 节。当前 AR 清单无未实施条目。第 18～21 节保留前轮依据与停止记录，不代表当前待办。
+更新日期：2026-11-08。AR-01～AR-14 已完成并提交，用户确认已推送；AR-13、AR-14 的实施及容器验证结果见第 22～23 节。AR-15、AR-16 已连续实施完成，容器检查、构建、Clippy 和格式检查通过，结果及边界见第 26～27 节，尚未提交。当前清单无未实施条目；前轮目标与停止记录作为历史保留，不代表当前待办状态。
 
 ## 1. 当前方向与基线
 
@@ -43,8 +43,10 @@
 | AR-10 | 缺少统一的通用后台服务扩展入口 | 生命周期扩展 | 已完成，验证见第 17 节 |
 | AR-11 | 横切能力缺少通用自定义行为扩展机制 | 调用管道扩展 | 已完成，验证见第 17 节 |
 | AR-12 | 具体组件配置仍集中在公共宿主并存在重复定义 | 配置归属与扩展边界 | 已完成；容器验证见第 21 节 |
-| AR-13 | 横切行为共享的调用上下文及内置行为统一程度仍有限 | 管道进一步统一；按需求处理 | 已静态确认；本目标不实施 |
-| AR-14 | 软删除规则依靠显式查询入口，缺少同等默认保障 | 持久化默认约束；后续限定范围 | 已静态确认；本目标不实施 |
+| AR-13 | 横切行为共享的调用上下文及内置行为统一程度仍有限 | 管道进一步统一；已按限定范围完成 | 已完成并提交；容器验证见第 23 节 |
+| AR-14 | 软删除规则依靠显式查询入口，缺少同等默认保障 | 持久化默认约束；已按限定范围完成 | 已完成并提交；容器验证见第 23 节 |
+| AR-15 | 运行路由、权限清单与 OpenAPI 元数据分开维护 | 声明一致性 | 已完成；容器验证见第 27 节 |
+| AR-16 | 自定义宿主资源缺少配套的异步释放注册入口 | 生命周期扩展；按限定范围完成 | 已完成；容器验证见第 27 节 |
 
 ### AR-01：应用契约层混入运行时实现
 
@@ -519,3 +521,85 @@ Rust 操作全部在 Docker Compose dev 中执行，保持 stable/latest 和 `/c
 AR-13、AR-14 按本轮限定的调用上下文和常见查询边界完成，清单、接入文档与 AGENTS.md 已同步。当前工作区留待用户审查和阶段性提交，不自动启动新一轮架构或业务对齐。
 
 提交前复核修正：组合属性原先让各层直接引用边界的同一上下文变量，`retry → behavior → logging` 和 `cacheable → behavior → logging` 中的 `async move` 会消耗可重复调用闭包捕获的句柄。现在统一在每层展开的作用域内克隆上层句柄，内层只移动局部克隆；每次重试重新建立句柄，元数据仍共享同一 Arc。修复后容器工作区 check、build、Clippy（`-D warnings`）、格式检查及 `git diff --check` 均通过。组合所有权路径已按生成代码复核；遵守工作区约定，未新增测试或模拟编译程序，未声称现有生产调用点覆盖全部组合。
+
+## 24. 再次提交后的架构复核：AR-15、AR-16
+
+用户确认 AR-13、AR-14 已提交并推送。本轮本地 Rust 基线为 `5e5a307f1c9f7d53397d371923c7ceee31a02c44`，审查开始时工作区干净；NetEngine 基线仍为 `23a7d0002938d0308c975dc48c04ac66aae0dda8` 及原有六处未提交修改。依据为两边本地当前代码，未拉取远端；排除 Admin.App。主要分层没有发现需要重新调整的问题，不将已经接受的显式工厂、静态宏管道和 SeaORM 查询方式重复列为待办。
+
+### AR-15：统一运行路由、权限清单与 OpenAPI 的声明来源
+
+**双方依据**：NetEngine 的 [AuthorizeController.UpdateRoute](D:/ZWork/NetEngine/Presentation/Admin.WebAPI/Controllers/AuthorizeController.cs) 从 `IActionDescriptorCollectionProvider` 读取控制器路径及授权元数据，[公共 WebAPI 注册](D:/ZWork/NetEngine/ProjectCore/WebAPI.Core/Extensions/WebApplicationBuilderExtension.cs) 通过 Swagger 使用控制器描述信息。Rust 的 [WebApiFeature](../project_core/webapi_core/src/host/features.rs) 分别提供 `register`、`permission_routes` 和 `openapi`；以文章模块为例，[路由与权限列表](../presentation/admin_webapi/src/features/article.rs)、[处理器文档注解](../presentation/admin_webapi/src/handlers/article/mod.rs)及 [OpenAPI 处理器清单](../presentation/admin_webapi/src/openapi/article.rs)需要分别维护。
+
+**影响与边界**：新增或修改接口容易遗漏其中一处；本轮确认的是声明重复，并非已证明现有路由、权限或文档存在失配。DTO schema、示例和说明可以保留独立声明，不要求仿制 MVC 反射系统。
+
+**完成标准**：建立共享端点声明或宏，让运行路径、HTTP 方法、授权/匿名元数据、权限同步信息及 OpenAPI 操作关联由同一来源派生；迁移管理端和客户端现有特性，不只提供未接入的抽象。处理特殊端点和多方法端点，明确不参与权限同步或文档的声明方式；文档所需类型信息可继续由 utoipa 提供，但不再独立手写可能漂移的路径、方法和处理器枚举。保留原有 URL、方法、权限备注、显式 UpdateRoute、Development 文档入口，以及认证、续签、权限、绑定、签名、缓存与请求队列的执行顺序；不因合并声明给匿名接口加鉴权或改变 Ueditor 策略。静态核对迁移前后端点集合、权限清单和文档操作的对应关系，记录合法例外。
+
+### AR-16：自定义宿主资源的异步释放注册入口
+
+**双方依据**：NetEngine 的 [RedisLock 注册](D:/ZWork/NetEngine/Infrastructure/DistributedLock.Redis/IServiceCollectionExtensions.cs)与 [IDisposable/IAsyncDisposable 实现](D:/ZWork/NetEngine/Infrastructure/DistributedLock.Redis/RedisLock.cs)体现了容器管理资源释放的接入方式。Rust 的 [Resources](../infrastructure/common/src/resources.rs) 仅保存和查找类型化资源，[WebApiResources](../project_core/webapi_core/src/host/resources.rs)另提供健康检查；[WebAPI](../project_core/webapi_core/src/host/runtime/builder.rs)与 [TaskService](../project_core/task_service_core/src/builder.rs)对已有日志、事件和后台服务分别收尾，没有与自定义资源注册配套的异步清理入口。
+
+**影响与边界**：新增需要异步排空或关闭的资源时，还需另接生命周期。[通用后台服务](../infrastructure/common/src/background_service.rs)已经允许在取消后异步清理，任务处理器也已有 close，不能将本项解释成现有资源泄漏或 AR-10 未完成。本项原为按需改进，用户本轮明确要求与 AR-15 一起完成；只补轻量资源清理机制，不引入完整 DI、自动依赖图或全新后台服务框架。
+
+**完成标准**：提供显式、可选的异步清理注册契约，并实际接入 WebAPI、TaskService 的资源装配和退出路径。明确资源所有权、清理顺序、重复注册与重复释放规则；消费者排空后再关闭其依赖，复用宿主剩余停机期限，不逐资源重置预算。覆盖构建中途失败、正常退出和运行失败的清理路径，清理失败或超时可诊断，单个失败不得跳过其余可清理资源。对适合使用新入口的现有生产资源完成接入，保留其他资源普通 Drop；现有日志、事件、ID 租约与任务收尾各自只执行一次，不为使用新接口强行迁移全部组件。静态复核超时取消、部分装配与已有后台清理的交互，不增加脱离宿主管理的清理任务。
+
+## 25. 下一目标：连续完成 AR-15、AR-16
+
+本节保留用户要求整理并随后启用的目标文本；两项已连续实施，结果及容器验证见第 26～27 节。
+
+以本清单第 24 节为固定范围，连续完成 rust_engine 的 AR-15、AR-16：统一管理端与客户端运行路由、权限同步和 OpenAPI 的端点声明来源，并为 WebAPI 与 TaskService 自定义资源提供配套的异步清理注册入口。两项都必须接入现有生产装配，不能以新增未使用的抽象作为完成。
+
+开始时核对两仓库基线，保留本清单及其他已有改动；先记录现有端点、权限与文档对应关系，以及资源所有权和停机顺序，再实施最小必要调整。保持第 24 节的兼容性边界和既有分层，不重开 AR-01～AR-14，不修改 NetEngine，不扩展 Admin.App、业务接口验收、数据库迁移或新提供商。无关发现只登记，不从零循环审查全仓库。
+
+无需中途或逐阶段等待确认，常规方案选择、接入和编译问题自主解决。只有确实无法继续的外部阻塞或超出授权范围的操作才报告具体原因；不因可自行解决的实现选择停下来询问。
+
+遵守 AGENTS.md：全部 Rust 工具链操作仅在本机 Docker Compose `dev` 服务执行，不在 Windows 安装 Rust、Cargo、SDK、构建依赖或其他组件；保持 stable 工具链、latest 基础镜像及 `/cargo-target` 命名卷。不新增或运行测试，不添加测试依赖、测试辅助代码或模拟验证程序。
+
+完成后从项目根目录执行并通过：
+
+- `docker compose exec -T dev cargo fmt --all -- --check`
+- `docker compose exec -T dev cargo check --workspace --locked`
+- `docker compose exec -T dev cargo build --workspace --locked`
+- `docker compose exec -T dev cargo clippy --workspace --lib --bins --locked -- -D warnings`
+- `git diff --check`（仅文本检查，可在本机执行）
+
+同时静态复核端点声明迁移、权限和文档对应关系、资源清理顺序及失败路径；如改宏，核对过程宏与运行时协同。检查通过后，仅因新改动、失败或未解疑点重复验证，不连接真实业务库或云服务执行破坏性验证。
+
+更新本清单的 AR-15、AR-16 状态、实施落点、验证依据与剩余边界，按需同步 README、AGENTS.md 和接入文档。完成标准满足、容器检查与编译通过、文档更新后停止，交付可审查的改动和简短结果；不自动提交、推送、部署，不自动开始下一轮架构对齐。编译通过不表述为全部运行时场景已验证。
+
+## 26. AR-15、AR-16 连续实施结果
+
+用户启用第 25 节目标后连续完成两项，保留目标开始前的清单改动。Rust 基线仍为 `5e5a307f1c9f7d53397d371923c7ceee31a02c44`；NetEngine 提交和原六处未提交修改保持不变，未拉取或修改源项目。
+
+| 项目 | 实施结果及证据 |
+| --- | --- |
+| AR-15 统一声明 | [webapi_endpoint 属性](../source_generator/source_generator_core/src/attributes/webapi_endpoint.rs) 同时生成运行方法/路径、策略、权限说明与 utoipa 文档；[Endpoint](../project_core/webapi_core/src/endpoint.rs) 按策略装配签名和鉴权，不重复维护路径与方法 |
+| AR-15 特性装配 | [WebApiFeature](../project_core/webapi_core/src/host/features.rs) 使用 endpoints 单一集合；两个宿主的 18 个 Feature 全部迁移，独立 register/permission_routes 和 OpenApi paths 枚举均移除。补充文档只保留 schema/标签，宿主拒绝补充 paths，并检查运行端点重复 |
+| AR-15 兼容性 | 112 个端点、113 个显式方法映射、68 条权限路径、111 个有文档端点及 33 个 JSON 绑定名称保持一致；路径、权限备注、授权/匿名/签名策略、文档 security 与处理器正文按迁移前源码核对。Ueditor 双方法、无签名、无文档；上传、缓存、请求队列与支付回调策略保留 |
+| AR-16 清理契约 | [ResourceCleanup](../infrastructure/common/src/resource_cleanup.rs) 提供 acquire/manage/register；名称唯一、宿主独占、逆序 FnOnce 回调，共享绝对期限。创建前拒绝重复，资源创建成功后立即登记；一次失败、panic 或超时继续尝试后续清理，错误按名称与类别汇总 |
+| AR-16 公共宿主 | [WebAPI builder](../project_core/webapi_core/src/host/runtime/builder.rs) 和 [TaskService builder](../project_core/task_service_core/src/builder.rs) 将登记簿传给资源工厂；装配返回错误或 panic、启动取消、WebAPI 绑定失败、正常及运行失败退出均等待清理。未运行的已构建宿主提供显式 shutdown |
+| AR-16 生产资源 | [ModuleDatabase::connect_managed](../infrastructure/repository_core/src/module.rs) 分别登记读写池；三个宿主实际使用。WebAPI 的日志写池、惰性健康检查池、日志只读池在 [业务资源装配](../presentation/webapi_support/src/resources.rs) 登记，日志组件结束后才关闭；任务消息资源不强加异步收尾 |
+| 文档与规则 | 同步 [宿主扩展](host-extensions.md)、[模块接入](database-modules.md)、README 与 AGENTS.md；明确扩展接口变更、资源所有权及异步取消边界 |
+
+公共 WebAPI 未新增数据库驱动或业务实现依赖；没有新增 Cargo 依赖，也没有调整锁文件、工具链、容器镜像、数据库 schema、迁移、业务事务或队列状态机。TaskService 日志组件自身拥有的连接和事件/ID 资源保持既有所有者，不另登记第二次释放。
+
+## 27. AR-15、AR-16 验证与停止记录
+
+全部 Rust 操作在 Docker Compose dev 执行，保持 stable/latest 和 `/cargo-target`；未在 Windows 安装组件。
+
+| 验证 | 结果 |
+| --- | --- |
+| `docker compose exec -T dev cargo check --workspace --locked` | 通过，无警告 |
+| `docker compose exec -T dev cargo build --workspace --locked` | 通过，包含三个宿主及工作区工具 |
+| `docker compose exec -T dev cargo clippy --workspace --lib --bins --locked -- -D warnings` | 通过，未关闭诊断 |
+| `docker compose exec -T dev cargo fmt --all -- --check` | 通过 |
+| `git diff --check` | 通过 |
+| AR-15 源码核对 | 逐项比较迁移前端点与当前声明，方法、路径、权限、策略、绑定名及处理器正文无变化；检查补充 schema 和标签、自动收集操作 schema、特殊路由与中间件装配顺序 |
+| AR-16 源码核对 | 检查单池成功/后续失败的登记、工厂错误与 panic 回收、构建取消期限、未启动宿主、绑定失败、正常退出及后台失败；检查消费者/日志先结束、资源后关闭，清理错误继续与超时后取消，不使用后台补偿任务 |
+
+没有新增或运行测试、测试依赖、测试辅助代码或模拟编译程序；未连接真实业务数据库、云服务进行联调，未执行迁移、提交、推送或部署。上述源码和编译证据不代表生产取消竞争、驱动故障或全部扩展回调已经运行验收。
+
+剩余边界：端点扩展接口已从分别维护 register/permission_routes 改为 endpoints，下游自定义 Feature 需迁移；DTO 文档仍可独立声明。资源清理只接管显式登记的资源，额外模块应通过同一登记簿 connect_managed 后传给装配辅助函数，不能重复登记。宿主成功构建后应 run 或显式 shutdown，直接丢弃或从外部取消 build/run Future、进程强杀、panic=abort 无法保证异步收尾。超时不会延长宿主预算，未完成回调被取消并返回失败；同步阻塞回调必须由接入方避免。
+
+AR-15、AR-16 达到本轮完成标准，文档已更新，工作区保留供阶段性审查。到此停止，不自动开始新的全仓库对齐或重新评估已完成条目。
+
+提交前复核修正：端点宏允许显式 HEAD，但共享路由收尾原先无条件追加 HEAD 拒绝处理器，导致重复注册并在宿主构建时 panic。现按同一路径合并后的声明方法集合判断，仅在未声明 HEAD 时追加拒绝处理；显式 HEAD、同一声明中的 GET/HEAD、同路径分别注册的 GET 与 HEAD 均保留已注册处理器，未声明 HEAD 时仍返回原有 405，Allow 继续来源于显式方法集合。修复后容器工作区格式检查、check、build、Clippy（`-D warnings`）及 `git diff --check` 均通过。该分支按源码与 Axum 注册逻辑复核，遵守工作区约定未新增或运行测试、模拟程序，未声称执行了 HEAD 端点运行联调。

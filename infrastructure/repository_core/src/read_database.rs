@@ -14,6 +14,10 @@ pub struct ReadDatabaseConnection {
 }
 
 impl ReadDatabaseConnection {
+    /// 仅由连接所有者在消费者排空后调用，克隆句柄共享同一个池。
+    pub async fn close(&self) -> Result<(), DbErr> {
+        self.connection.close_by_ref().await
+    }
     /// 创建独立的 PostgreSQL 只读连接池，同时在会话层禁止写入。
     pub async fn connect(mut options: sea_orm::ConnectOptions) -> Result<Self, DbErr> {
         options.map_sqlx_postgres_opts(|options| {

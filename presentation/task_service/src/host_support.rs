@@ -200,10 +200,11 @@ pub fn build_event_transport(
 }
 
 /// 队列 Worker 与业务特性共享同一显式模块绑定。
-pub fn build_databases(
-    settings: &Settings,
+pub fn build_databases<'a>(
+    settings: &'a Settings,
+    cleanup: &'a mut common::resource_cleanup::ResourceCleanup,
 ) -> Pin<
-    Box<dyn Future<Output = Result<task_service_core::TaskServiceDatabases, String>> + Send + '_>,
+    Box<dyn Future<Output = Result<task_service_core::TaskServiceDatabases, String>> + Send + 'a>,
 > {
     Box::pin(async move {
         use repository::BusinessModule;
@@ -220,7 +221,7 @@ pub fn build_databases(
                 read_connection: settings.database.read_connection.clone(),
             });
         config.validate(BusinessModule::NAME)?;
-        let module = ModuleDatabase::<BusinessModule>::connect(
+        let module = ModuleDatabase::<BusinessModule>::connect_managed(
             task_service_core::startup::TaskServiceStartup::build_postgres_connect_options(
                 &config.connection,
                 &settings.host.database_pool,
@@ -229,6 +230,7 @@ pub fn build_databases(
                 config.read_connection(),
                 &settings.host.database_pool,
             ),
+            cleanup,
         )
         .await
         .map_err(|error| format!("业务模块连接初始化失败: {error}"))?;
@@ -246,9 +248,10 @@ pub struct MessageResources {
     pub file_storage: Option<Arc<dyn AppFileStorage>>,
     pub content_root: Arc<std::path::PathBuf>,
 }
-pub fn build_resources(
-    settings: &Settings,
-) -> Pin<Box<dyn Future<Output = Result<common::resources::Resources, String>> + Send + '_>> {
+pub fn build_resources<'a>(
+    settings: &'a Settings,
+    _cleanup: &'a mut common::resource_cleanup::ResourceCleanup,
+) -> Pin<Box<dyn Future<Output = Result<common::resources::Resources, String>> + Send + 'a>> {
     Box::pin(async move {
         let components = TaskComponentSettings::load(settings)?;
         let clients = Arc::new(

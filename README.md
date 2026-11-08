@@ -110,6 +110,7 @@ rust_engine/
 - application_interface 依赖 application_model，模型层不反向依赖接口层。服务参数和结果使用模型或通用类型，不暴露数据库连接、实体或 HTTP 上下文
 - application_runtime 承接实现所需上下文；JWT 编解码归属 infrastructure/jwt_auth，HTTP 工厂归属 infrastructure/http_client，文件、邮件、短信契约归属各自基础设施组件；接口/模型使用 common 的轻量模式。WebAPI 核心不引用应用执行上下文或数据库驱动。宿主资源、LLM 独立依赖、模块数据库和事务绑定详见 [业务模块说明](docs/database-modules.md)
 - 宿主是否启用某类能力，由 crate 引用、配置和宿主装配共同决定
+- WebAPI 端点由 `webapi_endpoint` 与 Feature 的单一端点集合生成路由、权限清单和 OpenAPI；自定义资源通过宿主 `ResourceCleanup` 登记异步释放，两个公共宿主共用停机期限。接入与边界见 [宿主扩展](docs/host-extensions.md)。
 - 宿主特化服务拆成独立 crate 后，可以收敛依赖面与注册范围
 
 ## 与 NetEngine 的对应关系

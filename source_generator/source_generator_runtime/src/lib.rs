@@ -58,6 +58,7 @@ pub use retry::*;
 pub use source_generator_core::behavior;
 /// 组合显式行为并共享一次调用的元数据；不会隐式挂载日志或重试。
 pub use source_generator_core::invocation;
+pub use source_generator_core::{endpoint, webapi_endpoint};
 
 /// 为同步或异步方法自动注入结构化调用日志的属性宏
 ///

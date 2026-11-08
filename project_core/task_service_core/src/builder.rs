@@ -1,3 +1,5 @@
+use common::resource_cleanup::{ResourceCleanup, combine};
+use futures_util::FutureExt;
 use std::sync::Arc;
 
 use crate::{
@@ -50,6 +52,7 @@ pub struct TaskServiceHost {
 
     /// 日志运行时守卫
     _logger_runtime: LoggerRuntime,
+    resource_cleanup: ResourceCleanup,
     event_bus: event_bus::PreparedEventBus,
     event_listeners: event_bus::EventListenerRegistry,
     background_services: common::background_service::BackgroundServiceRegistry,
@@ -125,6 +128,34 @@ impl TaskServiceHostBuilder {
 
     /// 构建 TaskService 宿主实例
     pub async fn build(self) -> Result<TaskServiceHost, String> {
+        let mut cleanup = ResourceCleanup::default();
+        let mut logger = None;
+        let result = std::panic::AssertUnwindSafe(self.build_inner(&mut cleanup, &mut logger))
+            .catch_unwind()
+            .await
+            .unwrap_or_else(|_| Err("TaskService 资源装配发生 panic".into()));
+        match result {
+            Ok(mut host) => {
+                host.resource_cleanup = cleanup;
+                Ok(host)
+            }
+            Err(error) => {
+                let deadline = cleanup.begin_shutdown();
+                if let Some(mut logger) = logger {
+                    logger
+                        .shutdown(deadline.saturating_duration_since(tokio::time::Instant::now()))
+                        .await;
+                }
+                combine(Err(error), cleanup.shutdown(deadline).await)
+            }
+        }
+    }
+
+    async fn build_inner(
+        self,
+        cleanup: &mut ResourceCleanup,
+        logger: &mut Option<LoggerRuntime>,
+    ) -> Result<TaskServiceHost, String> {
         let distributed_lock = (self.build_distributed_lock)(&self.settings).await?;
         let distributed_cache = (self.build_distributed_cache)(&self.settings).await?;
         let identifier_generator = IdentifierGenerator::from_settings(
@@ -136,6 +167,7 @@ impl TaskServiceHostBuilder {
 
         let databases = self.build_databases.ok_or("任务宿主未指定数据库模块装配")?(
             &self.settings,
+            cleanup,
         )
         .await?;
         let db_pool = databases.queue_write.clone();
@@ -148,6 +180,7 @@ impl TaskServiceHostBuilder {
             },
         )
         .await?;
+        *logger = Some(logger_runtime);
 
         let build_event_transport = self.build_event_transport.ok_or("宿主未注册事件后端")?;
         let transport = build_event_transport(&self.settings, &identifier_generator)?;
@@ -164,7 +197,8 @@ impl TaskServiceHostBuilder {
             signal = common::system_helper::wait_for_shutdown() => {
                 startup_stopping.cancel();
                 // 让适配器完成服务器端取消，仍遵守宿主三十秒停机上限。
-                let _ = tokio::time::timeout(std::time::Duration::from_secs(30), &mut prepare).await;
+                let deadline = cleanup.begin_shutdown();
+                let _ = tokio::time::timeout_at(deadline, &mut prepare).await;
                 signal?;
                 return Err("事件总线启动已取消".to_string());
             },
@@ -172,7 +206,7 @@ impl TaskServiceHostBuilder {
         let mut event_listeners = event_bus::EventListenerRegistry::default();
 
         let resources = match self.build_resources {
-            Some(build) => build(&self.settings).await?,
+            Some(build) => build(&self.settings, cleanup).await?,
             None => common::resources::Resources::default(),
         };
         let feature_context = TaskServiceFeatureContext {
@@ -218,7 +252,8 @@ impl TaskServiceHostBuilder {
             runner,
             read_db_pool,
             configuration,
-            _logger_runtime: logger_runtime,
+            _logger_runtime: logger.take().expect("日志运行时已初始化"),
+            resource_cleanup: ResourceCleanup::default(),
             event_bus,
             event_listeners,
             background_services,
@@ -227,6 +262,15 @@ impl TaskServiceHostBuilder {
 }
 
 impl TaskServiceHost {
+    /// 已构建但不启动的宿主也必须显式等待释放；Drop 不启动异步任务。
+    pub async fn shutdown(mut self) -> Result<(), String> {
+        let deadline = self.resource_cleanup.begin_shutdown();
+        self._logger_runtime
+            .shutdown(deadline.saturating_duration_since(tokio::time::Instant::now()))
+            .await;
+        self.resource_cleanup.shutdown(deadline).await
+    }
+
     /// 获取只读数据库连接
     pub fn read_db(&self) -> &ReadDatabaseConnection {
         self.read_db_pool.as_ref()
@@ -256,7 +300,7 @@ impl TaskServiceHost {
             }
         };
         drop(menu);
-        let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(30);
+        let deadline = self.resource_cleanup.begin_shutdown();
         stopping.cancel();
         events.cancel();
         if drain
@@ -276,7 +320,7 @@ impl TaskServiceHost {
         self._logger_runtime
             .shutdown(deadline.saturating_duration_since(tokio::time::Instant::now()))
             .await;
-        result
+        combine(result, self.resource_cleanup.shutdown(deadline).await)
     }
 }
 

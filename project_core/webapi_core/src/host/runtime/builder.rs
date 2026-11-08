@@ -1,3 +1,5 @@
+use common::resource_cleanup::{ResourceCleanup, combine};
+use futures_util::FutureExt;
 use std::{
     net::{IpAddr, SocketAddr},
     sync::{Arc, OnceLock},
@@ -58,6 +60,7 @@ pub struct WebApiHost {
 
     /// 日志运行时守卫
     _logger_runtime: LoggerRuntime,
+    resource_cleanup: ResourceCleanup,
     event_bus: event_bus::PreparedEventBus,
     event_listeners: event_bus::EventListenerRegistry,
     background_services: common::background_service::BackgroundServiceRegistry,
@@ -156,6 +159,34 @@ impl WebApiHostBuilder {
 
     /// 构建 WebAPI 宿主实例
     pub async fn build(self) -> Result<WebApiHost, String> {
+        let mut cleanup = ResourceCleanup::default();
+        let mut logger = None;
+        let result = std::panic::AssertUnwindSafe(self.build_inner(&mut cleanup, &mut logger))
+            .catch_unwind()
+            .await
+            .unwrap_or_else(|_| Err("WebAPI 资源装配发生 panic".into()));
+        match result {
+            Ok(mut host) => {
+                host.resource_cleanup = cleanup;
+                Ok(host)
+            }
+            Err(error) => {
+                let deadline = cleanup.begin_shutdown();
+                if let Some(mut logger) = logger {
+                    logger
+                        .shutdown(deadline.saturating_duration_since(tokio::time::Instant::now()))
+                        .await;
+                }
+                combine(Err(error), cleanup.shutdown(deadline).await)
+            }
+        }
+    }
+
+    async fn build_inner(
+        self,
+        cleanup: &mut ResourceCleanup,
+        logger: &mut Option<LoggerRuntime>,
+    ) -> Result<WebApiHost, String> {
         let application = self.application.ok_or("WebAPI 宿主未注册业务策略")?;
         let jwt_key_pair = WebApiStartup::parse_ec_jwt_key_pair(
             &self.settings.jwt.private_key,
@@ -188,6 +219,7 @@ impl WebApiHostBuilder {
                     &self.settings,
                     self.check_log_read_health,
                     http_client_factory.clone(),
+                    cleanup,
                 )
                 .await?
             }
@@ -207,6 +239,7 @@ impl WebApiHostBuilder {
             },
         )
         .await?;
+        *logger = Some(logger_runtime);
 
         let build_event_transport = self.build_event_transport.ok_or("宿主未注册事件后端")?;
         let transport = build_event_transport(&self.settings, &identifier_generator)?;
@@ -223,7 +256,8 @@ impl WebApiHostBuilder {
             signal = common::system_helper::wait_for_shutdown() => {
                 startup_stopping.cancel();
                 // 让适配器完成服务器端取消，仍遵守宿主三十秒停机上限。
-                let _ = tokio::time::timeout(std::time::Duration::from_secs(30), &mut prepare).await;
+                let deadline = cleanup.begin_shutdown();
+                let _ = tokio::time::timeout_at(deadline, &mut prepare).await;
                 signal?;
                 return Err("事件总线启动已取消".to_string());
             },
@@ -250,10 +284,23 @@ impl WebApiHostBuilder {
 
         let id_generator = identifier_generator.clone();
 
-        let permission_routes = self
+        let feature_endpoints = self
             .features
             .iter()
-            .flat_map(|feature| feature.permission_routes())
+            .map(|feature| feature.endpoints())
+            .collect::<Vec<_>>();
+        let mut registered = std::collections::BTreeSet::new();
+        for endpoint in feature_endpoints.iter().flatten() {
+            for method in endpoint.methods() {
+                if !registered.insert((endpoint.path().to_ascii_lowercase(), method.as_str())) {
+                    return Err(format!("端点重复注册: {method} {}", endpoint.path()));
+                }
+            }
+        }
+        let permission_routes = feature_endpoints
+            .iter()
+            .flatten()
+            .filter_map(|endpoint| endpoint.permission())
             .collect::<Vec<WebApiRoutePermission>>();
 
         // 提前取出限流配置，避免 settings move 进 AppState 后无法访问
@@ -286,7 +333,9 @@ impl WebApiHostBuilder {
             crate::health::publish_health(health_state, stopping).await;
             Ok(())
         })?;
-        for (feature_index, feature) in self.features.into_iter().enumerate() {
+        for (feature_index, (feature, endpoints)) in
+            self.features.into_iter().zip(feature_endpoints).enumerate()
+        {
             feature.register_background_services(&mut background_services, app_state.clone())?;
             feature.register_event_listeners(&mut event_listeners, app_state.clone())?;
             tracing::info!(
@@ -296,6 +345,9 @@ impl WebApiHostBuilder {
             );
 
             if let Some(feature_openapi) = feature.openapi() {
+                if !feature_openapi.paths.paths.is_empty() {
+                    return Err("Feature 补充文档不能单独声明 paths，请使用 endpoints".into());
+                }
                 openapi_doc.merge(feature_openapi);
             }
 
@@ -305,7 +357,12 @@ impl WebApiHostBuilder {
                 "Feature OpenAPI 生成完成，开始注册路由"
             );
 
-            business_router = feature.register(business_router, app_state.clone());
+            for endpoint in endpoints {
+                if let Some(document) = endpoint.document() {
+                    openapi_doc.merge(document);
+                }
+                business_router = endpoint.register(business_router, app_state.clone());
+            }
 
             tracing::info!(
                 target: "app.startup",
@@ -357,7 +414,8 @@ impl WebApiHostBuilder {
             app,
             host_settings: app_state.settings.host.clone(),
             https_listener_port,
-            _logger_runtime: logger_runtime,
+            _logger_runtime: logger.take().expect("日志运行时已初始化"),
+            resource_cleanup: ResourceCleanup::default(),
             event_bus,
             event_listeners,
             background_services,
@@ -367,6 +425,15 @@ impl WebApiHostBuilder {
 }
 
 impl WebApiHost {
+    /// 已构建但不启动的宿主也必须显式等待释放；Drop 不启动异步任务。
+    pub async fn shutdown(mut self) -> Result<(), String> {
+        let deadline = self.resource_cleanup.begin_shutdown();
+        self._logger_runtime
+            .shutdown(deadline.saturating_duration_since(tokio::time::Instant::now()))
+            .await;
+        self.resource_cleanup.shutdown(deadline).await
+    }
+
     /// 启动 WebAPI 宿主
     pub async fn run(mut self) -> Result<(), String> {
         let bound = async {
@@ -381,10 +448,11 @@ impl WebApiHost {
             Ok(bound) => bound,
             Err(error) => {
                 logger::critical!(target: "app.startup", %error, "WebAPI 启动失败");
+                let deadline = self.resource_cleanup.begin_shutdown();
                 self._logger_runtime
-                    .shutdown(std::time::Duration::from_secs(30))
+                    .shutdown(deadline.saturating_duration_since(tokio::time::Instant::now()))
                     .await;
-                return Err(error);
+                return combine(Err(error), self.resource_cleanup.shutdown(deadline).await);
             }
         };
 
@@ -423,7 +491,7 @@ impl WebApiHost {
             failure = background.wait_failure() => (failure, true),
             signal = common::system_helper::wait_for_shutdown() => (signal, true),
         };
-        let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(30);
+        let deadline = self.resource_cleanup.begin_shutdown();
         events.cancel();
         shutdown.cancel();
         if drain_server {
@@ -444,7 +512,7 @@ impl WebApiHost {
         self._logger_runtime
             .shutdown(deadline.saturating_duration_since(tokio::time::Instant::now()))
             .await;
-        result
+        combine(result, self.resource_cleanup.shutdown(deadline).await)
     }
 }
 
