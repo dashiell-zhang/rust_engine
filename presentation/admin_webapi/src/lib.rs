@@ -19,6 +19,7 @@ use webapi_core::host::{WebApiHostProfile, run_webapi_host};
 pub const ADMIN_WEBAPI_PROFILE: WebApiHostProfile = WebApiHostProfile {
     configure_http_clients: None,
     application: webapi_support::application,
+    build_resources: webapi_support::resources::build_resources,
     host_name: "admin_webapi",
     default_config_path: "presentation/admin_webapi/appsettings",
     permission_module: "Admin.WebAPI",

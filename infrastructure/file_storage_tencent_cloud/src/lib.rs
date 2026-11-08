@@ -4,7 +4,8 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use application_interface::{http_client::HttpClientFactory, storage::AppFileStorage};
+use application_interface::storage::AppFileStorage;
+use application_runtime::http_client::HttpClientFactory;
 use async_trait::async_trait;
 use chrono::TimeDelta;
 use common::app_error::AppError;

@@ -1,5 +1,6 @@
 /// TaskService 业务特性定义
 pub mod features;
+pub mod service_factory;
 
 /// TaskService 内置任务实现
 pub mod tasks;
@@ -14,6 +15,7 @@ use task_service_core::{
 
 /// TaskService 宿主档案
 pub const TASK_SERVICE_PROFILE: TaskServiceHostProfile = TaskServiceHostProfile {
+    build_databases: host_support::build_databases,
     host_name: "task_service",
     default_config_path: "presentation/task_service/appsettings",
     default_lock_prefix: "task_service",
@@ -40,6 +42,7 @@ pub async fn run() -> Result<(), String> {
         TASK_SERVICE_PROFILE.build_email_sender,
         TASK_SERVICE_PROFILE.build_file_storage,
     )
+    .with_databases_factory(TASK_SERVICE_PROFILE.build_databases)
     .with_event_transport_factory(TASK_SERVICE_PROFILE.build_event_transport)
     .with_features(features::features())
     .build()

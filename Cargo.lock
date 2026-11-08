@@ -14,6 +14,7 @@ version = "0.1.0"
 dependencies = [
  "application_interface",
  "application_model",
+ "application_runtime",
  "application_service",
  "application_service_llm",
  "axum",
@@ -205,17 +206,11 @@ dependencies = [
  "chrono",
  "common",
  "distributed_cache",
- "distributed_lock",
  "event_bus",
  "futures-util",
- "identifier_generator",
  "indexmap",
- "jsonwebtoken",
- "reqwest",
- "sea-orm",
  "serde",
  "serde_json",
- "tokio",
  "uuid",
 ]
 
@@ -232,11 +227,31 @@ dependencies = [
 ]
 
 [[package]]
+name = "application_runtime"
+version = "0.1.0"
+dependencies = [
+ "application_interface",
+ "application_model",
+ "async-trait",
+ "common",
+ "distributed_cache",
+ "distributed_lock",
+ "futures-util",
+ "identifier_generator",
+ "jsonwebtoken",
+ "reqwest",
+ "sea-orm",
+ "serde",
+ "tokio",
+]
+
+[[package]]
 name = "application_service"
 version = "0.1.0"
 dependencies = [
  "application_interface",
  "application_model",
+ "application_runtime",
  "async-recursion",
  "async-trait",
  "base64 0.23.1",
@@ -272,6 +287,7 @@ version = "0.1.0"
 dependencies = [
  "application_interface",
  "application_model",
+ "application_runtime",
  "async-stream",
  "async-trait",
  "chrono",
@@ -292,6 +308,7 @@ version = "0.1.0"
 dependencies = [
  "application_interface",
  "application_model",
+ "application_runtime",
  "async-trait",
  "common",
 ]
@@ -1031,6 +1048,7 @@ version = "0.1.0"
 dependencies = [
  "application_interface",
  "application_model",
+ "application_runtime",
  "application_service",
  "application_service_llm",
  "async-trait",
@@ -2101,6 +2119,7 @@ name = "file_storage_ali_cloud"
 version = "0.1.0"
 dependencies = [
  "application_interface",
+ "application_runtime",
  "async-trait",
  "base64 0.23.1",
  "chrono",
@@ -2121,6 +2140,7 @@ name = "file_storage_tencent_cloud"
 version = "0.1.0"
 dependencies = [
  "application_interface",
+ "application_runtime",
  "async-trait",
  "base64 0.23.1",
  "chrono",
@@ -5259,6 +5279,7 @@ name = "sms"
 version = "0.1.0"
 dependencies = [
  "application_interface",
+ "application_runtime",
 ]
 
 [[package]]
@@ -5675,6 +5696,7 @@ name = "task_service"
 version = "0.1.0"
 dependencies = [
  "application_interface",
+ "application_runtime",
  "application_service",
  "application_service_sms",
  "async-trait",
@@ -5696,6 +5718,8 @@ dependencies = [
  "logger_database",
  "logger_local_file",
  "queue_task_database",
+ "repository",
+ "repository_core",
  "sea-orm",
  "sms_ali_cloud",
  "sms_tencent_cloud",
@@ -5710,6 +5734,7 @@ name = "task_service_core"
 version = "0.1.0"
 dependencies = [
  "application_interface",
+ "application_runtime",
  "async-trait",
  "chrono",
  "common",
@@ -6440,6 +6465,7 @@ version = "0.1.0"
 dependencies = [
  "application_interface",
  "application_model",
+ "application_runtime",
  "async-trait",
  "axum",
  "base64 0.23.1",
@@ -6456,9 +6482,7 @@ dependencies = [
  "httpdate",
  "identifier_generator",
  "jsonwebtoken",
- "llm",
  "logger",
- "logger_database",
  "mime",
  "multer",
  "openssl",
@@ -6489,8 +6513,16 @@ version = "0.1.0"
 dependencies = [
  "application_interface",
  "application_model",
+ "application_runtime",
  "application_service",
+ "application_service_llm",
  "async-trait",
+ "event_bus",
+ "logger",
+ "logger_database",
+ "repository",
+ "repository_core",
+ "sea-orm",
  "source_generator_runtime",
  "webapi_core",
 ]

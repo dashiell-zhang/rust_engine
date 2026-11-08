@@ -1,8 +1,6 @@
-use application_interface::{
-    context::MessageContext,
-    email::{SendEmailAttachment, SendEmailRequest},
-};
+use application_interface::email::{SendEmailAttachment, SendEmailRequest};
 use application_model::message::models::SendEmailDto;
+use application_runtime::context::MessageContext;
 use common::{app_error::AppError, io_helper};
 use repository::{extensions::SoftDeleteEntityExt, file};
 use sea_orm::{ColumnTrait, QueryFilter, QuerySelect};

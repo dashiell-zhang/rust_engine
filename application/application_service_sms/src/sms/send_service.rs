@@ -1,5 +1,6 @@
-use application_interface::{context::SmsContext, sms::SendSmsRequest};
+use application_interface::sms::SendSmsRequest;
 use application_model::message::models::SendSmsDto;
+use application_runtime::context::SmsContext;
 use async_trait::async_trait;
 use common::app_error::AppError;
 

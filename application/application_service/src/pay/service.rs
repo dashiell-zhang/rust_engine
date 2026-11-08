@@ -11,11 +11,12 @@ use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use serde_json::{Value, json};
 use url::form_urlencoded;
 
-use application_interface::{context::PayContext, error::AppError};
+use application_interface::error::AppError;
 use application_model::pay::models::{
     WxPayAppDto, WxPayJsapiDto, WxPayNotifyDto, WxPayNotifyRefundDto, WxPayNotifyRetDto,
     WxPayNotifyTransactionDto, WxPayRefundResultDto,
 };
+use application_runtime::context::PayContext;
 
 /// 支付能力应用服务实现
 ///

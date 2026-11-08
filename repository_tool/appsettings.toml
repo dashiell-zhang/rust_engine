@@ -4,3 +4,9 @@
 connection = "postgres://postgres:123456@127.0.0.1:5432/webcore"
 log_connection = "postgres://postgres:123456@127.0.0.1:5432/webcore"
 event_bus_connection = "postgres://postgres:123456@127.0.0.1:5432/webcore"
+
+# 可选命名模块；命令同时指定 --target business --module business_archive。
+# model 必须匹配已登记的写模型；不会自动创建另一套实体或迁移。
+# [database.modules.business_archive]
+# model = "business"
+# connection = "<该模型实例的写连接>"

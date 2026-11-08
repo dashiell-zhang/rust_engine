@@ -11,6 +11,7 @@ pub use runtime::{builder, settings, state};
 
 /// 运行入口提供的业务策略
 pub mod application;
+pub mod resources;
 
 use self::builder::WebApiHostBuilder;
 use self::features::WebApiFeature;
@@ -21,7 +22,6 @@ use common::identifier_generator::IdentifierGenerator;
 use distributed_cache::DistributedCache;
 use distributed_lock::DistributedLock;
 use logger::LoggerRuntime;
-use sea_orm::DatabaseConnection;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -41,9 +41,9 @@ pub type BuildWebApiCache = for<'a> fn(
 >;
 
 /// WebAPI 日志构建上下文
-pub struct WebApiLoggerBuilderContext {
-    /// 独立日志写连接池；本地文件组件为空
-    pub log_db_pool: Option<Arc<DatabaseConnection>>,
+pub struct WebApiLoggerBuilderContext<'a> {
+    /// 由入口装配的资源，日志提供商自行选择所需连接。
+    pub resources: &'a resources::WebApiResources,
 
     /// 标识生成器
     pub identifier_generator: IdentifierGenerator,
@@ -53,7 +53,7 @@ pub struct WebApiLoggerBuilderContext {
 pub type BuildWebApiLoggerRuntime =
     for<'a> fn(
         &'a Settings,
-        &'a WebApiLoggerBuilderContext,
+        &'a WebApiLoggerBuilderContext<'a>,
     ) -> Pin<Box<dyn Future<Output = Result<LoggerRuntime, String>> + Send + 'a>>;
 
 /// 事件后端由运行入口选择，公共宿主只依赖传输契约。
@@ -63,17 +63,25 @@ pub type BuildWebApiEventTransport =
 pub type ConfigureWebApiHttpClients = fn(
     &Settings,
     Arc<dyn DistributedCache>,
-    &mut application_interface::http_client::HttpClientFactory,
+    &mut application_runtime::http_client::HttpClientFactory,
 ) -> Result<(), String>;
 
 /// 文件组件使用宿主已配置的共享 HTTP 工厂。
 pub type BuildWebApiFileStorage = fn(
     &Settings,
-    Arc<application_interface::http_client::HttpClientFactory>,
+    Arc<application_runtime::http_client::HttpClientFactory>,
 ) -> Result<Option<Arc<dyn AppFileStorage>>, String>;
+
+pub type BuildWebApiResources = for<'a> fn(
+    &'a Settings,
+    bool,
+) -> Pin<
+    Box<dyn Future<Output = Result<resources::WebApiResources, String>> + Send + 'a>,
+>;
 
 /// WebAPI 宿主配置档案
 pub struct WebApiHostProfile {
+    pub build_resources: BuildWebApiResources,
     pub application: fn() -> Arc<dyn application::WebApiApplication>,
     /// 宿主名称
     pub host_name: &'static str,
@@ -133,6 +141,7 @@ pub async fn run_webapi_host(
         profile.build_cache,
         profile.build_logger_runtime,
     )
+    .with_resources_factory(profile.build_resources)
     .with_application((profile.application)())
     .with_log_read_health(profile.check_log_read_health)
     .with_web_root(profile.serve_web_root)

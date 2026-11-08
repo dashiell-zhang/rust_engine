@@ -4,10 +4,10 @@ use identifier_generator::IdentifierGenerator;
 use sea_orm::DatabaseConnection;
 
 use crate::auth::EcJwtCodec;
-use crate::email::AppEmailSender;
 use crate::http_client::HttpClientFactory;
-use crate::sms::AppSmsSender;
-use crate::storage::AppFileStorage;
+use application_interface::email::AppEmailSender;
+use application_interface::sms::AppSmsSender;
+use application_interface::storage::AppFileStorage;
 
 /// 应用层通用上下文
 #[derive(Clone, Copy)]

@@ -44,6 +44,7 @@ pub struct LogQueryResult {
 }
 
 /// 仅持有只读日志连接；创建查询服务不会启动写盘、ID 或后台任务。
+#[derive(Clone)]
 pub struct LogQueryService {
     connection: Arc<ReadDatabaseConnection>,
 }

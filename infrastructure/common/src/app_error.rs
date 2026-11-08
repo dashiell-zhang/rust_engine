@@ -107,6 +107,7 @@ impl From<cancellation::OperationCancelled> for AppError {
     }
 }
 
+#[cfg(feature = "runtime")]
 impl From<distributed_cache::CacheError> for AppError {
     /// 将缓存异常转换为应用层内部错误
     fn from(value: distributed_cache::CacheError) -> Self {
@@ -114,6 +115,7 @@ impl From<distributed_cache::CacheError> for AppError {
     }
 }
 
+#[cfg(feature = "runtime")]
 impl From<distributed_lock::LockError> for AppError {
     /// 将分布式锁异常转换为应用层内部错误
     fn from(value: distributed_lock::LockError) -> Self {

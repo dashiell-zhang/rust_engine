@@ -464,8 +464,7 @@ where
             deserializer: D,
         ) -> Result<Self::Value, D::Error> {
             let value = String::deserialize(deserializer)?;
-            crate::data_helper::guid::parse(&value)
-                .ok_or_else(|| de::Error::custom("Guid 格式无效"))
+            crate::guid::parse(&value).ok_or_else(|| de::Error::custom("Guid 格式无效"))
         }
     }
     deserializer.deserialize_newtype_struct(QUERY_GUID, GuidVisitor)
@@ -938,7 +937,7 @@ impl<'de> Deserializer<'de> for Input {
             let Value::String(value) = this.value else {
                 return Err(de::Error::custom("应提供 Guid 字符串"));
             };
-            let guid = crate::data_helper::guid::parse(&value)
+            let guid = crate::guid::parse(&value)
                 .ok_or_else(|| InputError::invalid_query_scalar(value, "Guid 格式无效"))?;
             return visitor.visit_newtype_struct(guid.to_string().into_deserializer());
         }

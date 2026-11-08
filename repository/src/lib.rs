@@ -114,3 +114,10 @@ repository_core::impl_json_index_model!(
 
 /// 当前模型迁移元数据。
 pub mod schema;
+
+/// 模板业务模型的固定身份，由宿主为该类型选择一个数据库目标。
+pub struct BusinessModule;
+impl repository_core::module::DatabaseModule for BusinessModule {
+    const NAME: &'static str = "business";
+    const MIGRATION_HISTORY_TABLE: &'static str = MIGRATION_HISTORY_TABLE;
+}

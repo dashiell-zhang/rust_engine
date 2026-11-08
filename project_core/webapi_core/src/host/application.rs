@@ -1,10 +1,18 @@
 use super::state::AppState;
-use application_interface::{context::CurrentUser, error::AppError};
+use application_interface::error::AppError;
+use application_runtime::context::CurrentUser;
 use async_trait::async_trait;
 
 /// 公共 HTTP 宿主需要的业务策略，由运行入口显式装配。
 #[async_trait]
 pub trait WebApiApplication: Send + Sync {
+    /// 路由发布前验证入口要求的资源，避免把装配错误延迟到请求阶段。
+    fn validate_resources(
+        &self,
+        _resources: &super::resources::WebApiResources,
+    ) -> Result<(), String> {
+        Ok(())
+    }
     async fn try_renew_token(
         &self,
         state: &AppState,

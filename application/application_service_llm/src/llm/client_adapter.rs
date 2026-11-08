@@ -4,12 +4,12 @@ use llm::{ChatMessage, ChatRequest, ChatRole, ChatStreamChunk, LlmModelConfig, c
 
 use application_interface::{
     error::AppError,
-    http_client::HttpClientFactory,
     llm::{
         AppLlmChatRequest, AppLlmChatResponse, AppLlmChoice, AppLlmClient, AppLlmMessage,
         AppLlmRole, AppLlmStreamChoice, AppLlmStreamChunk, AppLlmStreamDelta, AppLlmUsage,
     },
 };
+use application_runtime::http_client::HttpClientFactory;
 
 /// 基于单个模型配置的应用层 LLM 客户端适配器
 pub struct ModelConfigAppLlmClient {

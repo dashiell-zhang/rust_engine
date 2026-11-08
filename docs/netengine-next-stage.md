@@ -2,9 +2,13 @@
 
 审查日期：2026-11-08。本文件是当前待办入口；`netengine-alignment.md` 保留历史过程，不能把其中早期的“尚未实现”直接当作当前缺陷。
 
-本阶段已完成基线固定、覆盖盘点、重点代码核实和三个批次的建议。没有修改生产代码、运行数据库或 NetEngine，没有启动下一批开发。这里的“阶段完成”不代表整个复刻目标完成。
+当前方向（2026-11-08）：用户要求优先比较框架架构，暂不推进下一批业务接口验收。已确认的四项架构差异、代码依据和建议有限目标见[框架架构差异清单](netengine-architecture-review.md)；用户随后授权目标模式连续完成 AR-01～AR-04，实施结果与验证以架构清单为准。下面保留既有功能批次及验证证据，不自动进入新的业务验收批次。
+
+初次盘点完成了基线固定、覆盖盘点、重点代码核实和三个批次的建议，当时没有修改生产代码或执行运行验收。后续 B1～B8 的实际改动、验证和限制以各批记录为准；“批次完成”不代表整个复刻目标完成。
 
 ## 1. 固定基线
+
+初次盘点基线保留如下。用户随后将 B1～B6 的改动提交为 `acd147dccbe26dbb766b1479897c5e5cb1806e97`；B7 从该提交及干净工作区开始，NetEngine 基线未变。
 
 | 项目 | 本次范围 |
 | --- | --- |
@@ -22,6 +26,8 @@ NetEngine 未提交文件的 SHA-256（按本地文件字节记录，换行变�
 | Infrastructure/QueueTask.Database/QueueTaskManagement.cs | `7999f13af841ccc3d492c2022925ac85b965702bdfecbd2ebf87c9581655611d` | 日期查询转换 UTC |
 | Infrastructure/FileStorage.TencentCloud/TencentCloudStorage.cs | `d5f60df043290603d927313c7996945f7322e0fa35dc60e88374ef187becf582` | 上传对象名使用目录加本地文件名 |
 | Infrastructure/FileStorage/IFileStorage.cs | `be3257d370157804fbfe10d38450f9f7102906233f4c5d75231b11789e138715` | 上传契约说明 |
+
+B8 经用户明确授权新增第六处源项目修改：`Application/Application.Service/AuthorizeService.cs` 的小程序绑定查询改用微信返回的 openId，文件 SHA-256 为 `54baf94c9fd04755b039da4311e5cdb51af73958da2306d6d8383c5f2df7a112`。上述初始五项保留，B8 结果见对应报告。
 
 后续批次如果基线变化，应记录新提交和受影响条目，不重新把整个仓库从零核查一遍。
 
@@ -99,13 +105,13 @@ NetEngine 未提交文件的 SHA-256（按本地文件字节记录，换行变�
 - 影响：部分非法字符、数字或字面量错误的文案/定位可能与源不同；不是已确认的合法业务请求失败。已处理的空白正文、尾随内容和部分截断分支不重复列为缺陷。
 - 后续：仅在客户端依赖具体错误契约或有明确失败请求时，按有限样例处理。不把复刻整个 .NET JSON 诊断体系作为下一批完成条件。
 
-### S01 — 源项目微信小程序登录查询疑似使用了错误字段
+### S01 — 源项目微信小程序绑定查询错误（B8 已修复）
 
-- 类型：源项目疑似缺陷，双方行为差异已由源码确认；业务风险高于普通诊断差异，但修正方案需独立确认。
-- 源位置：[AuthorizeService.cs](D:/ZWork/NetEngine/Application/Application.Service/AuthorizeService.cs)，获取 `(openId, sessionKey)` 后，已有绑定查询使用 `t.OpenId == login.AppId`，而新增绑定保存的是 `OpenId = openId`。
+- 类型：已确认的源项目缺陷；2026-11-08 用户明确授权 B8 修正，代码及容器构建已完成，真实微信登录仍未联调。
+- 源位置：[AuthorizeService.cs](D:/ZWork/NetEngine/Application/Application.Service/AuthorizeService.cs:87)，发现时获取 `(openId, sessionKey)` 后，已有绑定查询使用 `t.OpenId == login.AppId`，而新增绑定保存的是 `OpenId = openId`。B8 已将查询条件改为 `t.OpenId == openId`，锁外首次查询和锁内复查复用同一查询。
 - Rust 位置：[authorize/service.rs](D:/ZWork/rust_engine/application/application_service/src/authorize/service.rs)，查找绑定时传入微信返回的 `open_id`。
-- 影响：当用户 openId 不等于应用 appId 时，源端可能找不到此前绑定，进入错误的首登/注册路径。不能为了“完全一致”让 Rust 重现此疑似缺陷。
-- 本阶段处理：保持双方现状，记录例外；此前五处源修正的授权不扩展到本项。进入身份登录专项时再确认是否修正 NetEngine，当前盘点不等待该决定。
+- 影响：修复前当用户 openId 不等于应用 appId 时，源端可能找不到此前绑定，进入错误的首登/注册路径；修复后查询与保存使用同一身份维度。
+- 结果：[B8 记录](D:/ZWork/rust_engine/docs/authorization-b8-review.md)。Rust 无需修改；没有自动合并历史重复用户或改动绑定数据，不将源码核对与编译通过视为完整微信链路运行证明。
 
 ## 5. 验证缺口与未核实项
 
@@ -116,7 +122,7 @@ NetEngine 未提交文件的 SHA-256（按本地文件字节记录，换行变�
 | V01 | 已实现但缺少完整运行验证 | 队列父子完成/回调原子性、手动重试与有效租约竞争、长执行续租、停机期限耗尽后的恢复。决定任务是否重复或丢失，建议 B1 | [源存储](D:/ZWork/NetEngine/Infrastructure/QueueTask.Database/QueueTaskStore.cs)、[源管理](D:/ZWork/NetEngine/Infrastructure/QueueTask.Database/QueueTaskManagement.cs)、[Rust 存储](D:/ZWork/rust_engine/infrastructure/queue_task_database/src/store.rs)、[管理](D:/ZWork/rust_engine/infrastructure/queue_task_database/src/management.rs)、[执行器](D:/ZWork/rust_engine/project_core/task_service_core/src/runner.rs) |
 | V02 | 已实现但缺少当前批次运行验证 | Release 的认证→续签→权限→签名→缓存顺序；权限路由同步的失败回滚、空清单和软删除重建。建议 B2 | [源过滤器](D:/ZWork/NetEngine/ProjectCore/WebAPI.Core/Filters)、[源授权服务](D:/ZWork/NetEngine/Application/Application.Service/AuthorizeService.cs)、[Rust auth](D:/ZWork/rust_engine/project_core/webapi_core/src/auth.rs)、[签名](D:/ZWork/rust_engine/project_core/webapi_core/src/sign_verify.rs)、[授权应用服务](D:/ZWork/rust_engine/application/application_service/src/authorize) |
 | V03 | B4 已取得限定迁移链的运行证据，其余待核实 | 当前 Rust 迁移链的带数据升级/回退、DDL 失败回滚、三模型隔离和幂等脚本见 B4；任意旧库接管、xmin 业务版本冲突、分区维护和 JSON 索引复杂映射仍未验收 | [B4 记录](D:/ZWork/rust_engine/docs/repository-b4-review.md)、[源工具](D:/ZWork/NetEngine/Repository.Tool)、[Rust 迁移](D:/ZWork/rust_engine/repository_tool/src/migrator)、[xmin](D:/ZWork/rust_engine/infrastructure/repository_core/src/versioned.rs)、[分区](D:/ZWork/rust_engine/infrastructure/repository_core/src/partition) |
-| V04 | 已实现但缺少完整运行验证 | 广播已落地；业务监听工厂/失败重试/关闭、发布事务取消与提交竞争、控制连接失败未全部覆盖。没有业务调用时不得用监听运行证据替代发布证据 | [源数据库传输](D:/ZWork/NetEngine/Infrastructure/EventBus.Database/DatabaseEventTransport.cs)、[Rust 传输](D:/ZWork/rust_engine/infrastructure/event_bus_database/src/lib.rs)、[取消连接](D:/ZWork/rust_engine/infrastructure/repository_core/src/postgres_operation.rs)、[事件说明](D:/ZWork/rust_engine/docs/event-bus.md) |
+| V04 | B7 已完成有限源码对照与组件编译，业务运行证据仍缺失 | 双方当前均无具体业务事件发布/订阅调用；工厂、重试、释放、关闭及数据库取消路径已核对，未发现本范围确认缺陷。发布竞争、处理器失败/释放和控制连接失败仍未实际验收 | [B7 记录](D:/ZWork/rust_engine/docs/event-b7-review.md)、[源数据库传输](D:/ZWork/NetEngine/Infrastructure/EventBus.Database/DatabaseEventTransport.cs)、[Rust 传输](D:/ZWork/rust_engine/infrastructure/event_bus_database/src/lib.rs)、[事件说明](D:/ZWork/rust_engine/docs/event-bus.md) |
 | V05 | 已实现；部分故障有历史运行记录 | 日志磁盘/数据库失败恢复已有记录；三个宿主全部启动失败分支、强制停机下的排空及指标采集仍缺完整依据 | [源数据库日志](D:/ZWork/NetEngine/Infrastructure/Logger.Database)、[源文件日志](D:/ZWork/NetEngine/Infrastructure/Logger.LocalFile)、[Rust 数据库日志](D:/ZWork/rust_engine/infrastructure/logger_database)、[文件日志](D:/ZWork/rust_engine/infrastructure/logger_local_file) |
 | V06 | B5 已取得限定 ID 租约场景的运行证据 | 双实例节点隔离/续期、所有权丢失、Redis 暂停超出租期、节点耗尽及退出自然到期见 B5；其他网络交错、时钟和序列边界、通用缓存/锁仍未完整验收 | [B5 记录](D:/ZWork/rust_engine/docs/identifier-b5-review.md)、[源节点租约](D:/ZWork/NetEngine/Infrastructure/IdentifierGenerator/RedisNodeLease.cs)、[Rust ID](D:/ZWork/rust_engine/infrastructure/identifier_generator)、[ID 说明](D:/ZWork/rust_engine/docs/identifier-generator.md) |
 | V07 | 已实现但缺少真实提供商运行验证 | 支付下单/退款/回调及证书轮换、云存储、短信、邮件、LLM 的真实服务链路。当前不使用真实凭据、不发真实消息、不触发支付 | [源应用服务](D:/ZWork/NetEngine/Application/Application.Service)、[源 LLM](D:/ZWork/NetEngine/Infrastructure/LLM)、[Rust 支付](D:/ZWork/rust_engine/application/application_service/src/pay)、[Rust LLM](D:/ZWork/rust_engine/infrastructure/llm)、上方提供商映射 |
@@ -244,10 +250,37 @@ NetEngine 未提交文件的 SHA-256（按本地文件字节记录，换行变�
 
 **结束条件**：四项明确结果或缺口，确认的本范围缺陷才局部修复；发布包保留为本批交付物，临时运行资源清理，完成报告后结束。
 
+### B7：事件总线调用链与失败处理
+
+2026-11-08 已完成本批有限执行，详见 [B7 结果与限制](D:/ZWork/rust_engine/docs/event-b7-review.md)。未发现需要修复的确认缺陷，本批只更新文档。双方均没有实际业务事件发布/订阅入口，因此监听失败、释放与发布竞争没有本批运行证据，不标记为运行通过。
+
+**范围**：V04 的业务调用存在性、三个宿主装配、监听工厂与重试/释放、正常关闭，以及数据库发布取消路径。
+
+**有限验收清单**：
+
+1. 查找双方实际事件声明、发布调用和监听注册，区分框架能力与业务接入。
+2. 对照失败监听重试、每次调用的处理器生命周期、参数解析失败与释放失败规则。
+3. 核对启动游标、宿主取消与关闭预算、数据库发布事务及控制连接取消路径。
+4. 对现有正式入口可触达的场景核验，缺少调用入口时记录限制；完成事件组件容器编译检查。
+
+**不包含**：人为新增业务事件、测试或验证程序、模拟服务、全部网络故障、发布/提交所有交错、强制停机及通用 JSON 兼容性扩展。不重复 B6 的空监听宿主启动来替代业务事件验收。
+
+**结束条件**：明确源码结论和运行证据边界，仅修复确认的范围内缺陷，完成必要检查及记录后结束，不自动扩大范围。
+
+### B8：微信小程序已有绑定识别
+
+2026-11-08 已完成本批有限执行，详见 [B8 结果与限制](D:/ZWork/rust_engine/docs/authorization-b8-review.md)。按用户授权修复 NetEngine 的 S01，Rust 查询条件原本正确；源项目 Release 构建和 Rust 应用组件检查均在容器内通过，真实微信登录未联调。
+
+**范围**：S01 查询字段修复，及双方已有用户、锁内复查、首次注册事务、软删除绑定/用户和后续令牌签发的源码核对。
+
+**不包含**：真实微信调用、模拟微信服务、测试或验证程序、历史重复账号清理、其他登录渠道重构与完整认证链回归。
+
+**结束条件**：修复明确缺陷，完成受影响项目的容器编译检查，区分源码结论与缺少微信凭据的运行边界，保留原有两仓库改动后结束，不自动提交。
+
 ## 9. 执行与维护约定
 
 - 新发现先登记 ID、双方位置、影响和证据，不自动扩入当前批次。只因它阻止当前验收时，才说明依赖关系并处理必要部分。
-- 不机械复制源项目疑似缺陷。S01 需要单独决定，不阻塞本次清单交付，也不借此前其他修复授权修改 NetEngine。
+- 不机械复制源项目疑似缺陷。S01 已按 B8 单独授权修复；其他源项目修正仍需判断其任务授权，不能由此前修复无限扩展。
 - Rust 工具仍仅在 Docker dev 内运行；stable 与 latest 约定不变，不安装本机组件，不添加或运行测试。
 - 批次中按改动做必要局部检查，批次末执行一次适用的格式、check、Clippy、build。只有新改动、失败或明确未解决问题才重跑；只有需要 Release 行为时才构建对应宿主。
 - 运行受阻或条件不足时，把具体缺失证据交付出来。不得绕过自动审批拒绝、无限等待外部凭据，或用不断补小细节延长目标。

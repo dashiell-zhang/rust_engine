@@ -321,7 +321,7 @@ impl QueueTaskStore for DatabaseQueueTaskStore {
             active.update_versioned(&transaction).await?;
             if let Some(name) = task.callback_name {
                 producer
-                    .create(
+                    .create_internal(
                         &transaction,
                         NewQueueTask {
                             name,

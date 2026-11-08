@@ -3,7 +3,7 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use application_interface::http_client::{HttpRequestState, NamedHttpHandler};
+use application_runtime::http_client::{HttpRequestState, NamedHttpHandler};
 use async_trait::async_trait;
 use common::{
     error_helper::CustomError,

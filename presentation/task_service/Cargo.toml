@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+application_runtime = { path = "../../application/application_runtime" }
 event_bus = { path = "../../infrastructure/event_bus" }
 event_bus_redis = { path = "../../infrastructure/event_bus_redis" }
 event_bus_database = { path = "../../infrastructure/event_bus_database" }
@@ -34,3 +35,6 @@ async-trait = "0.1.92"
 chrono = "0.4.45"
 sea-orm = { version = "2.0.4", features = [ "sqlx-postgres", "runtime-tokio-rustls", "macros" ] }
 tracing = "0.1.44"
+
+repository = { path = "../../repository" }
+repository_core = { path = "../../infrastructure/repository_core" }

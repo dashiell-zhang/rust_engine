@@ -59,7 +59,7 @@ pub fn build_cache(
 /// 构建客户端日志运行时
 pub fn build_logger_runtime<'a>(
     settings: &'a Settings,
-    context: &'a WebApiLoggerBuilderContext,
+    context: &'a WebApiLoggerBuilderContext<'a>,
 ) -> Pin<Box<dyn Future<Output = Result<LoggerRuntime, String>> + Send + 'a>> {
     Box::pin(async move {
         match settings.logger.component {
@@ -88,6 +88,8 @@ pub fn build_logger_runtime<'a>(
                 init_database_logger(
                     &settings.logger,
                     context
+                        .resources
+                        .get::<webapi_support::resources::BusinessResources>()?
                         .log_db_pool
                         .clone()
                         .ok_or("数据库日志写连接未装配")?,
@@ -110,7 +112,7 @@ pub fn build_logger_runtime<'a>(
 /// 构建客户端文件存储
 pub fn build_file_storage(
     settings: &Settings,
-    http_clients: Arc<application_interface::http_client::HttpClientFactory>,
+    http_clients: Arc<application_runtime::http_client::HttpClientFactory>,
 ) -> Result<Option<Arc<dyn AppFileStorage>>, String> {
     match settings.file.component {
         FileStorageComponent::Local => Ok(None),

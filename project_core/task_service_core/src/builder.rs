@@ -31,6 +31,7 @@ pub struct TaskServiceHostBuilder {
     /// 日志运行时构建方法
     build_logger_runtime: BuildTaskServiceLoggerRuntime,
     build_event_transport: Option<crate::BuildTaskServiceEventTransport>,
+    build_databases: Option<crate::BuildTaskServiceDatabases>,
 
     /// 短信发送器构建方法
     build_sms_sender: BuildTaskServiceSmsSender,
@@ -83,7 +84,13 @@ impl TaskServiceHostBuilder {
             build_file_storage,
             features: Vec::new(),
             build_event_transport: None,
+            build_databases: None,
         }
+    }
+
+    pub fn with_databases_factory(mut self, factory: crate::BuildTaskServiceDatabases) -> Self {
+        self.build_databases = Some(factory);
+        self
     }
 
     /// 运行入口指定事件后端，禁止公共宿主自行选择实现。
@@ -116,7 +123,7 @@ impl TaskServiceHostBuilder {
             std::env::current_dir().map_err(|error| format!("读取宿主内容目录失败: {error}"))?,
         );
         let http_client_factory = Arc::new(
-            application_interface::http_client::HttpClientFactory::new()
+            application_runtime::http_client::HttpClientFactory::new()
                 .map_err(|error| format!("HTTP 客户端工厂初始化失败: {error}"))?,
         );
         let distributed_lock = (self.build_distributed_lock)(&self.settings).await?;
@@ -128,32 +135,12 @@ impl TaskServiceHostBuilder {
         .await
         .map_err(|error| format!("ID 服务初始化失败: {error}"))?;
 
-        let db_pool = Arc::new(
-            Database::connect(TaskServiceStartup::build_postgres_connect_options(
-                self.settings.database.connection.clone(),
-                &self.settings.host.database_pool,
-            ))
-            .await
-            .map_err(|error| format!("数据库连接初始化失败: {error}"))?,
-        );
-
-        let read_connection = if self.settings.database.read_connection.trim().is_empty() {
-            self.settings.database.connection.clone()
-        } else {
-            self.settings.database.read_connection.clone()
-        };
-        let mut read_connect_options = TaskServiceStartup::build_postgres_connect_options(
-            read_connection,
-            &self.settings.host.database_pool,
-        );
-        read_connect_options.map_sqlx_postgres_opts(|options| {
-            options.options([("default_transaction_read_only", "on")])
-        });
-        let read_db_pool = Arc::new(ReadDatabaseConnection::new(
-            Database::connect(read_connect_options)
-                .await
-                .map_err(|error| format!("只读数据库连接初始化失败: {error}"))?,
-        ));
+        let databases = self.build_databases.ok_or("任务宿主未指定数据库模块装配")?(
+            &self.settings,
+        )
+        .await?;
+        let db_pool = databases.queue_write.clone();
+        let read_db_pool = databases.queue_read.clone();
 
         let log_db_pool = if self.settings.logger.component == logger::LoggerComponent::Database {
             let mut options = TaskServiceStartup::build_postgres_connect_options(
@@ -210,8 +197,7 @@ impl TaskServiceHostBuilder {
         let feature_context = TaskServiceFeatureContext {
             cache: distributed_cache,
             event_publisher,
-            db_pool: Arc::clone(&db_pool),
-            read_db_pool: Arc::clone(&read_db_pool),
+            modules: databases.modules,
             identifier_generator: identifier_generator.clone(),
             sms_sender,
             email_sender,

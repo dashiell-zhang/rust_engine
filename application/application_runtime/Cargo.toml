@@ -1,0 +1,19 @@
+[package]
+name = "application_runtime"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+async-trait = "0.1.92"
+application_interface = { path = "../application_interface" }
+application_model = { path = "../application_model" }
+tokio = { version = "1.54.1", features = ["time"] }
+common = { path = "../../infrastructure/common" }
+distributed_cache = { path = "../../infrastructure/distributed_cache" }
+distributed_lock = { path = "../../infrastructure/distributed_lock" }
+futures-util = "0.3.34"
+identifier_generator = { path = "../../infrastructure/identifier_generator" }
+jsonwebtoken = { version = "11.1.0", features = ["rust_crypto"] }
+reqwest = { version = "0.13.5", default-features = false, features = ["json", "rustls", "http2", "gzip", "deflate", "brotli", "system-proxy", "cookies"] }
+sea-orm = { version = "2.0.4", features = ["sqlx-postgres", "runtime-tokio-rustls"] }
+serde = { version = "1.0.229", features = ["derive"] }

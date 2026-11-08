@@ -8,16 +8,13 @@ use crate::write_support::{
     begin_transaction, normalize_optional_text, page_offset, validate_page_request,
     write_data_update_log_with_connection,
 };
-use application_interface::{
-    context::{AppContext, CurrentUser},
-    error::AppError,
-};
+use application_interface::error::AppError;
+use application_runtime::context::{AppContext, CurrentUser};
 use chrono::Utc;
 use queue_task_database::{
     NewQueueTask, NewScheduleTask, QueueTaskManagement, QueueTaskProducer, QueueTaskQuery,
     TaskSettingUpdate, queue_task, queue_task::QueueTaskStatus, task_setting,
 };
-use sea_orm::DatabaseTransaction;
 use serde_json::{Value, json};
 
 /// 任务中心只负责业务 DTO 和审计装配，管理规则由通用任务组件实现。
@@ -179,9 +176,9 @@ impl<'a> TaskCenterService<'a> {
     }
 
     /// 在显式事务中入队，调用方负责业务操作和任务一并提交。
-    pub async fn create_queue_task(
+    pub async fn create_queue_task<M: repository_core::module::DatabaseModule>(
         &self,
-        tx: &DatabaseTransaction,
+        tx: &repository_core::module::ModuleTransaction<M>,
         dto: CreateQueueTaskDto,
     ) -> Result<String, AppError> {
         validate_create_queue_task(&dto)?;

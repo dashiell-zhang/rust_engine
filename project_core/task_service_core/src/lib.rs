@@ -53,7 +53,7 @@ pub type BuildTaskServiceCache = for<'a> fn(
 /// TaskService 短信发送器构建方法
 pub type BuildTaskServiceSmsSender = fn(
     &Settings,
-    Arc<application_interface::http_client::HttpClientFactory>,
+    Arc<application_runtime::http_client::HttpClientFactory>,
 ) -> Result<Arc<dyn AppSmsSender>, String>;
 
 /// TaskService 邮件发送器构建方法
@@ -62,7 +62,7 @@ pub type BuildTaskServiceEmailSender = fn(&Settings) -> Result<Arc<dyn AppEmailS
 /// TaskService 文件存储构建方法
 pub type BuildTaskServiceFileStorage = fn(
     &Settings,
-    Arc<application_interface::http_client::HttpClientFactory>,
+    Arc<application_runtime::http_client::HttpClientFactory>,
 ) -> Result<Option<Arc<dyn AppFileStorage>>, String>;
 
 /// TaskService 日志构建上下文
@@ -84,3 +84,29 @@ pub type BuildTaskServiceLoggerRuntime =
 /// 事件后端由运行入口选择。
 pub type BuildTaskServiceEventTransport =
     fn(&Settings, &IdentifierGenerator) -> Result<Arc<dyn event_bus::EventTransport>, String>;
+
+/// 已选定队列模块的数据库集合；构造时从同一个类型绑定取得读写池。
+pub struct TaskServiceDatabases {
+    pub modules: Arc<repository_core::module::DatabaseModules>,
+    pub(crate) queue_write: Arc<DatabaseConnection>,
+    pub(crate) queue_read: Arc<repository_core::ReadDatabaseConnection>,
+}
+impl TaskServiceDatabases {
+    pub fn for_module<M: repository_core::module::DatabaseModule>(
+        modules: repository_core::module::DatabaseModules,
+    ) -> Result<Self, String> {
+        let module = modules.get::<M>()?;
+        let queue_write = module.write_pool();
+        let queue_read = module.read_pool();
+        Ok(Self {
+            modules: Arc::new(modules),
+            queue_write,
+            queue_read,
+        })
+    }
+}
+pub type BuildTaskServiceDatabases = for<'a> fn(
+    &'a Settings,
+) -> Pin<
+    Box<dyn Future<Output = Result<TaskServiceDatabases, String>> + Send + 'a>,
+>;

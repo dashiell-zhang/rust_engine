@@ -11,10 +11,8 @@ use serde_json::json;
 use std::collections::HashMap;
 use std::time::Duration;
 
-use application_interface::{
-    context::{AppSettingContext, CurrentUser},
-    error::AppError,
-};
+use application_interface::error::AppError;
+use application_runtime::context::{AppSettingContext, CurrentUser};
 
 use crate::write_support::{begin_transaction, write_data_update_log_with_connection};
 

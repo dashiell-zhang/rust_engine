@@ -8,13 +8,13 @@ use repository::{llm_app, llm_conversation};
 use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, Set};
 
 use application_interface::{
-    context::LlmContext,
     error::AppError,
     llm::{
         AppLlmChatRequest, AppLlmChatResponse, AppLlmClient, AppLlmMessage, AppLlmRole,
         AppLlmStreamChunk,
     },
 };
+use application_runtime::context::LlmContext;
 
 use super::{
     app_service::{load_enabled_model_config, render_template, validate_required_parameters},

@@ -53,7 +53,7 @@ pub struct ProductChangedEvent {
 
 需要响应调用方取消时使用 `publisher.publish_with_cancellation(&message, &cancellation).await`。入口先检查取消，再校验事件名称并序列化；同一个令牌传到后端的范围初始化、获取连接、状态更新、消息写入和提交。发送取消后仍应等待调用返回，直接丢弃 future 无法等待服务器端清理。Redis 已发送的命令不能撤回；数据库提交与取消相遇时也不能仅凭取消结果认定消息未写入，重试仍需业务幂等。
 
-需要业务与广播任务一起提交时，先用 `QueueTaskProducer::create` 在业务事务中加入广播任务；后台任务再等待 `publish` 完成。重试可能产生重复广播，因此监听必须幂等。
+需要业务与广播任务一起提交时，先从所属 `ModuleDatabase` 开启 `ModuleTransaction`，用同模块的 `QueueTaskProducer::create` 在该事务中加入广播任务；后台任务再等待 `publish` 完成。重试可能产生重复广播，因此监听必须幂等。
 
 ## 监听注册
 
@@ -97,4 +97,4 @@ Redis 信封中的 `event-id` 复用 `common::data_helper::parse_guid`，与数�
 
 WebAPI 的 `event_bus` 健康项检查选定后端连接，不发布消息、不建立范围状态、不改变消费位置。
 
-开发对照的证据范围与待办见 [NetEngine 对齐进度](netengine-alignment.md)。
+截至 B7 基线 `acd147d`，Rust 与所对照的 NetEngine 均没有具体业务事件发布调用或监听声明；目前提供的是框架能力及宿主接入。不能把空监听宿主的启动、健康检查或退出当作业务事件发布/重试/释放的运行证明。有限源码核对、组件编译结果与所需运行条件见 [B7 记录](event-b7-review.md)，其余待办见 [阶段清单](netengine-next-stage.md)。

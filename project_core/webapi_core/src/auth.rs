@@ -1,4 +1,4 @@
-use application_interface::{auth::EcJwtCodec, context::CurrentUser};
+use application_runtime::{auth::EcJwtCodec, context::CurrentUser};
 use async_trait::async_trait;
 use axum::{
     extract::{FromRequestParts, State},

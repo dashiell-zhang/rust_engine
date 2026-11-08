@@ -7,10 +7,8 @@ use sea_orm::{
 };
 use serde_json::json;
 
-use application_interface::{
-    context::{AppContext, CurrentUser},
-    error::AppError,
-};
+use application_interface::error::AppError;
+use application_runtime::context::{AppContext, CurrentUser};
 
 use crate::user::models::PageListDto;
 use crate::write_support::{
@@ -309,13 +307,11 @@ fn to_app_error(error: sea_orm::DbErr) -> AppError {
 mod webapi_impl {
     use super::LinkService;
 
-    use application_interface::{
-        context::{CurrentUser, WebApiContext},
-        error::AppError,
-    };
+    use application_interface::error::AppError;
     use application_model::link::models::{
         EditLinkDto, LinkDto, LinkPageListDto, LinkPageRequest, PublicLinkDto,
     };
+    use application_runtime::context::{CurrentUser, WebApiContext};
     use distributed_cache::{CacheEntryOptions, DistributedCacheExt};
 
     /// WebAPI 宿主友情链接应用服务

@@ -16,12 +16,12 @@ use sea_orm::{
 };
 
 use application_interface::{
-    context::{CurrentUser, LlmContext},
     error::AppError,
     llm::{AppLlmChatRequest, AppLlmClient, AppLlmMessage, AppLlmRole, AppLlmUsage},
 };
 use application_model::shared::models::{page_offset, validate_page_request};
 use application_model::user::models::PageListDto;
+use application_runtime::context::{CurrentUser, LlmContext};
 
 use super::client_adapter::ModelConfigAppLlmClient;
 use super::models::{

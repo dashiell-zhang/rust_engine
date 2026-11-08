@@ -11,6 +11,7 @@ use uuid::Uuid;
 mod local;
 pub(crate) use local::resolve_local;
 #[cfg(unix)]
+#[cfg(feature = "runtime")]
 pub(crate) use local::standard_offset_at;
 
 /// 转换为 TimeSpan 的有符号 100ns 计数；不足一个 tick 的部分向零截断。

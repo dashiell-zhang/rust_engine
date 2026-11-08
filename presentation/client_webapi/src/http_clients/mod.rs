@@ -2,7 +2,7 @@ mod sign;
 
 use std::sync::Arc;
 
-use application_interface::http_client::{HttpClientFactory, NamedHttpClientRegistration};
+use application_runtime::http_client::{HttpClientFactory, NamedHttpClientRegistration};
 use common::error_helper::CustomError;
 use distributed_cache::DistributedCache;
 use openssl::pkcs12::Pkcs12;

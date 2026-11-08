@@ -4,9 +4,18 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+application_runtime = { path = "../../application/application_runtime" }
 application_model = { path = "../../application/application_model" }
 webapi_core = { path = "../../project_core/webapi_core" }
 application_interface = { path = "../../application/application_interface" }
 application_service = { path = "../../application/application_service" }
 source_generator_runtime = { path = "../../source_generator/source_generator_runtime" }
 async-trait = "0.1.92"
+
+repository_core = { path = "../../infrastructure/repository_core" }
+logger_database = { path = "../../infrastructure/logger_database" }
+logger = { path = "../../infrastructure/logger" }
+event_bus = { path = "../../infrastructure/event_bus" }
+sea-orm = { version = "2.0.4", features = ["sqlx-postgres", "runtime-tokio-rustls"] }
+application_service_llm = { path = "../../application/application_service_llm" }
+repository = { path = "../../repository" }

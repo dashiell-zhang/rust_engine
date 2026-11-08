@@ -10,6 +10,8 @@ docker compose exec -T dev cargo run --locked -p repository_tool
 
 ## 配置与目标
 
+多个已知模型实例可以通过 `--module <名称>` 选择工具配置中的 `database.modules.<名称>`，其中 `model` 必须与 `--target` 匹配；未指定时沿用下表。缺失、空连接或模型不匹配均报错，不回退默认目标。完整配置和新增实体模块的接入边界见[业务模块说明](database-modules.md#仓储工具)。
+
 配置源文件是 [repository_tool/appsettings.toml](../repository_tool/appsettings.toml)。构建时复制为工具可执行文件旁的 `repository_tool.appsettings.toml`，默认按可执行文件位置加载，不受终端工作目录影响。修改源配置后重新构建；发布工具时将二进制和这份配置一并复制。
 
 三个写模型分别选择自己的连接，没有连接时直接报错，不回退其他目标：

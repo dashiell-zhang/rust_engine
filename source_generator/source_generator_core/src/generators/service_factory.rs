@@ -23,6 +23,8 @@ pub(crate) struct DirectServiceFactoryInput {
     /// 工厂类型
     factory_type: Type,
 
+    contract: Option<Type>,
+
     /// 服务分组
     groups: Vec<DirectServiceFactoryGroup>,
 }
@@ -132,6 +134,16 @@ impl Parse for DirectServiceFactoryInput {
         let factory_type = input.parse::<Type>()?;
         input.parse::<Token![;]>()?;
 
+        let contract = if input.peek(Ident) && input.fork().parse::<Ident>()? == "implements" {
+            input.parse::<Ident>()?;
+            input.parse::<Token![=]>()?;
+            let contract = input.parse::<Type>()?;
+            input.parse::<Token![;]>()?;
+            Some(contract)
+        } else {
+            None
+        };
+
         let mut groups = Vec::new();
         while !input.is_empty() {
             groups.push(input.parse::<DirectServiceFactoryGroup>()?);
@@ -140,6 +152,7 @@ impl Parse for DirectServiceFactoryInput {
         Ok(Self {
             impl_generics,
             factory_type,
+            contract,
             groups,
         })
     }
@@ -274,9 +287,16 @@ pub(crate) fn expand_direct_service_factory(
     let impl_generics = input.impl_generics;
     let (impl_generics, _, where_clause) = impl_generics.split_for_impl();
     let factory_type = input.factory_type;
+    let visibility = if input.contract.is_some() {
+        quote!()
+    } else {
+        quote!(pub)
+    };
+    let contract = input.contract.map(|contract| quote!(#contract for));
 
     let methods = input.groups.into_iter().flat_map(|group| {
         let context_expr = group.context_expr;
+        let visibility = visibility.clone();
         group.registrations.into_iter().map(move |registration| {
             let method_name = registration.method_name;
             let service_type = registration.service_type;
@@ -287,7 +307,7 @@ pub(crate) fn expand_direct_service_factory(
 
             quote! {
                 #[doc = #doc_text]
-                pub fn #method_name(&self) -> #return_type {
+                #visibility fn #method_name(&self) -> #return_type {
                     #constructor(<#service_type>::new(#context_expr))
                 }
             }
@@ -295,7 +315,7 @@ pub(crate) fn expand_direct_service_factory(
     });
 
     Ok(quote! {
-        impl #impl_generics #factory_type #where_clause {
+        impl #impl_generics #contract #factory_type #where_clause {
             #(#methods)*
         }
     }

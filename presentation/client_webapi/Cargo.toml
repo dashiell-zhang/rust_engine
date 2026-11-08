@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+application_runtime = { path = "../../application/application_runtime" }
 source_generator_runtime = { path = "../../source_generator/source_generator_runtime" }
 webapi_support = { path = "../webapi_support" }
 event_bus = { path = "../../infrastructure/event_bus" }

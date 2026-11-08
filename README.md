@@ -35,6 +35,7 @@ URL 参数、文本过滤和地址分类见 [公共字符串工具](docs/common-
 rust_engine/
 ├── application/
 │   ├── application_interface
+│   ├── application_runtime
 │   ├── application_model
 │   ├── application_service
 │   ├── application_service_llm
@@ -98,8 +99,9 @@ rust_engine/
 
 这套边界用于约束依赖扩散：
 
-- WebAPI 业务调用通过 application_interface::services 的应用契约；具体实现只在运行入口的适配器中选择。仅供任务或应用内部使用的服务可继续使用具体类型
+- WebAPI 业务调用通过 application_interface::services 的应用契约；具体实现只在运行入口的适配器中选择。后台消息任务同样通过契约工厂调用，具体类型仅在宿主装配和应用内部使用
 - application_interface 依赖 application_model，模型层不反向依赖接口层。服务参数和结果使用模型或通用类型，不暴露数据库连接、实体或 HTTP 上下文
+- application_runtime 承接实现所需上下文、HTTP 工厂和 JWT；接口/模型使用 common 的轻量模式。宿主资源、模块数据库和事务绑定详见 [业务模块说明](docs/database-modules.md)
 - 宿主是否启用某类能力，由 crate 引用、配置和宿主装配共同决定
 - 宿主特化服务拆成独立 crate 后，可以收敛依赖面与注册范围
 
@@ -650,9 +652,9 @@ let result = service.get_task_setting_list(params).await?;
 
 对应的真实 handler 可参考 [presentation/admin_webapi/src/handlers/task/mod.rs#L21](presentation/admin_webapi/src/handlers/task/mod.rs#L21)。
 
-`=> dyn 契约 + 生命周期` 声明让工厂返回 `Box<dyn 契约>`；省略该部分则返回具体类型，供任务和应用内部使用。两个服务工厂宏均支持这一写法。任务配置管理和队列查询重试可分别依赖 `TaskSettingService`、`QueueTaskManageService`，WebAPI 工厂用 `TaskCenterService` 组合两者，不暴露事务入队方法。
+`=> dyn 契约 + 生命周期` 声明让工厂返回 `Box<dyn 契约>`；省略该部分则返回具体类型，供装配和应用内部使用。两个服务工厂宏均支持这一写法。直接工厂还可声明 `implements = 契约类型;` 生成 trait 实现；模板 WebAPI 用它实现完整 `ServiceFactory`，由 `BusinessServiceFactory` 注册选择，后台消息任务使用独立 `TaskServiceFactory`。任务配置管理和队列查询重试可分别依赖 `TaskSettingService`、`QueueTaskManageService`，WebAPI 工厂用 `TaskCenterService` 组合两者，不暴露事务入队方法。
 
-服务借用共享状态的生命周期，不借用临时适配器。宿主档案的 `application` 字段显式选择 `webapi_support::application`；公共宿主只负责资源初始化、中间件和接口调用。令牌签发、续签缓存与令牌记录维护属于 `AuthorizeService`，权限路由同步的具体实现属于业务适配器。LLM 宿主适配器同样返回接口，流式契约保留 `Send` 流及借用生命周期。
+服务借用共享状态的生命周期，不借用临时适配器。宿主档案的 `application` 字段显式选择 `webapi_support::application`；`build_resources` 字段选择资源与业务工厂注册，公共宿主只负责调用资源工厂、运行健康检查管线、中间件和接口调用。令牌签发、续签缓存与令牌记录维护属于 `AuthorizeService`，权限路由同步的具体实现属于业务适配器。LLM 宿主适配器同样返回接口，流式契约保留 `Send` 流及借用生命周期。
 
 操作者身份模型位于 `application_model::shared::current_user`，由入口从认证信息转换后显式传入用例；LLM 请求、响应和分片位于 `application_model::llm::invocation`。模型层可以被独立使用，不需要依赖具体服务。
 

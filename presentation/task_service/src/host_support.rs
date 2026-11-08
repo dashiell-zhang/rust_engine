@@ -44,7 +44,7 @@ pub fn build_distributed_lock(
 /// 构建任务宿主文件存储
 pub fn build_file_storage(
     settings: &Settings,
-    http_clients: Arc<application_interface::http_client::HttpClientFactory>,
+    http_clients: Arc<application_runtime::http_client::HttpClientFactory>,
 ) -> Result<Option<Arc<dyn AppFileStorage>>, String> {
     match settings.file.component {
         FileStorageComponent::Local => Ok(None),
@@ -151,7 +151,7 @@ pub fn build_logger_runtime<'a>(
 /// 构建任务宿主短信发送器
 pub fn build_sms_sender(
     settings: &Settings,
-    http_clients: Arc<application_interface::http_client::HttpClientFactory>,
+    http_clients: Arc<application_runtime::http_client::HttpClientFactory>,
 ) -> Result<Arc<dyn AppSmsSender>, String> {
     match settings.sms.component {
         SmsComponent::Aliyun => Ok(Arc::new(AliyunSmsSender::new(
@@ -222,4 +222,43 @@ pub fn build_event_transport(
             )))
         }
     }
+}
+
+/// 队列 Worker 与业务特性共享同一显式模块绑定。
+pub fn build_databases(
+    settings: &Settings,
+) -> Pin<
+    Box<dyn Future<Output = Result<task_service_core::TaskServiceDatabases, String>> + Send + '_>,
+> {
+    Box::pin(async move {
+        use repository::BusinessModule;
+        use repository_core::module::{
+            DatabaseModule, DatabaseModules, ModuleConnectionSettings, ModuleDatabase,
+        };
+        let config = settings
+            .database
+            .modules
+            .get(BusinessModule::NAME)
+            .cloned()
+            .unwrap_or(ModuleConnectionSettings {
+                connection: settings.database.connection.clone(),
+                read_connection: settings.database.read_connection.clone(),
+            });
+        config.validate(BusinessModule::NAME)?;
+        let module = ModuleDatabase::<BusinessModule>::connect(
+            task_service_core::startup::TaskServiceStartup::build_postgres_connect_options(
+                &config.connection,
+                &settings.host.database_pool,
+            ),
+            task_service_core::startup::TaskServiceStartup::build_postgres_connect_options(
+                config.read_connection(),
+                &settings.host.database_pool,
+            ),
+        )
+        .await
+        .map_err(|error| format!("业务模块连接初始化失败: {error}"))?;
+        let mut modules = DatabaseModules::default();
+        modules.register(module)?;
+        task_service_core::TaskServiceDatabases::for_module::<BusinessModule>(modules)
+    })
 }

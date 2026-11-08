@@ -1,7 +1,7 @@
 use chrono::{DateTime, FixedOffset, Utc};
 use identifier_generator::IdentifierGenerator;
 use repository_core::versioned::VersionedActiveModel;
-use sea_orm::{ConnectionTrait, DatabaseConnection, DatabaseTransaction, DbErr, Set};
+use sea_orm::{ConnectionTrait, DatabaseConnection, DbErr, Set};
 
 use crate::queue_task::{ActiveModel, QueueTaskStatus};
 
@@ -51,10 +51,31 @@ impl<'a> QueueTaskProducer<'a> {
         }
     }
 
+    pub fn from_module<M: repository_core::module::DatabaseModule>(
+        module: &'a repository_core::module::ModuleDatabase<M>,
+        identifiers: &'a IdentifierGenerator,
+    ) -> Self {
+        Self::new(module.write(), identifiers)
+    }
+
     /// 在调用方显式事务中入队，任务与业务写入一起提交或回滚。
-    pub async fn create(
+    pub async fn create<M: repository_core::module::DatabaseModule>(
         &self,
-        transaction: &DatabaseTransaction,
+        transaction: &repository_core::module::ModuleTransaction<M>,
+        task: NewQueueTask,
+    ) -> Result<i64, DbErr> {
+        if !transaction.belongs_to(self.db) {
+            return Err(DbErr::Custom(
+                "入队事务不属于生产者绑定的数据库模块连接".into(),
+            ));
+        }
+        self.insert(transaction.connection(), task).await
+    }
+
+    /// 队列存储内部完成事务已经由同一存储连接创建，不向应用暴露原始事务入口。
+    pub(crate) async fn create_internal(
+        &self,
+        transaction: &sea_orm::DatabaseTransaction,
         task: NewQueueTask,
     ) -> Result<i64, DbErr> {
         self.insert(transaction, task).await

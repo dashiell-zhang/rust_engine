@@ -9,10 +9,8 @@ use sea_orm::{
 use serde_json::json;
 use std::str::FromStr;
 
-use application_interface::{
-    context::{AppContext, CurrentUser},
-    error::AppError,
-};
+use application_interface::error::AppError;
+use application_runtime::context::{AppContext, CurrentUser};
 
 use crate::user::models::PageListDto;
 use crate::write_support::{

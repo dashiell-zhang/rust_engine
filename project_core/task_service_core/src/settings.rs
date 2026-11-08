@@ -5,6 +5,7 @@ use serde::Deserialize;
 
 /// 任务宿主配置档案
 pub struct TaskServiceHostProfile {
+    pub build_databases: crate::BuildTaskServiceDatabases,
     /// 宿主名称
     pub host_name: &'static str,
 
@@ -77,9 +78,14 @@ pub enum FileStorageComponent {
 }
 
 /// 数据库配置
-#[derive(Deserialize, Clone)]
+#[derive(Deserialize, Clone, Default)]
 pub struct DatabaseSettings {
+    /// 显式模块目标；已声明但缺少写连接时不回退默认库。
+    #[serde(default)]
+    pub modules:
+        std::collections::BTreeMap<String, repository_core::module::ModuleConnectionSettings>,
     /// PostgreSQL 连接字符串
+    #[serde(default)]
     pub connection: String,
 
     /// PostgreSQL 只读连接字符串 为空时回退主库连接字符串
@@ -310,6 +316,7 @@ pub struct Settings {
     pub host: HostSettings,
 
     /// 数据库配置
+    #[serde(default)]
     pub database: DatabaseSettings,
 
     /// 锁配置

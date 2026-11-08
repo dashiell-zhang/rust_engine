@@ -14,6 +14,7 @@
 ## 快速链接
 
 - 架构与分层职责：[README.md](README.md)
+- NetEngine 架构差异与后续范围：[docs/netengine-architecture-review.md](docs/netengine-architecture-review.md)
 - 工作区 crate 列表：[Cargo.toml](Cargo.toml)
 - 可复用的构建与运行任务：[.vscode/tasks.json](.vscode/tasks.json)
 - 容器开发环境：[compose.yaml](compose.yaml)
@@ -100,9 +101,10 @@
 ## 分层边界
 
 - HTTP 相关关注点、路由注册和宿主装配应放在 `presentation/*` 与 `project_core/*`。
-- 对外 HTTP 调用应复用 `application_interface::http_client::HttpClientFactory` 这类宿主级工厂，由 `project_core/*` 或运行时宿主统一创建并通过上下文注入；不要在应用服务或基础设施调用点长期持有自行创建的 `reqwest::Client`。
+- 对外 HTTP 调用应复用 `application_runtime::http_client::HttpClientFactory` 这类宿主级工厂，由 `project_core/*` 或运行时宿主统一创建并通过上下文注入；不要在应用服务或基础设施调用点长期持有自行创建的 `reqwest::Client`。
 - 业务流程与编排应放在 `application_service*` 系列 crate 中。
-- 跨宿主契约应放在 `application_interface`，DTO 和配置模型应放在 `application_model`。
+- 跨宿主契约应放在 `application_interface`，DTO 和配置模型应放在 `application_model`。运行资源上下文、HTTP 工厂和 JWT 实现放在 `application_runtime`；不得回填到接口层。DTO/契约使用 common 时关闭默认 runtime 特性。
+- WebAPI 业务连接、日志查询和业务服务工厂通过 presentation 的资源工厂显式注册，公共宿主只运行资源健康检查管线。模块通过 `DatabaseModules` 按类型注册，禁止重复覆盖；业务事务使用 `ModuleDatabase::begin`，事务入队必须验证连接归属。
 - WebAPI 业务服务契约放在 `application_interface::services`，参数与结果只使用模型或通用类型，不暴露数据库连接、实体和 HTTP 上下文。`application_interface` 依赖 `application_model`，模型层不得反向依赖接口层。
 - 请求处理器通过工厂返回的服务契约调用用例，具体实现仅在宿主适配器选择。使用服务工厂宏的 `实现类型 => dyn 契约 + 生命周期` 声明；新增操作同步修改契约与实现绑定，不在 handler 导入具体应用服务。
 - `/Base` 的地区、字典和验证码用例统一通过 `BaseService`；地区与字典使用宿主只读连接，不复用写库上下文或额外缓存结果。验证码归属基础服务，保持五分钟有效及相同标记覆盖规则。

@@ -15,6 +15,10 @@ struct Cli {
     #[arg(long, global = true, value_enum, ignore_case = true)]
     target: Option<DatabaseTarget>,
 
+    /// 选择工具配置中的命名数据库模块，模型必须与 target 匹配。
+    #[arg(long, global = true)]
+    module: Option<String>,
+
     /// 需要执行的命令
     #[command(subcommand)]
     command: Option<Command>,
@@ -88,19 +92,19 @@ async fn run() -> Result<(), String> {
         .ok_or("请通过 --target 明确选择 business、log 或 event-bus")?;
     match command {
         Command::MigrationAdd { name, output_dir } => {
-            Settings::load(target)?;
+            Settings::load(target, cli.module.as_deref())?;
             let path = migrator::scaffold::add(target, &name, output_dir.as_deref())?;
             println!("{}", path.display());
         }
         Command::MigrationPending => {
-            Settings::load(target)?;
+            Settings::load(target, cli.module.as_deref())?;
             if migrator::scaffold::has_pending_changes(target)? {
                 return Err("当前模型存在尚未生成迁移的变化".into());
             }
             println!("当前模型与最后迁移快照一致");
         }
         Command::ModelSnapshot { sql } => {
-            Settings::load(target)?;
+            Settings::load(target, cli.module.as_deref())?;
             print!(
                 "{}",
                 if sql {
@@ -112,7 +116,7 @@ async fn run() -> Result<(), String> {
         }
         Command::Migrate { to } => {
             migrator::validate_target(target, to.as_deref())?;
-            let db = connect_database(target).await?;
+            let db = connect_database(target, cli.module.as_deref()).await?;
             migrator::migrate(&db, target, to.as_deref()).await?;
             println!("数据库迁移完成");
         }
@@ -123,7 +127,7 @@ async fn run() -> Result<(), String> {
             output,
         } => {
             // 与设计时入口一致：读取所选工具配置，但不打开数据库连接。
-            Settings::load(target)?;
+            Settings::load(target, cli.module.as_deref())?;
             let script = migrator::script(
                 target,
                 repository_core::migration::ScriptOptions {
@@ -151,7 +155,7 @@ async fn run() -> Result<(), String> {
                 DatabaseTarget::Log => logger_database::schema::json_index_tables(),
                 DatabaseTarget::EventBus => event_bus_database::schema::json_index_tables(),
             };
-            let db = connect_database(target).await?;
+            let db = connect_database(target, cli.module.as_deref()).await?;
             eprintln!("JSON 索引差异目标：{:?}；仅查询目录，不执行 DDL", target);
             let script = repository_core::json_index::create_script(&db, &tables).await?;
             print!("{script}");
@@ -162,11 +166,16 @@ async fn run() -> Result<(), String> {
 }
 
 /// 建立数据库连接
-async fn connect_database(target: DatabaseTarget) -> Result<sea_orm::DatabaseConnection, String> {
-    let settings = Settings::load(target)?;
-    Database::connect(build_postgres_connect_options(settings.connection(target)))
-        .await
-        .map_err(|error| format!("数据库连接失败: {error}"))
+async fn connect_database(
+    target: DatabaseTarget,
+    module: Option<&str>,
+) -> Result<sea_orm::DatabaseConnection, String> {
+    let settings = Settings::load(target, module)?;
+    Database::connect(build_postgres_connect_options(
+        settings.connection(target, module)?,
+    ))
+    .await
+    .map_err(|error| format!("数据库连接失败: {error}"))
 }
 
 /// 创建数据库工具默认 PostgreSQL 连接配置

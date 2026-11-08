@@ -5,7 +5,9 @@ use rust_decimal::Decimal;
 use serde::ser::Error;
 
 use super::{DataCell, DataEnum, DataTableRow};
-use crate::property_helper::{Property, PropertyResult};
+#[cfg(feature = "runtime")]
+use crate::property_helper::Property;
+use crate::property_helper::PropertyResult;
 
 /// 来自声明而非首行值的列类型；可空属性去除 Option 后记录底层类型。
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -100,6 +102,7 @@ impl DataColumn {
         }
     }
 
+    #[cfg(feature = "runtime")]
     pub(super) fn from_property(property: &Property) -> Self {
         Self::new(property.name, property.data_type.clone())
     }

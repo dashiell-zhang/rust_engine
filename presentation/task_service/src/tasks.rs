@@ -1,18 +1,12 @@
 use std::sync::Arc;
 
-use application_interface::{
-    context::{AppContext, MessageContext, SmsContext},
-    email::AppEmailSender,
-    sms::AppSmsSender,
-    storage::AppFileStorage,
-};
-use application_service::message::service::MessageService;
-use application_service_sms::sms::send_service::SendSmsService;
+use application_interface::services::TaskServiceFactory;
 use async_trait::async_trait;
 use chrono::Local;
 use common::identifier_generator::IdentifierGenerator;
 use queue_task_database::{NewQueueTask, QueueTaskProducer};
-use sea_orm::DatabaseConnection;
+use repository::BusinessModule;
+use repository_core::module::ModuleDatabase;
 use source_generator_runtime::register_task_registry;
 use task_service_core::features::TaskServiceFeatureContext;
 use task_service_core::registry::{
@@ -46,34 +40,25 @@ const DEMO_QUEUE_SHOW_NAME_SUCCESS: &str = "ShowNameSuccess";
 #[derive(Clone)]
 pub struct BuiltinTaskHandlerFactory {
     /// 数据库连接
-    db_pool: Arc<DatabaseConnection>,
+    database: ModuleDatabase<BusinessModule>,
 
     /// ID 生成器
     identifier_generator: IdentifierGenerator,
 
-    /// 短信发送器
-    sms_sender: Arc<dyn AppSmsSender>,
-
-    /// 邮件发送器
-    email_sender: Arc<dyn AppEmailSender>,
-
-    /// 文件存储
-    file_storage: Option<Arc<dyn AppFileStorage>>,
-
-    /// 宿主内容目录
-    content_root: Arc<std::path::PathBuf>,
+    services: Arc<dyn TaskServiceFactory>,
 }
 
 impl BuiltinTaskHandlerFactory {
     /// 根据任务特性上下文创建处理器工厂
-    pub fn new(context: &TaskServiceFeatureContext) -> Self {
+    pub fn new(context: &TaskServiceFeatureContext, services: Arc<dyn TaskServiceFactory>) -> Self {
         Self {
-            db_pool: context.db_pool.clone(),
+            database: context
+                .modules
+                .get::<BusinessModule>()
+                .expect("内置任务必须注册 BusinessModule")
+                .clone(),
             identifier_generator: context.identifier_generator.clone(),
-            sms_sender: context.sms_sender.clone(),
-            email_sender: context.email_sender.clone(),
-            file_storage: context.file_storage.clone(),
-            content_root: context.content_root.clone(),
+            services,
         }
     }
 
@@ -88,29 +73,23 @@ impl BuiltinTaskHandlerFactory {
 
     /// 创建短信发送队列任务处理器
     pub fn send_sms_queue_task(&self) -> SendSmsQueueTask {
-        SendSmsQueueTask::new(self.sms_sender.clone())
+        SendSmsQueueTask::new(self.services.clone())
     }
 
     /// 创建邮件发送队列任务处理器
     pub fn send_email_queue_task(&self) -> SendEmailQueueTask {
-        SendEmailQueueTask::new(
-            self.db_pool.clone(),
-            self.identifier_generator.clone(),
-            self.email_sender.clone(),
-            self.file_storage.clone(),
-            self.content_root.clone(),
-        )
+        SendEmailQueueTask::new(self.services.clone())
     }
 
     /// 创建示例定时任务处理器
     pub fn demo_show_time_schedule_task(&self) -> DemoShowTimeScheduleTask {
-        DemoShowTimeScheduleTask::new(self.db_pool.clone(), self.identifier_generator.clone())
+        DemoShowTimeScheduleTask::new(self.database.clone(), self.identifier_generator.clone())
     }
 
     /// 创建示例主队列任务处理器
     pub fn demo_show_name_queue_task(&self) -> impl QueueTaskHandler + use<> {
         let task = Arc::new(DemoShowNameQueueTask::new(
-            self.db_pool.clone(),
+            self.database.clone(),
             self.identifier_generator.clone(),
         ));
         queue_action(move |context| {
@@ -139,8 +118,9 @@ impl BuiltinTaskHandlerFactory {
 pub fn register_builtin_tasks(
     registry: &mut TaskRegistry,
     context: &TaskServiceFeatureContext,
+    services: Arc<dyn TaskServiceFactory>,
 ) -> Result<(), String> {
-    let handlers = BuiltinTaskHandlerFactory::new(context);
+    let handlers = BuiltinTaskHandlerFactory::new(context, services);
 
     register_task_registry! {
         registry = registry;
@@ -192,38 +172,11 @@ pub fn register_builtin_tasks(
 
 /// 邮件发送队列任务处理器
 pub struct SendEmailQueueTask {
-    /// 数据库连接
-    db_pool: Arc<DatabaseConnection>,
-
-    /// ID 生成器
-    identifier_generator: IdentifierGenerator,
-
-    /// 邮件发送器
-    email_sender: Arc<dyn AppEmailSender>,
-
-    /// 文件存储
-    file_storage: Option<Arc<dyn AppFileStorage>>,
-
-    /// 宿主内容目录
-    content_root: Arc<std::path::PathBuf>,
+    services: Arc<dyn TaskServiceFactory>,
 }
-
 impl SendEmailQueueTask {
-    /// 创建邮件发送队列任务处理器
-    pub fn new(
-        db_pool: Arc<DatabaseConnection>,
-        identifier_generator: IdentifierGenerator,
-        email_sender: Arc<dyn AppEmailSender>,
-        file_storage: Option<Arc<dyn AppFileStorage>>,
-        content_root: Arc<std::path::PathBuf>,
-    ) -> Self {
-        Self {
-            db_pool,
-            identifier_generator,
-            email_sender,
-            file_storage,
-            content_root,
-        }
+    pub fn new(services: Arc<dyn TaskServiceFactory>) -> Self {
+        Self { services }
     }
 }
 
@@ -231,17 +184,7 @@ impl SendEmailQueueTask {
 impl QueueTaskHandler for SendEmailQueueTask {
     async fn execute(&self, context: QueueTaskContext) -> Result<(), String> {
         let email = context.deserialize_parameter()?;
-        let service = MessageService::new(MessageContext {
-            app: AppContext {
-                db: self.db_pool.as_ref(),
-                id_generator: &self.identifier_generator,
-                current_user: None,
-            },
-            root_path: self.content_root.as_path(),
-            file_storage: self.file_storage.as_deref(),
-            email_sender: Some(self.email_sender.as_ref()),
-        });
-        let service: &dyn application_interface::services::message::MessageService = &service;
+        let service = self.services.message();
         service
             .send_email(email)
             .await
@@ -251,14 +194,11 @@ impl QueueTaskHandler for SendEmailQueueTask {
 
 /// 短信发送队列任务处理器
 pub struct SendSmsQueueTask {
-    /// 短信发送器
-    sms_sender: Arc<dyn AppSmsSender>,
+    services: Arc<dyn TaskServiceFactory>,
 }
-
 impl SendSmsQueueTask {
-    /// 创建短信发送队列任务处理器
-    pub fn new(sms_sender: Arc<dyn AppSmsSender>) -> Self {
-        Self { sms_sender }
+    pub fn new(services: Arc<dyn TaskServiceFactory>) -> Self {
+        Self { services }
     }
 }
 
@@ -269,10 +209,7 @@ impl QueueTaskHandler for SendSmsQueueTask {
         let message = context
             .deserialize_parameter::<Option<_>>()?
             .ok_or_else(|| "短信发送任务参数为空".to_string())?;
-        let service = SendSmsService::new(SmsContext {
-            sms_sender: self.sms_sender.as_ref(),
-        });
-        let service: &dyn application_interface::services::sms::SmsService = &service;
+        let service = self.services.sms();
         service
             .send_sms(message)
             .await
@@ -291,7 +228,7 @@ impl QueueTaskHandler for SendSmsQueueTask {
 /// NetEngine 示例定时任务处理器
 pub struct DemoShowTimeScheduleTask {
     /// 数据库连接
-    db_pool: Arc<DatabaseConnection>,
+    database: ModuleDatabase<BusinessModule>,
 
     /// ID 生成器
     identifier_generator: IdentifierGenerator,
@@ -300,11 +237,11 @@ pub struct DemoShowTimeScheduleTask {
 impl DemoShowTimeScheduleTask {
     /// 创建示例定时任务处理器
     pub fn new(
-        db_pool: Arc<DatabaseConnection>,
+        database: ModuleDatabase<BusinessModule>,
         identifier_generator: IdentifierGenerator,
     ) -> Self {
         Self {
-            db_pool,
+            database,
             identifier_generator,
         }
     }
@@ -316,7 +253,7 @@ impl ScheduleTaskHandler for DemoShowTimeScheduleTask {
         for _ in 0..17 {
             let name = format!("张晓栋{}", Local::now().format("%S%3f"));
             if let Err(error) = enqueue_queue_task_record(
-                self.db_pool.as_ref(),
+                &self.database,
                 &self.identifier_generator,
                 DEMO_QUEUE_SHOW_NAME,
                 Some(name),
@@ -346,7 +283,7 @@ impl ScheduleTaskHandler for DemoShowTimeScheduleTask {
 /// NetEngine 示例主队列任务处理器
 pub struct DemoShowNameQueueTask {
     /// 数据库连接
-    db_pool: Arc<DatabaseConnection>,
+    database: ModuleDatabase<BusinessModule>,
 
     /// ID 生成器
     identifier_generator: IdentifierGenerator,
@@ -355,11 +292,11 @@ pub struct DemoShowNameQueueTask {
 impl DemoShowNameQueueTask {
     /// 创建示例主队列任务处理器
     pub fn new(
-        db_pool: Arc<DatabaseConnection>,
+        database: ModuleDatabase<BusinessModule>,
         identifier_generator: IdentifierGenerator,
     ) -> Self {
         Self {
-            db_pool,
+            database,
             identifier_generator,
         }
     }
@@ -378,7 +315,7 @@ impl DemoShowNameQueueTask {
         );
 
         enqueue_queue_task_record(
-            self.db_pool.as_ref(),
+            &self.database,
             &self.identifier_generator,
             DEMO_QUEUE_SEND_SMS,
             name.clone(),
@@ -389,7 +326,7 @@ impl DemoShowNameQueueTask {
         .await?;
 
         enqueue_queue_task_record(
-            self.db_pool.as_ref(),
+            &self.database,
             &self.identifier_generator,
             DEMO_QUEUE_CALL_PHONE,
             name.clone(),
@@ -468,7 +405,7 @@ impl QueueTaskHandler for DemoShowNameSuccessQueueTask {
 
 /// 写入一条队列任务记录
 async fn enqueue_queue_task_record(
-    db: &DatabaseConnection,
+    database: &ModuleDatabase<BusinessModule>,
     identifier_generator: &IdentifierGenerator,
     task_name: &str,
     parameter: Option<String>,
@@ -476,7 +413,7 @@ async fn enqueue_queue_task_record(
     callback_parameter: Option<String>,
     parent_task_id: Option<i64>,
 ) -> Result<(), String> {
-    QueueTaskProducer::new(db, identifier_generator)
+    QueueTaskProducer::from_module(database, identifier_generator)
         .create_single(NewQueueTask {
             name: task_name.to_string(),
             parameter: parameter

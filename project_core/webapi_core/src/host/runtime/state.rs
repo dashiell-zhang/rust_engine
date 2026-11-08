@@ -6,17 +6,16 @@ use crate::health::{
 use crate::host::features::WebApiRoutePermission;
 use crate::host::settings::Settings;
 use application_interface::email::AppEmailSender;
-use application_interface::http_client::HttpClientFactory;
+use application_interface::error::AppError;
 use application_interface::storage::AppFileStorage;
-use application_interface::{auth::EcJwtCodec, error::AppError};
+use application_runtime::auth::EcJwtCodec;
+use application_runtime::http_client::HttpClientFactory;
 use async_trait::async_trait;
 use chrono::Utc;
 use common::app_error::AppError as ApplicationError;
 use distributed_cache::{CacheEntryOptions, DistributedCache, DistributedCacheExt};
 use distributed_lock::DistributedLock;
 use identifier_generator::IdentifierGenerator;
-use repository_core::{ReadDatabaseConnection, database_health};
-use sea_orm::DatabaseConnection;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -24,22 +23,7 @@ use std::time::Duration;
 pub struct AppState {
     pub application: Arc<dyn super::super::application::WebApiApplication>,
     pub event_publisher: event_bus::EventPublisher,
-    /// 日志专用查询入口，与业务读库独立。
-    pub log_query: logger_database::query::LogQueryService,
-
-    /// 日志写入器使用的连接（文件日志组件为空，健康探测单独装配）。
-    pub log_db_pool: Option<Arc<DatabaseConnection>>,
-
-    /// 独立日志目标健康探测；不要求启用数据库日志写入器。
-    pub log_health_db_pool: Arc<DatabaseConnection>,
-    /// 由宿主档案声明是否检查日志读库。
-    pub check_log_read_health: bool,
-
-    /// 数据库连接池
-    pub db_pool: Arc<DatabaseConnection>,
-
-    /// 数据库只读连接池
-    pub read_db_pool: Arc<ReadDatabaseConnection>,
+    pub resources: crate::host::resources::WebApiResources,
 
     /// ID 生成器适配器
     pub id_generator: IdentifierGenerator,
@@ -67,18 +51,6 @@ pub struct AppState {
 
     /// JWT 编解码器
     pub jwt_codec: EcJwtCodec,
-}
-
-impl AppState {
-    /// 获取主库连接
-    pub fn primary_db(&self) -> &DatabaseConnection {
-        self.db_pool.as_ref()
-    }
-
-    /// 获取只读数据库连接
-    pub fn read_db(&self) -> &ReadDatabaseConnection {
-        self.read_db_pool.as_ref()
-    }
 }
 
 impl JwtDecodingState for AppState {
@@ -132,24 +104,8 @@ impl HealthState for AppState {
         &self,
         stopping: &event_bus::CancellationToken,
     ) -> HealthzResponse {
-        let (write, read, log_write, log_read, cache, event) = tokio::join!(
-            check_named_database_health(self.primary_db(), "Business.Write", stopping),
-            check_named_database_health(self.read_db_pool.as_ref(), "Business.Read", stopping),
-            check_named_database_health(self.log_health_db_pool.as_ref(), "Log.Write", stopping),
-            async {
-                if self.check_log_read_health {
-                    Some(
-                        check_named_database_health(
-                            self.log_query.connection(),
-                            "Log.Read",
-                            stopping,
-                        )
-                        .await,
-                    )
-                } else {
-                    None
-                }
-            },
+        let (mut components, cache, event) = tokio::join!(
+            self.resources.check_health(stopping),
             check_cache_health(self, stopping),
             async {
                 health_result(
@@ -160,8 +116,7 @@ impl HealthState for AppState {
                 )
             },
         );
-        let mut components = vec![write, read, log_write, cache, event];
-        components.extend(log_read);
+        components.extend([cache, event]);
         let status = if components
             .iter()
             .all(|component| component.status == HEALTH_STATUS_HEALTHY)
@@ -177,19 +132,6 @@ impl HealthState for AppState {
             components,
         }
     }
-}
-
-async fn check_named_database_health<C: database_health::DatabaseHealthConnection>(
-    db: &C,
-    name: &str,
-    stopping: &event_bus::CancellationToken,
-) -> HealthComponentResponse {
-    health_result(
-        name,
-        database_health::check_database_health_with_cancellation(db, stopping)
-            .await
-            .map_err(|error| error.to_string()),
-    )
 }
 
 async fn check_cache_health(
@@ -234,7 +176,7 @@ impl application_interface::events::EventPublisherProvider for AppState {
 impl crate::auth::PermissionState for AppState {
     async fn check_permission(
         &self,
-        current_user: application_interface::context::CurrentUser,
+        current_user: application_runtime::context::CurrentUser,
         module: &str,
         route: &str,
         allow_unbound: bool,

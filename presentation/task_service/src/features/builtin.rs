@@ -4,7 +4,12 @@ use task_service_core::registry::TaskRegistry;
 use crate::tasks::register_builtin_tasks;
 
 /// 内置任务特性
-pub struct BuiltinTaskFeature;
+pub struct BuiltinTaskFeature {
+    pub services: fn(
+        &TaskServiceFeatureContext,
+    )
+        -> std::sync::Arc<dyn application_interface::services::TaskServiceFactory>,
+}
 
 impl TaskServiceFeature for BuiltinTaskFeature {
     /// 向任务注册表注册当前特性的任务
@@ -13,6 +18,7 @@ impl TaskServiceFeature for BuiltinTaskFeature {
         registry: &mut TaskRegistry,
         context: &TaskServiceFeatureContext,
     ) -> Result<(), String> {
-        register_builtin_tasks(registry, context)
+        context.modules.get::<repository::BusinessModule>()?;
+        register_builtin_tasks(registry, context, (self.services)(context))
     }
 }

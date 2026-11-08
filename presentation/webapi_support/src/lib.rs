@@ -1,11 +1,11 @@
-use application_interface::{
-    context::{
-        AppContext, AppSettingContext, AuthorizeContext, CurrentUser, FileContext, PayContext,
-        RoleContext,
-    },
-    error::AppError,
-};
+use application_interface::services::ServiceFactory;
+pub mod resources;
+use application_interface::error::AppError;
 use application_model::authorize::models::PermissionRouteSyncItem;
+use application_runtime::context::{
+    AppContext, AppSettingContext, AuthorizeContext, CurrentUser, FileContext, PayContext,
+    RoleContext,
+};
 use application_service::{
     app_setting::service::AppSettingService,
     article::service::ArticleWebApiService,
@@ -22,6 +22,7 @@ use application_service::{
     user::service::UserWebApiService,
 };
 use async_trait::async_trait;
+use resources::BusinessResources;
 use source_generator_runtime::generate_direct_service_factory;
 use std::sync::Arc;
 use webapi_core::host::{application::WebApiApplication, state::AppState};
@@ -37,11 +38,21 @@ impl<'a> WebApiApplicationAdapter<'a> {
 }
 
 pub trait WebApiApplicationExt {
-    fn services(&self) -> WebApiApplicationAdapter<'_>;
+    fn business_resources(&self) -> &BusinessResources;
+    fn services(&self) -> Box<dyn ServiceFactory<'_> + '_>;
 }
 impl WebApiApplicationExt for AppState {
-    fn services(&self) -> WebApiApplicationAdapter<'_> {
-        WebApiApplicationAdapter::new(self)
+    fn business_resources(&self) -> &BusinessResources {
+        self.resources
+            .get()
+            .expect("业务特性必须通过宿主档案注册 BusinessResources")
+    }
+    fn services(&self) -> Box<dyn ServiceFactory<'_> + '_> {
+        (self
+            .resources
+            .get::<BusinessServiceFactory>()
+            .expect("业务特性必须注册服务工厂")
+            .0)(self)
     }
 }
 
@@ -49,7 +60,7 @@ impl<'a> WebApiApplicationAdapter<'a> {
     /// 获取主库应用层通用上下文
     pub fn primary_app_context(&self) -> AppContext<'a> {
         AppContext {
-            db: self.state.primary_db(),
+            db: self.state.business_resources().business().write(),
             id_generator: &self.state.id_generator,
             // 通用应用服务上下文默认不携带请求用户 需要时由特化上下文补充
             current_user: None,
@@ -57,9 +68,9 @@ impl<'a> WebApiApplicationAdapter<'a> {
     }
 
     /// 获取主库 WebAPI 宿主特化上下文
-    pub fn primary_webapi_context(&self) -> application_interface::context::WebApiContext<'a> {
+    pub fn primary_webapi_context(&self) -> application_runtime::context::WebApiContext<'a> {
         let app = self.primary_app_context();
-        application_interface::context::WebApiContext {
+        application_runtime::context::WebApiContext {
             app,
             cache: Some(self.state.cache.as_ref()),
             distributed_lock: self.state.distributed_lock.as_ref(),
@@ -86,7 +97,9 @@ impl<'a> WebApiApplicationAdapter<'a> {
             })
             .collect::<Vec<_>>();
 
-        self.permission_route()
+        self.state
+            .services()
+            .permission_route()
             .sync_routes(&self.state.settings.permission_module, &routes)
             .await?;
 
@@ -97,12 +110,13 @@ impl<'a> WebApiApplicationAdapter<'a> {
 generate_direct_service_factory! {
     impl_generics = <'a>;
     factory = WebApiApplicationAdapter<'a>;
+    implements = application_interface::services::ServiceFactory<'a>;
 
     (self.authorize_context()) {
         authorize: AuthorizeService<'a> => dyn application_interface::services::authorize::AuthorizeService + 'a
     }
 
-    (BaseContext { read_db: self.state.read_db(), cache: self.state.cache.as_ref() }) {
+    (BaseContext { read_db: self.state.business_resources().business().read(), cache: self.state.cache.as_ref() }) {
         base: BaseService<'a> => dyn application_interface::services::base::BaseService + 'a
     }
 
@@ -111,7 +125,7 @@ generate_direct_service_factory! {
         permission_route: PermissionRouteService<'a> => dyn application_interface::services::permission_route::PermissionRouteService + 'a
     }
 
-    (&self.state.log_query) {
+    (&self.state.business_resources().log_query) {
         log_manage: LogManageService<'a> => dyn application_interface::services::log::LogManageService + 'a,
         task_logs: application_service::task_center::log_service::TaskExecutionLogService<'a> => dyn application_interface::services::task_log::TaskExecutionLogService + 'a
     }
@@ -138,6 +152,15 @@ generate_direct_service_factory! {
         link_webapi: LinkWebApiService<'a> => dyn application_interface::services::link::LinkService + 'a,
         site_webapi: SiteWebApiService<'a> => dyn application_interface::services::site::SiteService + 'a
     }
+    (application_runtime::context::LlmContext { app: self.primary_app_context(), distributed_lock: self.state.distributed_lock.as_ref(), http_client_factory: &self.state.http_client_factory }) {
+        llm_app: application_service_llm::llm::app_service::LlmAppService<'a> => dyn application_interface::services::llm_app::LlmAppService + 'a,
+        llm_model: application_service_llm::llm::model_service::LlmModelService<'a> => dyn application_interface::services::llm_model::LlmModelService + 'a,
+        llm_invoke: application_service_llm::llm::invoke_service::LlmInvokeService<'a> => dyn application_interface::services::llm_invoke::LlmInvokeService + 'a
+    }
+    (self.state.business_resources().business().read()) {
+        llm_conversation_manage: application_service_llm::llm::conversation_manage_service::LlmConversationManageService<'a> => dyn application_interface::services::llm_conversation::LlmConversationManageService + 'a
+    }
+
 }
 
 impl<'a> WebApiApplicationAdapter<'a> {
@@ -219,6 +242,17 @@ pub fn application() -> Arc<dyn WebApiApplication> {
 struct BusinessWebApiApplication;
 #[async_trait]
 impl WebApiApplication for BusinessWebApiApplication {
+    fn validate_resources(
+        &self,
+        resources: &webapi_core::host::resources::WebApiResources,
+    ) -> Result<(), String> {
+        resources.get::<BusinessServiceFactory>()?;
+        resources
+            .get::<BusinessResources>()?
+            .modules
+            .get::<repository::BusinessModule>()?;
+        Ok(())
+    }
     async fn try_renew_token(
         &self,
         state: &AppState,
@@ -253,6 +287,14 @@ impl WebApiApplication for BusinessWebApiApplication {
             .await
     }
     async fn sync_permission_routes(&self, state: &AppState) -> Result<bool, AppError> {
-        state.services().sync_permission_routes().await
+        WebApiApplicationAdapter::new(state)
+            .sync_permission_routes()
+            .await
     }
+}
+
+/// 每个宿主注册一次工厂选择；服务只借用本次请求的宿主资源。
+pub struct BusinessServiceFactory(pub for<'a> fn(&'a AppState) -> Box<dyn ServiceFactory<'a> + 'a>);
+pub fn default_services(state: &AppState) -> Box<dyn ServiceFactory<'_> + '_> {
+    Box::new(WebApiApplicationAdapter::new(state))
 }

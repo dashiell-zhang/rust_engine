@@ -45,7 +45,7 @@ SMTP 由任务宿主的 `[message.smtp]` 配置提供，默认端口为 587，�
 
 ## 队列持久化
 
-Worker 通过 `QueueTaskStore` 契约领取、开始、续租、完成或失败任务；默认实现为 `DatabaseQueueTaskStore`。应用入队继续使用 `QueueTaskProducer`：`create` 要求传入显式事务，`create_single` 独立保存。
+Worker 通过 `QueueTaskStore` 契约领取、开始、续租、完成或失败任务；默认实现为 `DatabaseQueueTaskStore`。应用入队继续使用 `QueueTaskProducer`：`create` 要求传入所属模块的 `ModuleTransaction<M>`，并验证与生产者使用同一连接池；`create_single` 独立保存。宿主通过 `build_databases` 和 `TaskServiceDatabases::for_module::<M>` 选择队列目标，详见[业务模块说明](database-modules.md)。
 
 新增任务定义默认禁用，启用后才会领取。数据库配置的 `semaphore` 覆盖定义中的默认值，必须大于零；实例按剩余容量查询候选任务，并通过共同分布式锁限制跨实例并发。各实例必须使用相同锁连接和前缀。
 

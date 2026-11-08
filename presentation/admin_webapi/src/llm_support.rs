@@ -1,14 +1,7 @@
 #![allow(clippy::type_complexity)]
+use webapi_support::WebApiApplicationExt;
 
-use application_interface::{
-    context::{AppContext, LlmContext},
-    email::AppEmailSender,
-    storage::AppFileStorage,
-};
-use application_service_llm::llm::{
-    app_service::LlmAppService, conversation_manage_service::LlmConversationManageService,
-    model_service::LlmModelService,
-};
+use application_interface::{email::AppEmailSender, storage::AppFileStorage};
 use distributed_cache::DistributedCache;
 use distributed_cache_memory::InMemoryCache;
 use distributed_cache_redis::RedisCache;
@@ -69,7 +62,7 @@ pub fn build_cache(
 /// 构建管理端日志运行时
 pub fn build_logger_runtime<'a>(
     settings: &'a Settings,
-    context: &'a WebApiLoggerBuilderContext,
+    context: &'a WebApiLoggerBuilderContext<'a>,
 ) -> Pin<Box<dyn Future<Output = Result<LoggerRuntime, String>> + Send + 'a>> {
     Box::pin(async move {
         match settings.logger.component {
@@ -98,6 +91,8 @@ pub fn build_logger_runtime<'a>(
                 init_database_logger(
                     &settings.logger,
                     context
+                        .resources
+                        .get::<webapi_support::resources::BusinessResources>()?
                         .log_db_pool
                         .clone()
                         .ok_or("数据库日志写连接未装配")?,
@@ -120,7 +115,7 @@ pub fn build_logger_runtime<'a>(
 /// 构建管理端文件存储
 pub fn build_file_storage(
     settings: &Settings,
-    http_clients: Arc<application_interface::http_client::HttpClientFactory>,
+    http_clients: Arc<application_runtime::http_client::HttpClientFactory>,
 ) -> Result<Option<Arc<dyn AppFileStorage>>, String> {
     match settings.file.component {
         webapi_core::settings::FileStorageComponent::Local => Ok(None),
@@ -177,34 +172,16 @@ impl<'a> AdminLlmApplicationAdapter<'a> {
         Self { state }
     }
 
-    /// 获取 LLM 模块通用上下文
-    fn llm_context(&self) -> LlmContext<'_> {
-        LlmContext {
-            app: self.app_context(),
-            distributed_lock: self.state.distributed_lock.as_ref(),
-            http_client_factory: &self.state.http_client_factory,
-        }
-    }
-
-    /// 获取应用层通用上下文
-    fn app_context(&self) -> AppContext<'_> {
-        AppContext {
-            db: self.state.db_pool.as_ref(),
-            id_generator: &self.state.id_generator,
-            current_user: None,
-        }
-    }
-
     /// 创建 LLM 应用配置服务
     pub fn llm_app(&self) -> Box<dyn application_interface::services::llm_app::LlmAppService + '_> {
-        Box::new(LlmAppService::new(self.llm_context()))
+        self.state.services().llm_app()
     }
 
     /// 创建 LLM 模型配置服务
     pub fn llm_model(
         &self,
     ) -> Box<dyn application_interface::services::llm_model::LlmModelService + '_> {
-        Box::new(LlmModelService::new(self.llm_context()))
+        self.state.services().llm_model()
     }
 
     /// 创建 LLM 对话记录管理服务
@@ -212,7 +189,7 @@ impl<'a> AdminLlmApplicationAdapter<'a> {
         &self,
     ) -> Box<dyn application_interface::services::llm_conversation::LlmConversationManageService + '_>
     {
-        Box::new(LlmConversationManageService::new(self.state.read_db()))
+        self.state.services().llm_conversation_manage()
     }
 }
 

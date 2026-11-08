@@ -5,6 +5,7 @@ members = [
   "source_generator/source_generator_runtime",
   "application/application_model",
   "application/application_interface",
+  "application/application_runtime",
   "application/application_service",
   "application/application_service_sms",
   "application/application_service_llm",

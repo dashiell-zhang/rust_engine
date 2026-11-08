@@ -130,3 +130,10 @@ cache_key = "token"
 [http_clients.carry_cert]
 certificate_path = "ssl/xxxx.p12"
 password = ""
+
+# 可选：显式选择模板业务模块；不配置时沿用 database 的默认连接。
+# 指定后写连接不可为空；其他模块由宿主按具体模块类型注册。
+# 日志和事件目标独立配置，下面的模块连接不会改写它们。
+# [database.modules.business]
+# connection = "<业务写库连接>"
+# read_connection = ""

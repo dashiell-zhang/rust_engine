@@ -9,7 +9,8 @@ use std::{
     time::Duration,
 };
 
-use application_interface::{http_client::HttpClientFactory, storage::AppFileStorage};
+use application_interface::storage::AppFileStorage;
+use application_runtime::http_client::HttpClientFactory;
 use async_trait::async_trait;
 use chrono::{DateTime, Datelike, TimeDelta, Timelike, Utc};
 use common::app_error::AppError;

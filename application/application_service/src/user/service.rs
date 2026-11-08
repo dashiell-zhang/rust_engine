@@ -15,10 +15,8 @@ use sea_orm::{
 use serde_json::json;
 use std::collections::HashSet;
 
-use application_interface::{
-    context::{AppContext, CurrentUser},
-    error::AppError,
-};
+use application_interface::error::AppError;
+use application_runtime::context::{AppContext, CurrentUser};
 
 use crate::write_support::{
     apply_soft_delete_audit_fields, apply_update_user_audit_field, begin_transaction,
@@ -1064,15 +1062,13 @@ mod webapi_impl {
     use super::UserService;
     use crate::region::service::RegionWebApiService;
 
-    use application_interface::{
-        context::{CurrentUser, WebApiContext},
-        error::AppError,
-    };
+    use application_interface::error::AppError;
     use application_model::region::models::RegionDto;
     use application_model::user::models::{
         EditUserDto, EditUserPhoneBySmsDto, EditUserProfileDto, PageListDto, SetUserFunctionDto,
         SetUserRoleDto, UserDto, UserFunctionDto, UserPageRequest, UserProfileDto, UserRoleDto,
     };
+    use application_runtime::context::{CurrentUser, WebApiContext};
     use repository::user;
     use repository_core::versioned::VersionedActiveModel;
     use sea_orm::{ColumnTrait, EntityTrait, IntoActiveModel, QueryFilter, Set};

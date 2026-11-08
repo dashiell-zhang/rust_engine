@@ -3,8 +3,6 @@ use application_interface::email::AppEmailSender;
 use application_interface::sms::AppSmsSender;
 use application_interface::storage::AppFileStorage;
 use common::identifier_generator::IdentifierGenerator;
-use repository_core::ReadDatabaseConnection;
-use sea_orm::DatabaseConnection;
 use std::sync::Arc;
 
 /// TaskService 特性注册上下文
@@ -13,11 +11,8 @@ pub struct TaskServiceFeatureContext {
     /// 宿主业务缓存；任务特性按需克隆使用，不参与 ID 节点协调。
     pub cache: Arc<dyn distributed_cache::DistributedCache>,
     pub event_publisher: event_bus::EventPublisher,
-    /// 数据库连接
-    pub db_pool: Arc<DatabaseConnection>,
-
-    /// 数据库只读连接池
-    pub read_db_pool: Arc<ReadDatabaseConnection>,
+    /// 业务特性按模块类型取得固定目标。
+    pub modules: Arc<repository_core::module::DatabaseModules>,
 
     /// ID 生成器
     pub identifier_generator: IdentifierGenerator,

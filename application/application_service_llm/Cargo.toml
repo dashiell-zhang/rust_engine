@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+application_runtime = { path = "../application_runtime" }
 repository_core = { path = "../../infrastructure/repository_core" }
 application_interface = { path = "../application_interface" }
 application_model = { path = "../application_model" }

@@ -14,14 +14,12 @@ use crate::rate_limit::RateLimiter;
 use crate::{
     builder::WebApiRouterBuilder, openapi::apply_openapi_enhancements, startup::WebApiStartup,
 };
-use application_interface::auth::EcJwtCodec;
 use application_interface::email::AppEmailSender;
-use application_interface::http_client::HttpClientFactory;
+use application_runtime::auth::EcJwtCodec;
+use application_runtime::http_client::HttpClientFactory;
 use axum::Router;
 use identifier_generator::IdentifierGenerator;
 use logger::LoggerRuntime;
-use repository_core::ReadDatabaseConnection;
-use sea_orm::Database;
 use utoipa::OpenApi;
 
 /// WebAPI 宿主构建器
@@ -45,6 +43,7 @@ pub struct WebApiHostBuilder {
     build_logger_runtime: BuildWebApiLoggerRuntime,
     build_event_transport: Option<crate::host::BuildWebApiEventTransport>,
 
+    build_resources: Option<crate::host::BuildWebApiResources>,
     application: Option<Arc<dyn crate::host::application::WebApiApplication>>,
 
     /// 已注册特性
@@ -91,10 +90,16 @@ impl WebApiHostBuilder {
             features: Vec::new(),
             build_event_transport: None,
             application: None,
+            build_resources: None,
             check_log_read_health: false,
             serve_web_root: false,
             configure_http_clients: None,
         }
+    }
+
+    pub fn with_resources_factory(mut self, factory: crate::host::BuildWebApiResources) -> Self {
+        self.build_resources = Some(factory);
+        self
     }
 
     /// 由宿主档案决定是否注册日志读库健康检查。
@@ -177,91 +182,17 @@ impl WebApiHostBuilder {
         .map_err(|error| format!("ID 服务初始化失败: {error}"))?;
         let cache = Arc::clone(&distributed_cache);
 
-        let db_pool = Arc::new(
-            Database::connect(WebApiStartup::build_postgres_connect_options(
-                self.settings.database.connection.clone(),
-                &self.settings.host.database_pool,
-            ))
-            .await
-            .map_err(|error| format!("数据库连接初始化失败: {error}"))?,
-        );
-
-        let read_connection = if self.settings.database.read_connection.trim().is_empty() {
-            self.settings.database.connection.clone()
-        } else {
-            self.settings.database.read_connection.clone()
-        };
-        let mut read_connect_options = WebApiStartup::build_postgres_connect_options(
-            read_connection,
-            &self.settings.host.database_pool,
-        );
-        read_connect_options.map_sqlx_postgres_opts(|options| {
-            options.options([("default_transaction_read_only", "on")])
-        });
-        let read_db_pool = Arc::new(ReadDatabaseConnection::new(
-            Database::connect(read_connect_options)
-                .await
-                .map_err(|error| format!("只读数据库连接初始化失败: {error}"))?,
-        ));
-
-        let log_db_pool = if self.settings.logger.component == logger::LoggerComponent::Database {
-            let mut options = WebApiStartup::build_postgres_connect_options(
-                self.settings
-                    .logger
-                    .write_connection(&self.settings.database.connection),
-                &self.settings.host.database_pool,
-            );
-            // 日志数据库自身的 SQL 不回流日志管线，避免递归记录。
-            options.sqlx_logging(false);
-            Some(Arc::new(
-                Database::connect(options)
-                    .await
-                    .map_err(|error| format!("日志写连接初始化失败: {error}"))?,
-            ))
-        } else {
-            None
+        let resources = match self.build_resources {
+            Some(build) => build(&self.settings, self.check_log_read_health).await?,
+            None => crate::host::resources::WebApiResources::default(),
         };
 
-        let log_health_db_pool = match &log_db_pool {
-            Some(db) => db.clone(),
-            None => {
-                let mut options = WebApiStartup::build_postgres_connect_options(
-                    self.settings
-                        .logger
-                        .write_connection(&self.settings.database.connection),
-                    &self.settings.host.database_pool,
-                );
-                options
-                    .sqlx_logging(false)
-                    .min_connections(0)
-                    .connect_lazy(true);
-                Arc::new(
-                    Database::connect(options)
-                        .await
-                        .map_err(|error| format!("日志健康检查连接配置失败: {error}"))?,
-                )
-            }
-        };
-        let mut log_read_options = WebApiStartup::build_postgres_connect_options(
-            self.settings
-                .logger
-                .query_connection(&self.settings.database.connection),
-            &self.settings.host.database_pool,
-        );
-        log_read_options.sqlx_logging(false);
-        if !self.check_log_read_health {
-            log_read_options.min_connections(0).connect_lazy(true);
-        }
-        let log_query = logger_database::query::LogQueryService::new(Arc::new(
-            ReadDatabaseConnection::connect(log_read_options)
-                .await
-                .map_err(|error| format!("日志只读连接初始化失败: {error}"))?,
-        ));
+        application.validate_resources(&resources)?;
 
         let logger_runtime = (self.build_logger_runtime)(
             &self.settings,
             &WebApiLoggerBuilderContext {
-                log_db_pool: log_db_pool.clone(),
+                resources: &resources,
                 identifier_generator: identifier_generator.clone(),
             },
         )
@@ -325,12 +256,7 @@ impl WebApiHostBuilder {
         let app_state = Arc::new(AppState {
             application,
             event_publisher,
-            db_pool,
-            read_db_pool,
-            log_query,
-            log_db_pool,
-            log_health_db_pool,
-            check_log_read_health: self.check_log_read_health,
+            resources,
             id_generator,
             distributed_lock,
             file_storage,

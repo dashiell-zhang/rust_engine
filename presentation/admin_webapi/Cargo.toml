@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+application_runtime = { path = "../../application/application_runtime" }
 webapi_support = { path = "../webapi_support" }
 event_bus = { path = "../../infrastructure/event_bus" }
 event_bus_redis = { path = "../../infrastructure/event_bus_redis" }

@@ -8,12 +8,10 @@ use sea_orm::{
     Set,
 };
 
-use application_interface::{
-    context::{CurrentUser, LlmContext},
-    error::AppError,
-};
+use application_interface::error::AppError;
 use application_model::shared::models::{page_offset, validate_page_request};
 use application_model::user::models::PageListDto;
+use application_runtime::context::{CurrentUser, LlmContext};
 
 use super::models::{
     EditLlmModelDto, LlmModelDto, LlmModelPageListDto, LlmModelPageRequest, LlmModelSelectDto,

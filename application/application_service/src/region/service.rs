@@ -1,4 +1,4 @@
-use application_interface::context::AppContext;
+use application_runtime::context::AppContext;
 use common::app_error::AppError;
 use repository::extensions::SoftDeleteQueryExt;
 use repository::{region_area, region_city, region_province, region_town};
@@ -180,8 +180,8 @@ fn to_app_error(error: sea_orm::DbErr) -> AppError {
 mod webapi_impl {
     use super::RegionService;
 
-    use application_interface::context::WebApiContext;
     use application_model::region::models::{RegionDto, TownDto};
+    use application_runtime::context::WebApiContext;
     use common::app_error::AppError;
     use distributed_cache::{CacheEntryOptions, DistributedCacheExt};
 
