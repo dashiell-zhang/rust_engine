@@ -1,7 +1,8 @@
+use crate::payload::Payload;
 use async_trait::async_trait;
 use futures_util::{StreamExt, stream::BoxStream};
-use serde::Deserialize;
-use serde_json::{Map, Value, json};
+use serde_json::{Value, json};
+use source_generator_core::ProtocolModel;
 
 use crate::{
     LLM_REQUEST_TIMEOUT, LlmClient, LlmError, LlmModelConfig,
@@ -70,17 +71,14 @@ impl LlmClient for OpenAiResponsesClient {
             .timeout(LLM_REQUEST_TIMEOUT)
             .bearer_auth(&self.config.api_key)
             .json(&body)
+            .header(reqwest::header::CONTENT_TYPE, crate::JSON_CONTENT_TYPE)
             .send()
             .await?;
 
-        if !response.status().is_success() {
-            let status = response.status().as_u16();
-            let message = response.text().await.unwrap_or_default();
-            return Err(LlmError::ApiError { status, message });
-        }
-
-        let wire: ResponseDto = response.json().await?;
-        Ok(map_response(wire, &request.model))
+        let wire: ResponseDto =
+            crate::http_response::read_json(response, "OpenAI Responses response is empty.")
+                .await?;
+        map_response(wire, &request.model)
     }
 
     /// 对话（流式）
@@ -92,45 +90,33 @@ impl LlmClient for OpenAiResponsesClient {
             self.validate(&request)?;
             let body = build_payload(&request, true)?;
 
-            let response = self
+            let response = crate::streaming::send(self
                 .http_client
                 .post(self.config.endpoint.trim())
-                .timeout(LLM_REQUEST_TIMEOUT)
                 .bearer_auth(&self.config.api_key)
                 .json(&body)
-                .send()
-                .await?;
+                .header(reqwest::header::CONTENT_TYPE, crate::JSON_CONTENT_TYPE)
+            ).await?;
 
-            if !response.status().is_success() {
-                let status = response.status().as_u16();
-                let message = response.text().await.unwrap_or_default();
-                Err(LlmError::ApiError { status, message })?;
-                return;
-            }
+            crate::http_response::ensure_success(&response)?;
 
-            let mut stream = response.bytes_stream();
-            let mut buffer = String::new();
+            let mut lines = crate::streaming::lines(response);
 
-            while let Some(chunk) = stream.next().await {
-                let chunk = chunk.map_err(|e| LlmError::Http(e.to_string()))?;
-                buffer.push_str(&String::from_utf8_lossy(&chunk));
+            while let Some(line) = lines.next().await {
+                let line = line?;
+                let Some(data) = line.strip_prefix("data:") else { continue };
+                let data = data.trim();
+                if data.eq_ignore_ascii_case("[DONE]") { return; }
+                if data.is_empty() {
+                    continue;
+                }
 
-                while let Some(pos) = buffer.find('\n') {
-                    let line = buffer[..pos].trim_end_matches('\r').to_string();
-                    buffer = buffer[pos + 1..].to_string();
+                let wire: Option<ResponseStreamEventDto> = crate::wire::from_slice(data.as_bytes())
+                    .map_err(|_| LlmError::StreamParse("OpenAI Responses stream returned invalid JSON.".into()))?;
+                let wire = wire.ok_or_else(|| LlmError::StreamParse("OpenAI Responses stream returned an empty JSON payload.".into()))?;
 
-                    let Some(data) = line.strip_prefix("data:") else { continue };
-                    let data = data.trim();
-                    if data.is_empty() || data == "[DONE]" {
-                        continue;
-                    }
-
-                    let wire: ResponseStreamEventDto = serde_json::from_str(data)
-                        .map_err(|e| LlmError::StreamParse(format!("无法解析 Responses SSE chunk: {e}, 原始数据: {data}")))?;
-
-                    if let Some(chunk) = map_stream_event(wire, &request.model)? {
-                        yield chunk;
-                    }
+                if let Some(chunk) = map_stream_event(wire, &request.model)? {
+                    yield chunk;
                 }
             }
         })
@@ -138,8 +124,8 @@ impl LlmClient for OpenAiResponsesClient {
 }
 
 /// 构造 Responses API 请求体
-fn build_payload(request: &ChatRequest, stream: bool) -> Result<Map<String, Value>, LlmError> {
-    let mut payload = Map::new();
+fn build_payload(request: &ChatRequest, stream: bool) -> Result<Payload, LlmError> {
+    let mut payload = Payload::new();
     payload.insert("model".to_string(), Value::String(request.model.clone()));
     payload.insert(
         "input".to_string(),
@@ -158,46 +144,15 @@ fn build_payload(request: &ChatRequest, stream: bool) -> Result<Map<String, Valu
     );
     payload.insert("stream".to_string(), Value::Bool(stream));
 
-    if let Some(temperature) = request.temperature
-        && let Some(value) = serde_json::Number::from_f64(temperature)
-    {
-        payload.insert("temperature".to_string(), Value::Number(value));
-    }
-
-    if let Some(max_tokens) = request.max_tokens {
-        payload.insert(
-            "max_output_tokens".to_string(),
-            Value::Number(max_tokens.into()),
-        );
+    if let Some(user) = request.user.as_ref().filter(|user| !user.trim().is_empty()) {
+        payload.insert("user".to_string(), Value::String(user.clone()));
     }
 
     if let Some(extra_body) = &request.extra_body {
-        merge_extra_body(&mut payload, extra_body)?;
+        payload.merge_extra(extra_body)?;
     }
 
     Ok(payload)
-}
-
-/// 合并额外请求参数
-fn merge_extra_body(
-    payload: &mut Map<String, Value>,
-    extra_body: &Map<String, Value>,
-) -> Result<(), LlmError> {
-    for (key, value) in extra_body {
-        if key.trim().is_empty() {
-            continue;
-        }
-
-        if payload.contains_key(key) {
-            return Err(LlmError::InvalidRequest(format!(
-                "ExtraBody 与基础请求字段冲突: {key}"
-            )));
-        }
-
-        payload.insert(key.clone(), value.clone());
-    }
-
-    Ok(())
 }
 
 /// 转换角色
@@ -210,8 +165,8 @@ fn role_to_string(role: &ChatRole) -> &'static str {
 }
 
 /// 映射非流式响应
-fn map_response(dto: ResponseDto, fallback_model: &str) -> ChatResponse {
-    let content = extract_output_text(&dto);
+fn map_response(dto: ResponseDto, fallback_model: &str) -> Result<ChatResponse, LlmError> {
+    let content = extract_output_text(&dto)?;
     let choice = ChatChoice {
         index: 0,
         message: ChatMessage {
@@ -221,12 +176,12 @@ fn map_response(dto: ResponseDto, fallback_model: &str) -> ChatResponse {
         finish_reason: dto.status.clone(),
     };
 
-    ChatResponse {
+    Ok(ChatResponse {
         id: dto.id,
         model: dto.model.unwrap_or_else(|| fallback_model.to_string()),
         choices: vec![choice],
         usage: dto.usage.map(ResponseUsageDto::into_usage),
-    }
+    })
 }
 
 /// 映射流式事件
@@ -234,7 +189,7 @@ fn map_stream_event(
     dto: ResponseStreamEventDto,
     fallback_model: &str,
 ) -> Result<Option<ChatStreamChunk>, LlmError> {
-    match dto.event_type.as_str() {
+    match dto.event_type.as_deref().unwrap_or_default() {
         "response.output_text.delta" => Ok(Some(ChatStreamChunk {
             id: dto.response_id,
             model: fallback_model.to_string(),
@@ -267,7 +222,7 @@ fn map_stream_event(
                         role: None,
                         content: None,
                     },
-                    finish_reason: Some(response.status.unwrap_or_else(|| "completed".to_string())),
+                    finish_reason: response.status,
                 }],
                 usage,
             }))
@@ -294,7 +249,8 @@ fn map_stream_event(
             let reason = dto
                 .response
                 .and_then(|item| item.incomplete_details)
-                .and_then(|details| details.reason);
+                .and_then(|details| details.reason)
+                .filter(|reason| !reason.trim().is_empty());
             let message = reason.map_or_else(
                 || "OpenAI Responses response is incomplete".to_string(),
                 |reason| format!("OpenAI Responses response is incomplete: {reason}"),
@@ -326,34 +282,36 @@ fn with_error_code(message: String, code: Option<&str>) -> String {
 }
 
 /// 提取输出文本
-fn extract_output_text(dto: &ResponseDto) -> String {
+fn extract_output_text(dto: &ResponseDto) -> Result<String, LlmError> {
     if let Some(output_text) = &dto.output_text
         && !output_text.is_empty()
     {
-        return output_text.clone();
+        return Ok(output_text.clone());
     }
 
     let mut content = String::new();
     for item in dto.output.as_deref().unwrap_or_default() {
+        let item = crate::wire::require_object(item.as_ref())?;
         for part in item.content.as_deref().unwrap_or_default() {
+            let part = crate::wire::require_object(part.as_ref())?;
             if part.content_type.as_deref() == Some("output_text") {
                 content.push_str(part.text.as_deref().unwrap_or_default());
             }
         }
     }
 
-    content
+    Ok(content)
 }
 
 /// Responses API 非流式响应
-#[derive(Deserialize)]
+#[derive(ProtocolModel)]
 struct ResponseDto {
     id: Option<String>,
     model: Option<String>,
     status: Option<String>,
     #[serde(rename = "output_text")]
     output_text: Option<String>,
-    output: Option<Vec<ResponseOutputItemDto>>,
+    output: Option<Vec<Option<ResponseOutputItemDto>>>,
     usage: Option<ResponseUsageDto>,
     error: Option<ResponseErrorDto>,
     #[serde(rename = "incomplete_details")]
@@ -361,13 +319,13 @@ struct ResponseDto {
 }
 
 /// Responses API 输出项
-#[derive(Deserialize)]
+#[derive(ProtocolModel)]
 struct ResponseOutputItemDto {
-    content: Option<Vec<ResponseOutputContentDto>>,
+    content: Option<Vec<Option<ResponseOutputContentDto>>>,
 }
 
 /// Responses API 输出内容
-#[derive(Deserialize)]
+#[derive(ProtocolModel)]
 struct ResponseOutputContentDto {
     #[serde(rename = "type")]
     content_type: Option<String>,
@@ -375,10 +333,10 @@ struct ResponseOutputContentDto {
 }
 
 /// Responses API 流式事件
-#[derive(Deserialize)]
+#[derive(ProtocolModel)]
 struct ResponseStreamEventDto {
     #[serde(rename = "type")]
-    event_type: String,
+    event_type: Option<String>,
     #[serde(rename = "response_id")]
     response_id: Option<String>,
     delta: Option<String>,
@@ -389,20 +347,20 @@ struct ResponseStreamEventDto {
 }
 
 /// Responses API 错误详情
-#[derive(Deserialize)]
+#[derive(ProtocolModel)]
 struct ResponseErrorDto {
     code: Option<String>,
     message: Option<String>,
 }
 
 /// Responses API 响应不完整详情
-#[derive(Deserialize)]
+#[derive(ProtocolModel)]
 struct ResponseIncompleteDetailsDto {
     reason: Option<String>,
 }
 
 /// Responses API 用量统计
-#[derive(Clone, Deserialize)]
+#[derive(Clone, ProtocolModel)]
 struct ResponseUsageDto {
     #[serde(rename = "input_tokens")]
     input_tokens: Option<i32>,

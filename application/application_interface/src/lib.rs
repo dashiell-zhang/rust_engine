@@ -24,3 +24,9 @@ pub mod sms;
 
 /// 应用层 LLM 抽象
 pub mod llm;
+
+/// 跨进程事件契约与发布入口
+pub mod events;
+
+/// 应用服务契约
+pub mod services;

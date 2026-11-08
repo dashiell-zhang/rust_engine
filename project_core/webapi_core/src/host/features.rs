@@ -1,4 +1,4 @@
-use axum::Router;
+use crate::routes::WebApiRoutes as Router;
 use std::sync::Arc;
 use utoipa::openapi::OpenApi;
 
@@ -16,6 +16,15 @@ pub struct WebApiRoutePermission {
 
 /// WebAPI 业务特性
 pub trait WebApiFeature: Send + Sync {
+    /// 在后台开始消费之前建立当前特性的事件监听。
+    fn register_event_listeners(
+        &self,
+        _registry: &mut event_bus::EventListenerRegistry,
+        _state: Arc<AppState>,
+    ) -> Result<(), String> {
+        Ok(())
+    }
+
     /// 注册当前特性的路由
     fn register(
         &self,

@@ -1,8 +1,7 @@
-use axum::Router;
 use std::sync::Arc;
 use utoipa::{OpenApi, openapi::OpenApi as OpenApiDocument};
-use webapi_core::etag::etag_method_router;
 use webapi_core::queue_limit::{QueueLimitOptions, queue_limit_method_router};
+use webapi_core::routes::WebApiRoutes as Router;
 
 use crate::{
     features::protect_method_router,
@@ -32,7 +31,7 @@ impl WebApiFeature for UserFeature {
             .route(
                 "/User/GetUserList",
                 protect_method_router(
-                    axum::routing::get(get_user_list),
+                    webapi_core::routes::get(get_user_list),
                     app_state.clone(),
                     permission_module.clone(),
                     "/User/GetUserList",
@@ -42,7 +41,7 @@ impl WebApiFeature for UserFeature {
             .route(
                 "/User/GetUser",
                 protect_method_router(
-                    etag_method_router(axum::routing::get(get_user)),
+                    webapi_core::routes::get(get_user),
                     app_state.clone(),
                     permission_module.clone(),
                     "/User/GetUser",
@@ -52,7 +51,7 @@ impl WebApiFeature for UserFeature {
             .route(
                 "/User/CreateUser",
                 protect_method_router(
-                    axum::routing::post(create_user),
+                    webapi_core::routes::post(create_user).json_body("createUser"),
                     app_state.clone(),
                     permission_module.clone(),
                     "/User/CreateUser",
@@ -62,7 +61,7 @@ impl WebApiFeature for UserFeature {
             .route(
                 "/User/UpdateUser",
                 protect_method_router(
-                    axum::routing::post(update_user),
+                    webapi_core::routes::post(update_user).json_body("updateUser"),
                     app_state.clone(),
                     permission_module.clone(),
                     "/User/UpdateUser",
@@ -72,7 +71,7 @@ impl WebApiFeature for UserFeature {
             .route(
                 "/User/DeleteUser",
                 protect_method_router(
-                    axum::routing::delete(delete_user),
+                    webapi_core::routes::delete(delete_user),
                     app_state.clone(),
                     permission_module.clone(),
                     "/User/DeleteUser",
@@ -82,7 +81,7 @@ impl WebApiFeature for UserFeature {
             .route(
                 "/User/GetUserRoleList",
                 protect_method_router(
-                    axum::routing::get(get_user_role_list),
+                    webapi_core::routes::get(get_user_role_list),
                     app_state.clone(),
                     permission_module.clone(),
                     "/User/GetUserRoleList",
@@ -93,9 +92,10 @@ impl WebApiFeature for UserFeature {
                 "/User/SetUserRole",
                 protect_method_router(
                     queue_limit_method_router(
-                        axum::routing::post(set_user_role),
-                        app_state.role_code_lock.clone(),
+                        webapi_core::routes::post(set_user_role).json_body("setUserRole"),
+                        app_state.distributed_lock.clone(),
                         QueueLimitOptions::new(1),
+                        concat!(module_path!(), "::set_user_role"),
                     ),
                     app_state.clone(),
                     permission_module.clone(),
@@ -106,7 +106,7 @@ impl WebApiFeature for UserFeature {
             .route(
                 "/User/GetUserFunction",
                 protect_method_router(
-                    axum::routing::get(get_user_function),
+                    webapi_core::routes::get(get_user_function),
                     app_state.clone(),
                     permission_module.clone(),
                     "/User/GetUserFunction",
@@ -117,9 +117,10 @@ impl WebApiFeature for UserFeature {
                 "/User/SetUserFunction",
                 protect_method_router(
                     queue_limit_method_router(
-                        axum::routing::post(set_user_function),
-                        app_state.role_code_lock.clone(),
+                        webapi_core::routes::post(set_user_function).json_body("setUserFunction"),
+                        app_state.distributed_lock.clone(),
                         QueueLimitOptions::new(1),
+                        concat!(module_path!(), "::set_user_function"),
                     ),
                     app_state.clone(),
                     permission_module.clone(),
@@ -143,7 +144,7 @@ impl WebApiFeature for UserFeature {
             },
             WebApiRoutePermission {
                 route: "/User/GetUser",
-                remark: "获取单个用户信息",
+                remark: "通过 UserId 获取用户信息",
             },
             WebApiRoutePermission {
                 route: "/User/CreateUser",
@@ -159,19 +160,19 @@ impl WebApiFeature for UserFeature {
             },
             WebApiRoutePermission {
                 route: "/User/GetUserRoleList",
-                remark: "获取用户角色分配列表",
+                remark: "获取用户角色列表",
             },
             WebApiRoutePermission {
                 route: "/User/SetUserRole",
-                remark: "设置用户角色分配",
+                remark: "设置用户角色",
             },
             WebApiRoutePermission {
                 route: "/User/GetUserFunction",
-                remark: "获取用户功能分配树",
+                remark: "获取某个用户的功能权限",
             },
             WebApiRoutePermission {
                 route: "/User/SetUserFunction",
-                remark: "设置用户功能分配",
+                remark: "设置用户的功能",
             },
         ]
     }

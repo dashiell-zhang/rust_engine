@@ -22,6 +22,7 @@ pub const TASK_SERVICE_PROFILE: TaskServiceHostProfile = TaskServiceHostProfile 
     build_distributed_lock: host_support::build_distributed_lock,
     build_distributed_cache: host_support::build_distributed_cache,
     build_logger_runtime: host_support::build_logger_runtime,
+    build_event_transport: host_support::build_event_transport,
     build_sms_sender: host_support::build_sms_sender,
     build_email_sender: host_support::build_email_sender,
     build_file_storage: host_support::build_file_storage,
@@ -39,15 +40,11 @@ pub async fn run() -> Result<(), String> {
         TASK_SERVICE_PROFILE.build_email_sender,
         TASK_SERVICE_PROFILE.build_file_storage,
     )
+    .with_event_transport_factory(TASK_SERVICE_PROFILE.build_event_transport)
     .with_features(features::features())
     .build()
     .await?;
 
-    if !host.select_debug_tasks().await? {
-        println!("TaskService 已跳过启动");
-        return Ok(());
-    }
-
-    host.run().await;
+    host.run().await?;
     Ok(())
 }

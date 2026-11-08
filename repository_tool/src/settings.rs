@@ -1,10 +1,18 @@
-use config::{Config, Environment, File};
+use config::{Config, File};
 use serde::Deserialize;
 
 /// 数据库配置
 #[derive(Deserialize, Clone)]
 pub struct DatabaseSettings {
+    /// 独立事件写库，不回退其他模型。
+    #[serde(default)]
+    pub event_bus_connection: String,
+    /// 独立日志写库，不回退业务连接。
+    #[serde(default)]
+    pub log_connection: String,
+
     /// PostgreSQL 连接字符串
+    #[serde(default)]
     pub connection: String,
 }
 
@@ -16,41 +24,46 @@ pub struct Settings {
 }
 
 impl Settings {
-    /// 加载数据库工具配置
-    pub fn load(config_path: Option<String>, database_url: Option<String>) -> Result<Self, String> {
-        let config_path = config_path
-            .or_else(|| std::env::var("APP_CONFIG_PATH").ok())
-            .unwrap_or_else(|| "presentation/admin_webapi/appsettings".to_string());
-
-        let mut builder = Config::builder().add_source(File::with_name(&config_path));
-
-        if let Some(environment_name) = resolve_config_environment() {
-            let environment_config_path = format!("{config_path}.{environment_name}");
-            builder = builder.add_source(File::with_name(&environment_config_path).required(false));
-        }
-
-        let mut settings: Settings = builder
-            .add_source(Environment::with_prefix("APP").separator("__"))
+    /// 固定读取工具可执行文件旁的配置，不继承 WebAPI 或进程环境覆盖。
+    pub fn load(target: DatabaseTarget) -> Result<Self, String> {
+        let settings: Self = Config::builder()
+            .add_source(File::from(default_config_path()?))
             .build()
             .map_err(|error| format!("配置文件加载失败: {error}"))?
             .try_deserialize()
             .map_err(|error| format!("配置文件解析失败: {error}"))?;
-
-        if let Some(database_url) = database_url {
-            settings.database.connection = database_url;
-        }
-
-        if settings.database.connection.trim().is_empty() {
-            return Err("数据库连接字符串不可以空".to_string());
+        let connection = settings.connection(target);
+        if connection.trim().is_empty() {
+            return Err(format!("所选数据库目标 {target:?} 缺少连接字符串"));
         }
 
         Ok(settings)
     }
 }
 
-fn resolve_config_environment() -> Option<String> {
-    std::env::var("APP_ENVIRONMENT")
-        .ok()
-        .map(|value| value.trim().to_string())
-        .filter(|value| !value.is_empty())
+/// 默认配置随工具构建复制，运行时按可执行文件定位，不依赖当前工作目录。
+fn default_config_path() -> Result<std::path::PathBuf, String> {
+    let executable = std::env::current_exe().map_err(|error| format!("定位工具失败：{error}"))?;
+    Ok(executable
+        .parent()
+        .ok_or("工具可执行文件没有父目录")?
+        .join("repository_tool.appsettings.toml"))
+}
+
+/// 明确选择写模型，同一个物理数据库也分别登记迁移历史。
+#[derive(clap::ValueEnum, Clone, Copy, Debug)]
+pub enum DatabaseTarget {
+    Business,
+    Log,
+    #[value(alias = "eventbus")]
+    EventBus,
+}
+impl Settings {
+    pub fn connection(&self, target: DatabaseTarget) -> &str {
+        match target {
+            DatabaseTarget::Business => &self.database.connection,
+            DatabaseTarget::Log => &self.database.log_connection,
+            DatabaseTarget::EventBus => &self.database.event_bus_connection,
+        }
+    }
 }

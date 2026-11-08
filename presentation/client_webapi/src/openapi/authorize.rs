@@ -12,6 +12,8 @@ use crate::handlers::authorize;
 #[openapi(
     // 客户端授权文档覆盖登录 验证码和功能列表接口
     paths(
+        authorize::update_route,
+        authorize::get_public_key,
         authorize::get_token,
         authorize::get_token_by_sms,
         authorize::get_token_by_wx_mini_app,

@@ -1,4 +1,5 @@
 use crate::*;
+use std::cell::RefCell;
 
 /// 限制首次参数序列化允许访问的 JSON 深度和项目数量
 pub(crate) struct SerializationBudget {
@@ -11,6 +12,9 @@ pub(crate) struct SerializationBudget {
     pub(crate) max_items: usize,
 
     pub(crate) safety_policy: ParameterKeySafetyPolicy,
+
+    /// 日志快照复用递归遍历，但不应用缓存键的类型与项目数策略。
+    snapshot_path: Option<RefCell<Vec<(&'static str, usize)>>>,
 }
 
 impl SerializationBudget {
@@ -34,7 +38,35 @@ impl SerializationBudget {
             max_items,
 
             safety_policy,
+            snapshot_path: None,
         }
+    }
+
+    pub(crate) fn for_snapshot() -> Self {
+        Self {
+            snapshot_path: Some(RefCell::new(Vec::new())),
+            ..Self::new(64, 256, usize::MAX, ParameterKeySafetyPolicy::default())
+        }
+    }
+
+    pub(crate) fn is_snapshot(&self) -> bool {
+        self.snapshot_path.is_some()
+    }
+
+    /// 仅在当前递归路径检测循环；同一对象在其他字段再次出现仍正常记录。
+    pub(crate) fn enter_snapshot<T: ?Sized>(&self, value: &T) -> Option<SnapshotPathGuard<'_>> {
+        if let Some(path) = &self.snapshot_path {
+            let identity = (
+                std::any::type_name::<T>(),
+                std::ptr::from_ref(value).cast::<()>().addr(),
+            );
+            let mut active = path.borrow_mut();
+            if active.contains(&identity) {
+                return None;
+            }
+            active.push(identity);
+        }
+        Some(SnapshotPathGuard(self.snapshot_path.as_ref()))
     }
 
     /// 在序列化子节点前检查并消耗一次预算
@@ -92,5 +124,15 @@ impl SerializationBudget {
         }
 
         Ok(())
+    }
+}
+
+pub(crate) struct SnapshotPathGuard<'a>(Option<&'a RefCell<Vec<(&'static str, usize)>>>);
+
+impl Drop for SnapshotPathGuard<'_> {
+    fn drop(&mut self) {
+        if let Some(path) = self.0 {
+            path.borrow_mut().pop();
+        }
     }
 }

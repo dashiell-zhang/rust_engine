@@ -30,10 +30,6 @@ save_days = 14
 [file]
 component = "local"
 root_path = "presentation/task_service/storage"
-additional_root_paths = [
-	"presentation/admin_webapi/storage",
-	"presentation/client_webapi/storage",
-]
 public_base_url = ""
 
 [file.aliyun_oss]

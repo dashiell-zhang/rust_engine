@@ -1,6 +1,6 @@
-use axum::Router;
 use std::sync::Arc;
 use utoipa::{OpenApi, openapi::OpenApi as OpenApiDocument};
+use webapi_core::routes::WebApiRoutes as Router;
 use webapi_core::{
     builder::protect_method_router,
     cache_data::{CacheDataOptions, cache_method_router_with_options},
@@ -32,9 +32,10 @@ impl WebApiFeature for UserFeature {
                 "/User/GetUser",
                 protect_method_router(
                     cache_method_router_with_options(
-                        axum::routing::get(get_user),
+                        webapi_core::routes::get(get_user),
                         app_state.clone(),
                         CacheDataOptions::with_authorization(60),
+                        concat!(module_path!(), "::get_user"),
                     ),
                     app_state.clone(),
                     permission_module.clone(),
@@ -45,7 +46,7 @@ impl WebApiFeature for UserFeature {
             .route(
                 "/User/EditUserPhoneBySms",
                 protect_method_router(
-                    axum::routing::post(edit_user_phone_by_sms),
+                    webapi_core::routes::post(edit_user_phone_by_sms).json_body("request"),
                     app_state,
                     permission_module,
                     "/User/EditUserPhoneBySms",
@@ -65,11 +66,11 @@ impl WebApiFeature for UserFeature {
         vec![
             WebApiRoutePermission {
                 route: "/User/GetUser",
-                remark: "获取用户信息",
+                remark: "通过 UserId 获取用户信息",
             },
             WebApiRoutePermission {
                 route: "/User/EditUserPhoneBySms",
-                remark: "通过短信验证码修改当前用户手机号",
+                remark: "通过短信验证码修改账户手机号",
             },
         ]
     }

@@ -1,0 +1,20 @@
+// 已登记迁移的固定 SQL；后续模型变化必须新增迁移，不能改写此文件。
+&[
+    r#"CREATE EXTENSION IF NOT EXISTS citext WITH SCHEMA public"#,
+    r#"ALTER TABLE "User" ALTER COLUMN "Name" TYPE citext USING "Name"::citext"#,
+    r#"DROP INDEX IF EXISTS "IX_User_UserName_NotDeleted""#,
+    r#"DROP INDEX IF EXISTS "IX_UserBindExternal_AppName_AppId_OpenId_NotDeleted""#,
+    r#"DROP INDEX IF EXISTS "IX_UserBindExternal_UserId_NotDeleted""#,
+    r#"CREATE INDEX IF NOT EXISTS "IX_User_UserName" ON "User" ("UserName")"#,
+    r#"CREATE INDEX IF NOT EXISTS "IX_User_Phone" ON "User" ("Phone")"#,
+    r#"CREATE INDEX IF NOT EXISTS "IX_User_Email" ON "User" ("Email")"#,
+    r#"CREATE INDEX IF NOT EXISTS "IX_User_CreateTime" ON "User" ("CreateTime")"#,
+    r#"CREATE INDEX IF NOT EXISTS "IX_User_DeleteTime" ON "User" ("DeleteTime")"#,
+    r#"CREATE INDEX IF NOT EXISTS "IX_User_UpdateTime" ON "User" ("UpdateTime")"#,
+    r#"CREATE INDEX IF NOT EXISTS "IX_User_CreateUserId" ON "User" ("CreateUserId")"#,
+    r#"CREATE INDEX IF NOT EXISTS "IX_User_DeleteUserId" ON "User" ("DeleteUserId")"#,
+    r#"CREATE INDEX IF NOT EXISTS "IX_User_UpdateUserId" ON "User" ("UpdateUserId")"#,
+    r#"CREATE INDEX IF NOT EXISTS "IX_UserBindExternal_UserId" ON "UserBindExternal" ("UserId")"#,
+    r#"CREATE INDEX IF NOT EXISTS "IX_UserBindExternal_CreateTime" ON "UserBindExternal" ("CreateTime")"#,
+    r#"CREATE INDEX IF NOT EXISTS "IX_UserBindExternal_DeleteTime" ON "UserBindExternal" ("DeleteTime")"#,
+]

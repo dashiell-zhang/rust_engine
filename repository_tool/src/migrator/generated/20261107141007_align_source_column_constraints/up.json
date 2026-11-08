@@ -1,0 +1,30 @@
+[
+  {
+    "kind": "Sql",
+    "value": "ALTER TABLE \"Order\" ALTER COLUMN \"Price\" TYPE decimal(10, 2)"
+  },
+  {
+    "kind": "Sql",
+    "value": "ALTER TABLE \"Order\" ALTER COLUMN \"PayPrice\" TYPE decimal(10, 2)"
+  },
+  {
+    "kind": "Sql",
+    "value": "ALTER TABLE \"Product\" ALTER COLUMN \"Price\" TYPE decimal(10, 2)"
+  },
+  {
+    "kind": "Sql",
+    "value": "ALTER TABLE \"QueueTask\" ALTER COLUMN \"Status\" DROP DEFAULT"
+  },
+  {
+    "kind": "Sql",
+    "value": "CREATE INDEX \"IX_QueueTask_ParentTaskId\" ON \"QueueTask\" (\"ParentTaskId\")"
+  },
+  {
+    "kind": "Sql",
+    "value": "ALTER TABLE \"StoredFile\" ALTER COLUMN \"Sort\" DROP DEFAULT"
+  },
+  {
+    "kind": "Sql",
+    "value": "ALTER TABLE \"QueueTask\" ADD CONSTRAINT \"fk-QueueTask-ParentTaskId\" FOREIGN KEY (\"ParentTaskId\") REFERENCES \"QueueTask\" (\"Id\") ON DELETE RESTRICT ON UPDATE NO ACTION"
+  }
+]

@@ -1,14 +1,4 @@
-use std::{
-    collections::HashMap,
-    env,
-    path::PathBuf,
-    sync::{
-        Arc,
-        atomic::{AtomicU64, Ordering},
-        mpsc::{self, Receiver, SyncSender, TrySendError},
-    },
-    thread::JoinHandle,
-};
+use std::{collections::HashMap, env, path::PathBuf, sync::Arc};
 
 use chrono::{DateTime, Utc};
 use serde::Deserialize;
@@ -20,19 +10,50 @@ use tracing::{
     span::{Attributes, Record},
 };
 use tracing_subscriber::{
-    Layer,
-    filter::{LevelFilter, Targets},
-    fmt,
+    Layer, fmt,
     layer::Context,
     layer::SubscriberExt,
     registry::{LookupSpan, Registry},
 };
 
-/// 日志通道容量
-pub const MAX_BATCH_SIZE: usize = 1000;
+mod buffer_settings;
+mod console;
+mod filter;
+mod filter_runtime;
+mod level;
+mod reload;
+mod settings_source;
+pub use buffer_settings::LogBufferSettings;
+pub use filter_runtime::LoggerFilterHandle;
+pub use reload::{LogFilterReloadSource, load_host_configuration};
+pub use settings_source::{log_filter_environment, log_filter_source};
 
-/// 日志刷盘间隔（秒）
-pub const FLUSH_INTERVAL_SECONDS: u64 = 3;
+/// 日志输出目标，名称与源提供者类型及控制台别名对应。
+#[derive(Clone, Copy)]
+pub enum LoggerProvider {
+    Console,
+    LocalFile,
+    Database,
+}
+
+impl LoggerProvider {
+    fn names(self) -> &'static [&'static str] {
+        match self {
+            Self::Console => &[
+                "Console",
+                "Microsoft.Extensions.Logging.Console.ConsoleLoggerProvider",
+            ],
+            Self::LocalFile => &["Logger.LocalFile.LocalFileLoggerProvider"],
+            Self::Database => &["Logger.Database.DatabaseLoggerProvider"],
+        }
+    }
+}
+
+#[derive(Deserialize, Clone, Default)]
+pub struct LoggerProviderSettings {
+    #[serde(default)]
+    pub log_level: HashMap<String, String>,
+}
 
 /// 日志组件类型
 #[derive(Deserialize, Clone, Debug, PartialEq, Eq)]
@@ -48,13 +69,43 @@ pub enum LoggerComponent {
 /// 日志配置
 #[derive(Deserialize, Clone)]
 pub struct LoggerSettings {
+    /// 是否自动重新读取文件中的过滤规则；环境变量仍使用启动快照。
+    #[serde(default = "default_reload_on_change")]
+    pub reload_on_change: bool,
+    #[serde(skip)]
+    reload_source: Option<LogFilterReloadSource>,
+    #[serde(default)]
+    pub database_buffer: LogBufferSettings,
+    #[serde(default)]
+    pub local_file_buffer: LogBufferSettings,
+    /// 日志维护锁连接，留空时选用宿主锁连接；所有访问同一日志库的实例应一致。
+    #[serde(default)]
+    pub maintenance_lock_connection: String,
+    #[serde(default = "default_maintenance_lock_prefix")]
+    pub maintenance_lock_prefix: String,
+    /// 日志写库连接；为空时宿主显式选用业务库地址，但创建独立连接池。
+    #[serde(default)]
+    pub connection: String,
+
+    /// 日志只读连接；为空时选用日志写库地址，不使用业务只读库。
+    #[serde(default)]
+    pub read_connection: String,
+
+    /// 日志存储逻辑标识，用于隔离积压文件和维护任务。
+    #[serde(default = "default_database_identity")]
+    pub database_identity: String,
     /// 日志组件类型
     #[serde(default = "default_logger_component")]
     pub component: LoggerComponent,
 
-    /// 日志级别配置，key 为 tracing target，default 表示默认级别
+    /// 日志级别配置，key 为不区分大小写的 tracing target 前缀或单通配符规则。
+    /// default 表示默认级别，类别名称保留首尾空白。
     #[serde(default = "default_logger_log_level")]
     pub log_level: HashMap<String, String>,
+
+    /// 提供者专属级别规则；未命中时才回退全局规则。
+    #[serde(default)]
+    pub providers: HashMap<String, LoggerProviderSettings>,
 
     /// 项目标识
     #[serde(default = "default_logger_project")]
@@ -69,25 +120,63 @@ impl Default for LoggerSettings {
     /// 创建默认日志配置
     fn default() -> Self {
         Self {
+            database_buffer: LogBufferSettings::default(),
+            reload_on_change: true,
+            reload_source: None,
+            local_file_buffer: LogBufferSettings::default(),
+            maintenance_lock_connection: String::new(),
+            maintenance_lock_prefix: default_maintenance_lock_prefix(),
+            connection: String::new(),
+            read_connection: String::new(),
+            database_identity: default_database_identity(),
             component: default_logger_component(),
             log_level: default_logger_log_level(),
+            providers: HashMap::new(),
             project: default_logger_project(),
             save_days: default_logger_save_days(),
         }
     }
 }
 
+fn default_database_identity() -> String {
+    "RustEngine.Log".to_string()
+}
+
+fn default_reload_on_change() -> bool {
+    true
+}
+
+fn default_maintenance_lock_prefix() -> String {
+    "NetEngine:PartitionMaintenance:".to_string()
+}
+
+impl LoggerSettings {
+    pub fn write_connection<'a>(&'a self, business_connection: &'a str) -> &'a str {
+        if self.connection.trim().is_empty() {
+            business_connection
+        } else {
+            &self.connection
+        }
+    }
+
+    pub fn query_connection<'a>(&'a self, business_connection: &'a str) -> &'a str {
+        if self.read_connection.trim().is_empty() {
+            self.write_connection(business_connection)
+        } else {
+            &self.read_connection
+        }
+    }
+}
+
 /// 日志运行时守卫
 ///
-/// 持有写盘线程与可选后台任务
-/// 进程退出时负责刷新剩余日志
+/// 正常退出显式等待 shutdown 排空；Drop 只取消后台任务。
 pub struct LoggerRuntime {
-    /// 日志写盘通道发送端
-    writer_sender: Option<SyncSender<LogCommand>>,
-
-    /// 日志写盘线程句柄
-    writer_handle: Option<JoinHandle<()>>,
-
+    async_writer: Option<Arc<dyn AsyncLogWriter>>,
+    filter_handle: Option<LoggerFilterHandle>,
+    filter_watcher: Option<reload::FilterWatcher>,
+    /// 提供者持有的后台服务守卫，与日志运行时一同释放。
+    background_guards: Vec<Box<dyn Send + Sync>>,
     /// 数据库日志入库任务句柄（仅 Database 组件使用）
     save_handle: Option<TokioJoinHandle<()>>,
 
@@ -96,33 +185,98 @@ pub struct LoggerRuntime {
 }
 
 impl LoggerRuntime {
-    /// 由提供者 crate 构造运行时守卫
-    pub fn new(
-        sender: SyncSender<LogCommand>,
-        writer_handle: JoinHandle<()>,
-        save_handle: Option<TokioJoinHandle<()>>,
-        clear_handle: Option<TokioJoinHandle<()>>,
+    /// 宿主完成配置加载后，为当前提供者启动文件过滤规则监听。
+    pub fn with_filter_reload(mut self, settings: &LoggerSettings) -> Result<Self, String> {
+        if settings.reload_on_change
+            && let Some(source) = &settings.reload_source
+        {
+            let handle = self
+                .filter_handle
+                .as_ref()
+                .ok_or_else(|| "日志运行时缺少过滤规则更新入口".to_string())?;
+            self.filter_watcher = Some(reload::FilterWatcher::start(
+                source.clone(),
+                handle.clone(),
+            )?);
+        }
+        Ok(self)
+    }
+
+    /// 将过滤规则更新入口交给持有提供者生命周期的日志运行时。
+    pub fn with_filter_handle(mut self, handle: LoggerFilterHandle) -> Self {
+        self.filter_handle = Some(handle);
+        self
+    }
+
+    /// 只替换过滤规则，不修改日志存储、缓冲、连接或项目标识。
+    pub fn reload_filter(&self, settings: &LoggerSettings) -> Result<(), String> {
+        self.filter_handle
+            .as_ref()
+            .ok_or_else(|| "日志运行时没有活动的过滤规则更新入口".to_string())?
+            .reload(settings)
+    }
+
+    pub fn with_background_guard(mut self, guard: impl Send + Sync + 'static) -> Self {
+        self.background_guards.push(Box::new(guard));
+        self
+    }
+
+    pub fn new_async(
+        writer: Arc<dyn AsyncLogWriter>,
+        save: Option<TokioJoinHandle<()>>,
+        clear: Option<TokioJoinHandle<()>>,
     ) -> Self {
         Self {
-            writer_sender: Some(sender),
-            writer_handle: Some(writer_handle),
-            save_handle,
-            clear_handle,
+            async_writer: Some(writer),
+            filter_handle: None,
+            filter_watcher: None,
+            background_guards: Vec::new(),
+            save_handle: save,
+            clear_handle: clear,
         }
     }
+
+    /// 正常停机先排空内存到文件，再停止入库和维护；无需等待积压全部入库。
+    pub async fn shutdown(&mut self, timeout: std::time::Duration) {
+        let deadline = tokio::time::Instant::now() + timeout;
+        if let Some(watcher) = self.filter_watcher.take() {
+            watcher.shutdown().await;
+        }
+        self.filter_handle.take();
+        if let Some(writer) = &self.async_writer {
+            writer
+                .shutdown(deadline.saturating_duration_since(tokio::time::Instant::now()))
+                .await;
+        }
+        self.async_writer.take();
+        if let Some(handle) = self.save_handle.take() {
+            handle.abort();
+            let _ = handle.await;
+        }
+        if let Some(handle) = self.clear_handle.take() {
+            handle.abort();
+            let _ = handle.await;
+        }
+        self.background_guards.clear();
+    }
+}
+
+/// 日志提供者自己的异步排空协议，不让公共日志层依赖数据库实现。
+pub trait AsyncLogWriter: Send + Sync {
+    fn shutdown(
+        &self,
+        timeout: std::time::Duration,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send + '_>>;
+    fn cancel(&self);
 }
 
 impl Drop for LoggerRuntime {
     /// 释放日志运行时资源
     fn drop(&mut self) {
-        if let Some(sender) = self.writer_sender.take() {
-            let _ = sender.send(LogCommand::Shutdown);
+        self.filter_watcher.take();
+        if let Some(writer) = self.async_writer.take() {
+            writer.cancel();
         }
-
-        if let Some(handle) = self.writer_handle.take() {
-            let _ = handle.join();
-        }
-
         if let Some(handle) = self.save_handle.take() {
             handle.abort();
         }
@@ -131,15 +285,6 @@ impl Drop for LoggerRuntime {
             handle.abort();
         }
     }
-}
-
-/// 日志写盘命令
-pub enum LogCommand {
-    /// 写入单条待处理日志
-    Write(PendingLog),
-
-    /// 关闭日志写盘线程
-    Shutdown,
 }
 
 /// 待写入日志
@@ -168,10 +313,7 @@ pub struct PendingLog {
 #[derive(Clone)]
 pub struct LoggerLayer {
     /// 日志命令发送端
-    sender: SyncSender<LogCommand>,
-
-    /// 因队列已满而丢弃的日志条数
-    dropped_logs: Arc<AtomicU64>,
+    sender: Arc<dyn LogSink>,
 
     /// 当前宿主项目标识
     project: String,
@@ -227,6 +369,9 @@ where
     /// 采集 tracing 日志事件
     fn on_event(&self, event: &Event<'_>, ctx: Context<'_, S>) {
         let metadata = event.metadata();
+        if !self.sender.accepts_target(metadata.target()) {
+            return;
+        }
         let mut visitor = JsonVisitor::default();
         event.record(&mut visitor);
         visitor.insert_scopes(collect_event_scopes(event, ctx));
@@ -236,23 +381,27 @@ where
             project: self.project.clone(),
             machine_name: self.machine_name.clone(),
             category: metadata.target().to_string(),
-            level: metadata.level().to_string(),
+            level: [
+                "Trace",
+                "Debug",
+                "Information",
+                "Warning",
+                "Error",
+                "Critical",
+            ][event_level(metadata)]
+            .to_string(),
             content: visitor.into_content(),
         };
 
-        match self.sender.try_send(LogCommand::Write(pending_log)) {
-            Ok(()) => {}
-            Err(TrySendError::Full(_)) => {
-                let dropped = self.dropped_logs.fetch_add(1, Ordering::Relaxed) + 1;
+        self.sender.enqueue(pending_log);
+    }
+}
 
-                if dropped == 1 || dropped.is_multiple_of(100) {
-                    eprintln!("日志队列已满，已丢弃 {dropped} 条日志");
-                }
-            }
-            Err(TrySendError::Disconnected(_)) => {
-                eprintln!("日志写入线程已停止，当前日志写入失败");
-            }
-        }
+/// 调用现场只做快照和非阻塞接收，容量与重试由具体提供者负责。
+pub trait LogSink: Send + Sync {
+    fn enqueue(&self, log: PendingLog);
+    fn accepts_target(&self, _target: &str) -> bool {
+        true
     }
 }
 
@@ -345,6 +494,9 @@ impl Visit for JsonVisitor {
 
     /// 记录布尔字段
     fn record_bool(&mut self, field: &Field, value: bool) {
+        if field.name() == "__logger_critical" {
+            return;
+        }
         self.fields
             .insert(field.name().to_string(), Value::Bool(value));
     }
@@ -370,82 +522,65 @@ impl Visit for JsonVisitor {
     }
 }
 
-/// 初始化 tracing subscriber 并返回日志通道
-///
-/// 创建日志采集层与 mpsc 通道，将 `LoggerLayer` 注册为全局 tracing subscriber
-/// 返回的 sender 已注入到 `LoggerLayer` 中，receiver 交由提供者 crate 启动写盘线程
-pub fn init_logger_subscriber(
+/// 注册调用现场采集层与提供者；全局只允许一个日志写入目标。
+pub fn init_logger_subscriber_with_sink(
     settings: &LoggerSettings,
-) -> Result<
-    (SyncSender<LogCommand>, Receiver<LogCommand>),
-    tracing::subscriber::SetGlobalDefaultError,
-> {
+    sender: Arc<dyn LogSink>,
+    provider: LoggerProvider,
+) -> Result<LoggerFilterHandle, String> {
+    let filter_handle = LoggerFilterHandle::new(settings, provider)?;
     let machine_name = get_machine_name();
-    let (sender, receiver) = mpsc::sync_channel::<LogCommand>(MAX_BATCH_SIZE);
-
     let logger_layer = LoggerLayer {
-        sender: sender.clone(),
-        dropped_logs: Arc::new(AtomicU64::new(0)),
+        sender,
         project: settings.project.clone(),
         machine_name,
     };
 
     let subscriber = Registry::default()
-        .with(build_targets_filter(settings))
-        .with(fmt::layer())
-        .with(logger_layer);
-    tracing::subscriber::set_global_default(subscriber)?;
+        .with(
+            fmt::layer()
+                .event_format(console::ConsoleFormat)
+                .with_filter(filter_handle.console_filter()),
+        )
+        .with(logger_layer.with_filter(filter_handle.storage_filter()));
+    tracing::subscriber::set_global_default(subscriber).map_err(|error| error.to_string())?;
 
-    Ok((sender, receiver))
+    Ok(filter_handle)
 }
 
-fn build_targets_filter(settings: &LoggerSettings) -> Targets {
-    let mut default_level = LevelFilter::INFO;
-    let mut targets = Vec::new();
-
-    for (target, level_text) in &settings.log_level {
-        let normalized_target = target.trim();
-
-        if normalized_target.is_empty() {
-            continue;
-        }
-
-        let Some(level) = parse_level_filter(level_text) else {
-            eprintln!("日志级别配置无效，已忽略: target={normalized_target}, level={level_text}");
-            continue;
-        };
-
-        if normalized_target.eq_ignore_ascii_case("default") {
-            default_level = level;
-        } else {
-            targets.push((normalized_target.to_string(), level));
-        }
+// Critical 通过专用宏的静态字段识别，仍使用 tracing 的 ERROR 传输通道。
+fn event_level(metadata: &tracing::Metadata<'_>) -> usize {
+    if *metadata.level() == tracing::Level::ERROR
+        && metadata.fields().field("__logger_critical").is_some()
+    {
+        return 5;
     }
-
-    let mut filter = Targets::new().with_default(default_level);
-
-    for (target, level) in targets {
-        filter = filter.with_target(target, level);
+    match *metadata.level() {
+        tracing::Level::TRACE => 0,
+        tracing::Level::DEBUG => 1,
+        tracing::Level::INFO => 2,
+        tracing::Level::WARN => 3,
+        tracing::Level::ERROR => 4,
     }
-
-    filter
 }
 
-fn parse_level_filter(level_text: &str) -> Option<LevelFilter> {
-    match level_text.trim().to_ascii_lowercase().as_str() {
-        "off" => Some(LevelFilter::OFF),
-        "error" => Some(LevelFilter::ERROR),
-        "warn" | "warning" => Some(LevelFilter::WARN),
-        "info" | "information" => Some(LevelFilter::INFO),
-        "debug" => Some(LevelFilter::DEBUG),
-        "trace" => Some(LevelFilter::TRACE),
-        _ => None,
-    }
+#[doc(hidden)]
+pub use tracing as __tracing;
+
+/// 记录独立的 Critical 级别；支持与 tracing 相同的字段和消息语法。
+#[macro_export]
+macro_rules! critical {
+    (target: $target:expr, $($fields:tt)+) => {
+        $crate::__tracing::event!(target: $target, $crate::__tracing::Level::ERROR, __logger_critical = true, $($fields)+)
+    };
+    ($($fields:tt)+) => {
+        $crate::__tracing::event!($crate::__tracing::Level::ERROR, __logger_critical = true, $($fields)+)
+    };
 }
 
 /// 获取日志目录
 pub fn get_log_base_path() -> PathBuf {
-    PathBuf::from("logs")
+    PathBuf::from("Logs")
 }
 
 /// 获取机器名

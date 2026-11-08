@@ -2,47 +2,220 @@
   "version": "2.0.0",
   "tasks": [
     {
-      "label": "cargo build admin_webapi",
-      "type": "shell",
-      "command": "cargo build -p admin_webapi",
-      "group": {
-        "kind": "build",
-        "isDefault": true
+      "label": "container deployment generate",
+      "type": "process",
+      "command": "docker",
+      "args": [
+        "compose",
+        "exec",
+        "-T",
+        "dev",
+        "cargo",
+        "run",
+        "--locked",
+        "-p",
+        "deployment"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
       },
+      "dependsOn": "container dev up",
+      "problemMatcher": []
+    },
+    {
+      "label": "container publish admin_webapi",
+      "type": "process",
+      "command": "docker",
+      "args": [
+        "compose",
+        "exec",
+        "-T",
+        "dev",
+        "sh",
+        "deployment/build-release.sh",
+        "admin_webapi"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "dependsOn": "container dev up",
+      "problemMatcher": []
+    },
+    {
+      "label": "container publish client_webapi",
+      "type": "process",
+      "command": "docker",
+      "args": [
+        "compose",
+        "exec",
+        "-T",
+        "dev",
+        "sh",
+        "deployment/build-release.sh",
+        "client_webapi"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "dependsOn": "container dev up",
+      "problemMatcher": []
+    },
+    {
+      "label": "container publish task_service",
+      "type": "process",
+      "command": "docker",
+      "args": [
+        "compose",
+        "exec",
+        "-T",
+        "dev",
+        "sh",
+        "deployment/build-release.sh",
+        "task_service"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "dependsOn": "container dev up",
+      "problemMatcher": []
+    },
+    {
+      "label": "container dev up",
+      "type": "process",
+      "command": "docker",
+      "args": ["compose", "up", "-d", "--build", "dev"],
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": []
+    },
+    {
+      "label": "container cargo check workspace",
+      "type": "process",
+      "command": "docker",
+      "args": ["compose", "exec", "-T", "dev", "cargo", "check", "--workspace", "--locked"],
+      "options": { "cwd": "${workspaceFolder}" },
+      "dependsOn": "container dev up",
+      "problemMatcher": ["$rustc"]
+    },
+    {
+      "label": "container cargo build workspace",
+      "type": "process",
+      "command": "docker",
+      "args": ["compose", "exec", "-T", "dev", "cargo", "build", "--workspace", "--locked"],
+      "options": { "cwd": "${workspaceFolder}" },
+      "dependsOn": "container dev up",
+      "group": { "kind": "build", "isDefault": true },
+      "problemMatcher": ["$rustc"]
+    },
+    {
+      "label": "container cargo fmt workspace",
+      "type": "process",
+      "command": "docker",
+      "args": ["compose", "exec", "-T", "dev", "cargo", "fmt", "--all"],
+      "options": { "cwd": "${workspaceFolder}" },
+      "dependsOn": "container dev up",
+      "problemMatcher": []
+    },
+    {
+      "label": "container cargo clippy workspace",
+      "type": "process",
+      "command": "docker",
+      "args": ["compose", "exec", "-T", "dev", "cargo", "clippy", "--workspace", "--lib", "--bins", "--locked", "--", "-D", "warnings"],
+      "options": { "cwd": "${workspaceFolder}" },
+      "dependsOn": "container dev up",
+      "problemMatcher": ["$rustc"]
+    },
+    {
+      "label": "container cargo run admin_webapi",
+      "type": "process",
+      "command": "docker",
+      "args": ["compose", "exec", "-T", "dev", "cargo", "run", "--locked", "-p", "admin_webapi"],
+      "options": { "cwd": "${workspaceFolder}" },
+      "dependsOn": "container dev up",
+      "problemMatcher": ["$rustc"]
+    },
+    {
+      "label": "container cargo run client_webapi",
+      "type": "process",
+      "command": "docker",
+      "args": ["compose", "exec", "-T", "dev", "cargo", "run", "--locked", "-p", "client_webapi"],
+      "options": { "cwd": "${workspaceFolder}" },
+      "dependsOn": "container dev up",
+      "problemMatcher": ["$rustc"]
+    },
+    {
+      "label": "container cargo run task_service",
+      "type": "process",
+      "command": "docker",
+      "args": ["compose", "exec", "-T", "dev", "cargo", "run", "--locked", "-p", "task_service"],
+      "options": { "cwd": "${workspaceFolder}" },
+      "dependsOn": "container dev up",
+      "problemMatcher": ["$rustc"]
+    },
+    {
+      "label": "container dev down",
+      "type": "process",
+      "command": "docker",
+      "args": ["compose", "down"],
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": []
+    },
+    {
+      "label": "cargo build admin_webapi",
+      "type": "process",
+      "command": "docker",
+      "args": ["compose", "exec", "-T", "dev", "cargo", "build", "--locked", "-p", "admin_webapi"],
+      "options": { "cwd": "${workspaceFolder}" },
+      "dependsOn": "container dev up",
+      "group": "build",
       "problemMatcher": ["$rustc"]
     },
     {
       "label": "cargo build client_webapi",
-      "type": "shell",
-      "command": "cargo build -p client_webapi",
+      "type": "process",
+      "command": "docker",
+      "args": ["compose", "exec", "-T", "dev", "cargo", "build", "--locked", "-p", "client_webapi"],
+      "options": { "cwd": "${workspaceFolder}" },
+      "dependsOn": "container dev up",
       "group": "build",
       "problemMatcher": ["$rustc"]
     },
     {
       "label": "cargo build task_service",
-      "type": "shell",
-      "command": "cargo build -p task_service",
+      "type": "process",
+      "command": "docker",
+      "args": ["compose", "exec", "-T", "dev", "cargo", "build", "--locked", "-p", "task_service"],
+      "options": { "cwd": "${workspaceFolder}" },
+      "dependsOn": "container dev up",
       "group": "build",
       "problemMatcher": ["$rustc"]
     },
     {
       "label": "cargo build admin_webapi release",
-      "type": "shell",
-      "command": "cargo build -p admin_webapi --release",
+      "type": "process",
+      "command": "docker",
+      "args": ["compose", "exec", "-T", "dev", "cargo", "build", "--locked", "-p", "admin_webapi", "--release"],
+      "options": { "cwd": "${workspaceFolder}" },
+      "dependsOn": "container dev up",
       "group": "build",
       "problemMatcher": ["$rustc"]
     },
     {
       "label": "cargo build client_webapi release",
-      "type": "shell",
-      "command": "cargo build -p client_webapi --release",
+      "type": "process",
+      "command": "docker",
+      "args": ["compose", "exec", "-T", "dev", "cargo", "build", "--locked", "-p", "client_webapi", "--release"],
+      "options": { "cwd": "${workspaceFolder}" },
+      "dependsOn": "container dev up",
       "group": "build",
       "problemMatcher": ["$rustc"]
     },
     {
       "label": "cargo build task_service release",
-      "type": "shell",
-      "command": "cargo build -p task_service --release",
+      "type": "process",
+      "command": "docker",
+      "args": ["compose", "exec", "-T", "dev", "cargo", "build", "--locked", "-p", "task_service", "--release"],
+      "options": { "cwd": "${workspaceFolder}" },
+      "dependsOn": "container dev up",
       "group": "build",
       "problemMatcher": ["$rustc"]
     },
@@ -66,27 +239,39 @@
     },
     {
       "label": "cargo test workspace",
-      "type": "shell",
-      "command": "cargo test --workspace",
+      "type": "process",
+      "command": "docker",
+      "args": ["compose", "exec", "-T", "dev", "cargo", "test", "--locked", "--workspace"],
+      "options": { "cwd": "${workspaceFolder}" },
+      "dependsOn": "container dev up",
       "group": "test",
       "problemMatcher": ["$rustc"]
     },
     {
       "label": "cargo check workspace",
-      "type": "shell",
-      "command": "cargo check --workspace",
+      "type": "process",
+      "command": "docker",
+      "args": ["compose", "exec", "-T", "dev", "cargo", "check", "--locked", "--workspace"],
+      "options": { "cwd": "${workspaceFolder}" },
+      "dependsOn": "container dev up",
       "problemMatcher": ["$rustc"]
     },
     {
       "label": "cargo fmt workspace",
-      "type": "shell",
-      "command": "cargo fmt --all",
+      "type": "process",
+      "command": "docker",
+      "args": ["compose", "exec", "-T", "dev", "cargo", "fmt", "--all"],
+      "options": { "cwd": "${workspaceFolder}" },
+      "dependsOn": "container dev up",
       "problemMatcher": []
     },
     {
       "label": "cargo clippy workspace",
-      "type": "shell",
-      "command": "cargo clippy --workspace --all-targets -- -D warnings",
+      "type": "process",
+      "command": "docker",
+      "args": ["compose", "exec", "-T", "dev", "cargo", "clippy", "--locked", "--workspace", "--lib", "--bins", "--", "-D", "warnings"],
+      "options": { "cwd": "${workspaceFolder}" },
+      "dependsOn": "container dev up",
       "problemMatcher": []
     },
     {

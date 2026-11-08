@@ -1,14 +1,15 @@
 use repository::extensions::SoftDeleteQueryExt;
 use repository::{llm_app, llm_conversation, user};
+use repository_core::pagination::SignedPage;
 use sea_orm::{
     ColumnTrait, Condition, EntityTrait, ExprTrait, PaginatorTrait, QueryFilter, QueryOrder,
     QuerySelect,
 };
 
-use application_interface::context::LlmContext;
-use application_model::shared::models::{normalize_page, validate_page_request};
+use application_model::shared::models::{page_offset, validate_page_request};
 use application_model::user::models::PageListDto;
 use common::app_error::AppError;
+use repository_core::ReadDatabaseConnection;
 
 use super::models::{LlmConversationDto, LlmConversationPageListDto, LlmConversationPageRequest};
 
@@ -16,16 +17,16 @@ use super::models::{LlmConversationDto, LlmConversationPageListDto, LlmConversat
 ///
 /// 提供对话历史记录的分页查询能力
 pub struct LlmConversationManageService<'a> {
-    /// 应用层上下文
-    context: LlmContext<'a>,
+    /// 宿主提供的业务只读连接
+    read_db: &'a ReadDatabaseConnection,
 }
 
 impl<'a> LlmConversationManageService<'a> {
     /// 创建 LLM 对话记录管理服务
     ///
-    /// 使用统一 LLM 上下文访问数据库和关联应用信息
-    pub fn new(context: LlmContext<'a>) -> Self {
-        Self { context }
+    /// 对话及关联信息使用同一个业务只读连接。
+    pub fn new(read_db: &'a ReadDatabaseConnection) -> Self {
+        Self { read_db }
     }
 
     /// 获取 LLM 对话记录分页列表
@@ -44,7 +45,7 @@ impl<'a> LlmConversationManageService<'a> {
             .map(str::trim)
             .filter(|item| !item.is_empty())
         {
-            let pattern = format!("%{keyword}%");
+            let pattern = repository_core::extensions::contains_pattern(keyword);
             // 先命中关联应用 再回查会话表 以对齐按应用编码和名称检索的语义
             let matched_llm_app_ids = llm_app::Entity::find()
                 .not_deleted(llm_app::Column::DeleteTime)
@@ -56,7 +57,7 @@ impl<'a> LlmConversationManageService<'a> {
                 .select_only()
                 .column(llm_app::Column::Id)
                 .into_tuple::<i64>()
-                .all(self.context.app.db)
+                .all(self.read_db)
                 .await
                 .map_err(|error| AppError::internal(format!("查询 LLM 应用配置失败: {error}")))?;
 
@@ -79,24 +80,24 @@ impl<'a> LlmConversationManageService<'a> {
 
         let total = query
             .clone()
-            .count(self.context.app.db)
+            .count(self.read_db)
             .await
             .map_err(|error| AppError::internal(format!("查询对话记录总数失败: {error}")))?;
+        let total = repository_core::pagination::count_i32(total)
+            .map_err(|error| AppError::internal(error.to_string()))?;
 
         if total == 0 {
             return Ok(PageListDto {
                 total: 0,
-                list: vec![],
+                list: None,
             });
         }
 
-        let page = normalize_page(params.page);
-        let skip = (page - 1) * params.page_size;
+        let skip = page_offset(params.page, params.page_size);
         let conversations = query
             .order_by_desc(llm_conversation::Column::Id)
-            .offset(skip)
-            .limit(params.page_size)
-            .all(self.context.app.db)
+            .signed_page(skip, params.page_size)
+            .all(self.read_db)
             .await
             .map_err(|error| AppError::internal(format!("查询对话记录列表失败: {error}")))?;
 
@@ -113,7 +114,7 @@ impl<'a> LlmConversationManageService<'a> {
             llm_app::Entity::find()
                 .filter(llm_app::Column::Id.is_in(llm_app_ids))
                 .not_deleted(llm_app::Column::DeleteTime)
-                .all(self.context.app.db)
+                .all(self.read_db)
                 .await
                 .map_err(|error| AppError::internal(format!("查询 LLM 应用配置失败: {error}")))?
         };
@@ -131,7 +132,7 @@ impl<'a> LlmConversationManageService<'a> {
             user::Entity::find()
                 .filter(user::Column::Id.is_in(create_user_ids))
                 .not_deleted(user::Column::DeleteTime)
-                .all(self.context.app.db)
+                .all(self.read_db)
                 .await
                 .map_err(|error| AppError::internal(format!("查询创建人用户失败: {error}")))?
         };
@@ -161,6 +162,9 @@ impl<'a> LlmConversationManageService<'a> {
             })
             .collect();
 
-        Ok(PageListDto { total, list })
+        Ok(PageListDto {
+            total,
+            list: Some(list),
+        })
     }
 }

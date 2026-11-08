@@ -1,5 +1,4 @@
 use crate::startup::HostSettings;
-use config::{Config, Environment, File};
 use identifier_generator::IdentifierGeneratorSettings;
 use logger::LoggerSettings;
 use serde::Deserialize;
@@ -29,6 +28,7 @@ pub struct TaskServiceHostProfile {
 
     /// 日志运行时构建方法
     pub build_logger_runtime: crate::BuildTaskServiceLoggerRuntime,
+    pub build_event_transport: crate::BuildTaskServiceEventTransport,
 
     /// 短信发送器构建方法
     pub build_sms_sender: crate::BuildTaskServiceSmsSender,
@@ -149,10 +149,6 @@ pub struct FileSettings {
     /// 文件根目录
     #[serde(default = "default_file_root_path")]
     pub root_path: String,
-
-    /// 附件附加根目录列表
-    #[serde(default)]
-    pub additional_root_paths: Vec<String>,
 
     /// 对外访问基地址
     #[serde(default)]
@@ -338,6 +334,9 @@ pub struct Settings {
     /// 日志配置
     #[serde(default)]
     pub logger: LoggerSettings,
+    /// 跨进程广播配置
+    #[serde(default)]
+    pub event_bus: event_bus::EventBusOptions,
 
     /// 短信配置
     #[serde(default)]
@@ -402,7 +401,6 @@ impl Default for FileSettings {
         Self {
             component: default_file_storage_component(),
             root_path: default_file_root_path(),
-            additional_root_paths: Vec::new(),
             public_base_url: String::new(),
             aliyun_oss: AliyunOssFileStorageSettings::default(),
             tencent_cos: TencentCosFileStorageSettings::default(),
@@ -497,20 +495,15 @@ impl Settings {
         let config_path = std::env::var("APP_CONFIG_PATH")
             .unwrap_or_else(|_| profile.default_config_path.to_string());
 
-        let mut builder = Config::builder().add_source(File::with_name(&config_path));
-
-        if let Some(environment_name) = resolve_config_environment() {
-            let environment_config_path = format!("{config_path}.{environment_name}");
-            builder = builder.add_source(File::with_name(&environment_config_path).required(false));
-        }
-
-        let mut settings: Self = builder
-            .add_source(Environment::with_prefix("APP").separator("__"))
-            .build()
-            .expect("配置文件加载失败，请检查 appsettings.toml 是否存在")
+        let environment_name = resolve_config_environment();
+        let (configuration, reload_source) =
+            logger::load_host_configuration(&config_path, Some(&environment_name))
+                .expect("配置文件加载失败，请检查 appsettings.toml 是否存在");
+        let mut settings: Self = configuration
             .try_deserialize()
             .expect("配置文件解析失败，请检查字段格式是否正确");
 
+        settings.logger.set_filter_reload_source(reload_source);
         if settings.logger.project.trim().is_empty() {
             settings.logger.project = profile.default_logger_project.to_string();
         }
@@ -549,12 +542,12 @@ impl Settings {
 
 /// 获取默认队列轮询间隔秒数
 fn default_queue_interval_seconds() -> u64 {
-    5
+    1
 }
 
 /// 获取默认定时轮询间隔毫秒数
 fn default_schedule_interval_milliseconds() -> u64 {
-    256
+    128
 }
 
 /// 获取默认锁组件类型
@@ -572,11 +565,13 @@ fn default_file_storage_component() -> FileStorageComponent {
     FileStorageComponent::Local
 }
 
-fn resolve_config_environment() -> Option<String> {
-    std::env::var("APP_ENVIRONMENT")
-        .ok()
+fn resolve_config_environment() -> String {
+    ["APP_ENVIRONMENT", "DOTNET_ENVIRONMENT"]
+        .into_iter()
+        .filter_map(|name| std::env::var(name).ok())
         .map(|value| value.trim().to_string())
-        .filter(|value| !value.is_empty())
+        .find(|value| !value.is_empty())
+        .unwrap_or_else(|| "Production".to_string())
 }
 
 /// 获取默认短信组件类型
@@ -606,5 +601,5 @@ fn default_cache_prefix() -> String {
 
 /// 获取默认锁过期秒数
 fn default_lock_expiry_seconds() -> u64 {
-    60
+    300
 }

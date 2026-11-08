@@ -55,5 +55,10 @@ pub mod order;
 /// 地区字典模块应用服务
 pub mod region;
 
+/// 只读基础数据与图形验证码应用服务
+pub mod base;
+
 /// 消息模块应用服务
 pub mod message;
+
+mod contracts;

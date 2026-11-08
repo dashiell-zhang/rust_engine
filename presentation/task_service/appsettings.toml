@@ -16,24 +16,47 @@ read_connection = ""
 component = "in_memory"
 connection = "redis://127.0.0.1/"
 prefix = "task_service"
-expiry_seconds = 60
+expiry_seconds = 300
 
 [poll]
-queue_interval_seconds = 5
-schedule_interval_milliseconds = 256
+queue_interval_seconds = 1
+schedule_interval_milliseconds = 128
 
 [logger]
+reload_on_change = true
+# 日志独立写库；为空时选用 database.connection，但仍创建独立连接池。
+connection = ""
+# 为空时选用日志写库地址，不回退业务只读库。
+read_connection = ""
+database_identity = "RustEngine.Log"
+# 同一日志库的维护实例必须使用相同的锁连接和前缀。
+maintenance_lock_connection = ""
+maintenance_lock_prefix = "NetEngine:PartitionMaintenance:"
 component = "local_file"
 project = "task_service"
 save_days = 14
 
+# 数据库日志缓冲。
+[logger.database_buffer]
+queue_capacity = 8192
+max_buffered_bytes = 50331648
+important_queue_capacity = 2048
+important_max_buffered_bytes = 16777216
+batch_size = 1000
+flush_interval_milliseconds = 1000
+
+# 本地文件日志使用独立的缓冲配置。
+[logger.local_file_buffer]
+queue_capacity = 8192
+max_buffered_bytes = 50331648
+important_queue_capacity = 2048
+important_max_buffered_bytes = 16777216
+batch_size = 1000
+flush_interval_milliseconds = 1000
+
 [file]
 component = "local"
 root_path = "presentation/task_service/storage"
-additional_root_paths = [
-	"presentation/admin_webapi/storage",
-	"presentation/client_webapi/storage",
-]
 public_base_url = ""
 
 [file.aliyun_oss]
@@ -69,3 +92,23 @@ host = "smtp.example.com"
 port = 587
 username = ""
 password = ""
+
+# 参与互通的全部宿主共用后端、目标和 Scope；不要复用隔离到不同库编号的锁连接。
+[event_bus]
+provider = "redis"
+connection = "redis://127.0.0.1:6379/0"
+scope = "NetEngine:Development"
+retention_milliseconds = 3600000
+poll_interval_milliseconds = 1000
+retry_interval_milliseconds = 1000
+cleanup_interval_milliseconds = 60000
+batch_size = 100
+
+# 同一 ID 唯一性范围的所有宿主共享此 Redis、库编号和前缀。
+[identifier_generator]
+redis_connection = "redis://127.0.0.1:6379/0"
+instance_name = "NetEngine.Identifier"
+lease_duration_milliseconds = 172800000
+# 固定节点模式必须同时指定以下两个值，并由部署方保证每个实例的组合唯一。
+# data_center_id = 0
+# machine_id = 0

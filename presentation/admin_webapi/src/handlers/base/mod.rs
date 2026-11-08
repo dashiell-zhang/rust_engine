@@ -11,12 +11,15 @@ use std::sync::Arc;
 use utoipa::IntoParams;
 use webapi_core::error::AppError;
 use webapi_core::extract::{Json, Query};
+use webapi_support::WebApiApplicationExt;
 
 use crate::state::AppState;
 
 /// 二维码生成查询参数
 #[derive(Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
 #[serde(rename_all = "camelCase")]
+#[derive(common::json_helper::input::QueryModel)]
 pub struct GetQrCodeQuery {
     /// 要编码的文本内容
     pub text: String,
@@ -24,7 +27,9 @@ pub struct GetQrCodeQuery {
 
 /// 获取地区列表查询参数
 #[derive(Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
 #[serde(rename_all = "camelCase")]
+#[derive(common::json_helper::input::QueryModel)]
 pub struct GetRegionQuery {
     /// 省份 ID
     #[serde(rename = "provinceId")]
@@ -52,7 +57,7 @@ pub async fn get_qr_code(
     Query(query): Query<GetQrCodeQuery>,
 ) -> Result<Response, AppError> {
     let image = img_helper::get_qr_code(&query.text).map_err(|error| {
-        AppError::from(ApplicationError::bad_request(format!(
+        AppError::from(ApplicationError::internal(format!(
             "二维码生成失败: {error}"
         )))
     })?;
@@ -75,13 +80,14 @@ pub async fn get_region(
     State(app_state): State<Arc<AppState>>,
     Query(query): Query<GetRegionQuery>,
 ) -> Result<Response, AppError> {
-    let result = if let Some(city_id) = query.city_id.filter(|value| *value != 0) {
-        app_state.region_webapi().get_areas(city_id).await
-    } else if let Some(province_id) = query.province_id.filter(|value| *value != 0) {
-        app_state.region_webapi().get_cities(province_id).await
-    } else {
-        app_state.region_webapi().get_provinces().await
-    };
+    let result = app_state
+        .services()
+        .base()
+        .get_region(
+            query.province_id.unwrap_or_default(),
+            query.city_id.unwrap_or_default(),
+        )
+        .await;
 
     match result {
         Ok(result) => Ok((StatusCode::OK, Json(result)).into_response()),
@@ -100,7 +106,7 @@ pub async fn get_region(
     tag = "基础工具"
 )]
 pub async fn get_region_all(State(app_state): State<Arc<AppState>>) -> Result<Response, AppError> {
-    match app_state.region_webapi().get_region_all().await {
+    match app_state.services().base().get_region_all().await {
         Ok(result) => Ok((StatusCode::OK, Json(result)).into_response()),
         Err(error) => Err(error.into()),
     }
@@ -122,7 +128,12 @@ pub async fn get_value_list(
     State(app_state): State<Arc<AppState>>,
     Query(query): Query<GetValueListQuery>,
 ) -> Result<Response, AppError> {
-    match app_state.app_setting().get_value_list(query.group_id).await {
+    match app_state
+        .services()
+        .base()
+        .get_value_list(query.group_id)
+        .await
+    {
         Ok(result) => Ok((StatusCode::OK, Json(result)).into_response()),
         Err(error) => Err(error.into()),
     }
@@ -133,7 +144,7 @@ pub async fn get_value_list(
     get,
     path = "/Base/GetSnowflakeId",
     responses(
-        (status = 200, description = "获取成功，返回雪花 ID", body = i64),
+        (status = 200, description = "获取成功，返回雪花 ID", body = String),
         (status = 500, description = "服务器内部错误"),
     ),
     tag = "基础工具"
@@ -145,5 +156,5 @@ pub async fn get_snowflake_id(
         AppError::from(ApplicationError::internal(format!("ID 生成失败: {error}")))
     })?;
 
-    Ok((StatusCode::OK, id.to_string()).into_response())
+    Ok((StatusCode::OK, Json(id.to_string())).into_response())
 }

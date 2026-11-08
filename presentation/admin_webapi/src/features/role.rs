@@ -1,7 +1,7 @@
-use axum::Router;
 use std::sync::Arc;
 use utoipa::{OpenApi, openapi::OpenApi as OpenApiDocument};
 use webapi_core::queue_limit::{QueueLimitOptions, queue_limit_method_router};
+use webapi_core::routes::WebApiRoutes as Router;
 
 use crate::{
     features::protect_method_router,
@@ -31,7 +31,7 @@ impl WebApiFeature for RoleFeature {
             .route(
                 "/Role/GetRoleList",
                 protect_method_router(
-                    axum::routing::get(get_role_list),
+                    webapi_core::routes::get(get_role_list),
                     app_state.clone(),
                     permission_module.clone(),
                     "/Role/GetRoleList",
@@ -41,7 +41,7 @@ impl WebApiFeature for RoleFeature {
             .route(
                 "/Role/GetRole",
                 protect_method_router(
-                    axum::routing::get(get_role),
+                    webapi_core::routes::get(get_role),
                     app_state.clone(),
                     permission_module.clone(),
                     "/Role/GetRole",
@@ -52,9 +52,10 @@ impl WebApiFeature for RoleFeature {
                 "/Role/CreateRole",
                 protect_method_router(
                     queue_limit_method_router(
-                        axum::routing::post(create_role),
-                        app_state.role_code_lock.clone(),
+                        webapi_core::routes::post(create_role).json_body("role"),
+                        app_state.distributed_lock.clone(),
                         QueueLimitOptions::rejecting_with_authorization(1),
+                        concat!(module_path!(), "::create_role"),
                     ),
                     app_state.clone(),
                     permission_module.clone(),
@@ -66,9 +67,10 @@ impl WebApiFeature for RoleFeature {
                 "/Role/UpdateRole",
                 protect_method_router(
                     queue_limit_method_router(
-                        axum::routing::post(update_role),
-                        app_state.role_code_lock.clone(),
+                        webapi_core::routes::post(update_role).json_body("role"),
+                        app_state.distributed_lock.clone(),
                         QueueLimitOptions::rejecting_with_authorization(1),
+                        concat!(module_path!(), "::update_role"),
                     ),
                     app_state.clone(),
                     permission_module.clone(),
@@ -79,7 +81,7 @@ impl WebApiFeature for RoleFeature {
             .route(
                 "/Role/DeleteRole",
                 protect_method_router(
-                    axum::routing::delete(delete_role),
+                    webapi_core::routes::delete(delete_role),
                     app_state.clone(),
                     permission_module.clone(),
                     "/Role/DeleteRole",
@@ -89,7 +91,7 @@ impl WebApiFeature for RoleFeature {
             .route(
                 "/Role/GetRoleFunction",
                 protect_method_router(
-                    axum::routing::get(get_role_function),
+                    webapi_core::routes::get(get_role_function),
                     app_state.clone(),
                     permission_module.clone(),
                     "/Role/GetRoleFunction",
@@ -99,7 +101,7 @@ impl WebApiFeature for RoleFeature {
             .route(
                 "/Role/SetRoleFunction",
                 protect_method_router(
-                    axum::routing::post(set_role_function),
+                    webapi_core::routes::post(set_role_function).json_body("setRoleFunction"),
                     app_state.clone(),
                     permission_module.clone(),
                     "/Role/SetRoleFunction",
@@ -109,7 +111,7 @@ impl WebApiFeature for RoleFeature {
             .route(
                 "/Role/GetRoleSelect",
                 protect_method_router(
-                    axum::routing::get(get_role_select),
+                    webapi_core::routes::get(get_role_select),
                     app_state,
                     permission_module,
                     "/Role/GetRoleSelect",
@@ -132,7 +134,7 @@ impl WebApiFeature for RoleFeature {
             },
             WebApiRoutePermission {
                 route: "/Role/GetRole",
-                remark: "获取单个角色信息",
+                remark: "通过ID获取角色信息",
             },
             WebApiRoutePermission {
                 route: "/Role/CreateRole",
@@ -140,7 +142,7 @@ impl WebApiFeature for RoleFeature {
             },
             WebApiRoutePermission {
                 route: "/Role/UpdateRole",
-                remark: "更新角色",
+                remark: "编辑角色",
             },
             WebApiRoutePermission {
                 route: "/Role/DeleteRole",
@@ -148,15 +150,15 @@ impl WebApiFeature for RoleFeature {
             },
             WebApiRoutePermission {
                 route: "/Role/GetRoleFunction",
-                remark: "获取角色功能树",
+                remark: "获取某个角色的功能权限",
             },
             WebApiRoutePermission {
                 route: "/Role/SetRoleFunction",
-                remark: "设置角色功能勾选状态",
+                remark: "设置角色的功能",
             },
             WebApiRoutePermission {
                 route: "/Role/GetRoleSelect",
-                remark: "获取角色下拉列表",
+                remark: "获取角色选项列表",
             },
         ]
     }

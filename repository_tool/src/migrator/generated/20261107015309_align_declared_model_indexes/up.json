@@ -1,0 +1,458 @@
+[
+  {
+    "kind": "Sql",
+    "value": "CREATE INDEX \"IX_AppSetting_CreateTime\" ON \"AppSetting\" (\"CreateTime\")"
+  },
+  {
+    "kind": "Sql",
+    "value": "CREATE INDEX \"IX_AppSetting_DeleteTime\" ON \"AppSetting\" (\"DeleteTime\")"
+  },
+  {
+    "kind": "Sql",
+    "value": "CREATE INDEX \"IX_AppSetting_Module\" ON \"AppSetting\" (\"Module\")"
+  },
+  {
+    "kind": "Sql",
+    "value": "CREATE INDEX \"IX_Article_CategoryId\" ON \"Article\" (\"CategoryId\")"
+  },
+  {
+    "kind": "Sql",
+    "value": "CREATE INDEX \"IX_Article_CreateTime\" ON \"Article\" (\"CreateTime\")"
+  },
+  {
+    "kind": "Sql",
+    "value": "CREATE INDEX \"IX_Article_CreateUserId\" ON \"Article\" (\"CreateUserId\")"
+  },
+  {
+    "kind": "Sql",
+    "value": "CREATE INDEX \"IX_Article_DeleteTime\" ON \"Article\" (\"DeleteTime\")"
+  },
+  {
+    "kind": "Sql",
+    "value": "CREATE INDEX \"IX_Article_DeleteUserId\" ON \"Article\" (\"DeleteUserId\")"
+  },
+  {
+    "kind": "Sql",
+    "value": "CREATE INDEX \"IX_Article_Title\" ON \"Article\" (\"Title\")"
+  },
+  {
+    "kind": "Sql",
+    "value": "CREATE INDEX \"IX_Category_CreateTime\" ON \"Category\" (\"CreateTime\")"
+  },
+  {
+    "kind": "Sql",
+    "value": "CREATE INDEX \"IX_Category_CreateUserId\" ON \"Category\" (\"CreateUserId\")"
+  },
+  {
+    "kind": "Sql",
+    "value": "CREATE INDEX \"IX_Category_DeleteTime\" ON \"Category\" (\"DeleteTime\")"
+  },
+  {
+    "kind": "Sql",
+    "value": "CREATE INDEX \"IX_Category_DeleteUserId\" ON \"Category\" (\"DeleteUserId\")"
+  },
+  {
+    "kind": "Sql",
+    "value": "CREATE INDEX \"IX_Category_Name\" ON \"Category\" (\"Name\")"
+  },
+  {
+    "kind": "Sql",
+    "value": "CREATE INDEX \"IX_Category_ParentId\" ON \"Category\" (\"ParentId\")"
+  },
+  {
+    "kind": "Sql",
+    "value": "CREATE INDEX \"IX_DataUpdateLog_ActionUserId\" ON \"DataUpdateLog\" (\"ActionUserId\")"
+  },
+  {
+    "kind": "Sql",
+    "value": "CREATE INDEX \"IX_DataUpdateLog_CreateTime\" ON \"DataUpdateLog\" (\"CreateTime\")"
+  },
+  {
+    "kind": "Sql",
+    "value": "CREATE INDEX \"IX_DataUpdateLog_DeleteTime\" ON \"DataUpdateLog\" (\"DeleteTime\")"
+  },
+  {
+    "kind": "Sql",
+    "value": "CREATE INDEX \"IX_File_CreateTime\" ON \"File\" (\"CreateTime\")"
+  },
+  {
+    "kind": "Sql",
+    "value": "CREATE INDEX \"IX_File_CreateUserId\" ON \"File\" (\"CreateUserId\")"
+  },
+  {
+    "kind": "Sql",
+    "value": "CREATE INDEX \"IX_File_DeleteTime\" ON \"File\" (\"DeleteTime\")"
+  },
+  {
+    "kind": "Sql",
+    "value": "CREATE INDEX \"IX_File_DeleteUserId\" ON \"File\" (\"DeleteUserId\")"
+  },
+  {
+    "kind": "Sql",
+    "value": "CREATE INDEX \"IX_File_Sign\" ON \"File\" (\"Sign\")"
+  },
+  {
+    "kind": "Sql",
+    "value": "CREATE INDEX \"IX_File_Table\" ON \"File\" (\"Table\")"
+  },
+  {
+    "kind": "Sql",
+    "value": "CREATE INDEX \"IX_File_TableId\" ON \"File\" (\"TableId\")"
+  },
+  {
+    "kind": "Sql",
+    "value": "CREATE INDEX \"IX_Function_CreateTime\" ON \"Function\" (\"CreateTime\")"
+  },
+  {
+    "kind": "Sql",
+    "value": "CREATE INDEX \"IX_Function_DeleteTime\" ON \"Function\" (\"DeleteTime\")"
+  },
+  {
+    "kind": "Sql",
+    "value": "CREATE INDEX \"IX_Function_ParentId\" ON \"Function\" (\"ParentId\")"
+  },
+  {
+    "kind": "Sql",
+    "value": "CREATE INDEX \"IX_FunctionAuthorize_CreateTime\" ON \"FunctionAuthorize\" (\"CreateTime\")"
+  },
+  {
+    "kind": "Sql",
+    "value": "CREATE INDEX \"IX_FunctionAuthorize_CreateUserId\" ON \"FunctionAuthorize\" (\"CreateUserId\")"
+  },
+  {
+    "kind": "Sql",
+    "value": "CREATE INDEX \"IX_FunctionAuthorize_DeleteTime\" ON \"FunctionAuthorize\" (\"DeleteTime\")"
+  },
+  {
+    "kind": "Sql",
+    "value": "CREATE INDEX \"IX_FunctionAuthorize_DeleteUserId\" ON \"FunctionAuthorize\" (\"DeleteUserId\")"
+  },
+  {
+    "kind": "Sql",
+    "value": "CREATE INDEX \"IX_FunctionAuthorize_UpdateTime\" ON \"FunctionAuthorize\" (\"UpdateTime\")"
+  },
+  {
+    "kind": "Sql",
+    "value": "CREATE INDEX \"IX_FunctionAuthorize_UpdateUserId\" ON \"FunctionAuthorize\" (\"UpdateUserId\")"
+  },
+  {
+    "kind": "Sql",
+    "value": "CREATE INDEX \"IX_FunctionRoute_CreateTime\" ON \"FunctionRoute\" (\"CreateTime\")"
+  },
+  {
+    "kind": "Sql",
+    "value": "CREATE INDEX \"IX_FunctionRoute_DeleteTime\" ON \"FunctionRoute\" (\"DeleteTime\")"
+  },
+  {
+    "kind": "Sql",
+    "value": "CREATE INDEX \"IX_Link_CreateTime\" ON \"Link\" (\"CreateTime\")"
+  },
+  {
+    "kind": "Sql",
+    "value": "CREATE INDEX \"IX_Link_CreateUserId\" ON \"Link\" (\"CreateUserId\")"
+  },
+  {
+    "kind": "Sql",
+    "value": "CREATE INDEX \"IX_Link_DeleteTime\" ON \"Link\" (\"DeleteTime\")"
+  },
+  {
+    "kind": "Sql",
+    "value": "CREATE INDEX \"IX_Link_DeleteUserId\" ON \"Link\" (\"DeleteUserId\")"
+  },
+  {
+    "kind": "Sql",
+    "value": "CREATE INDEX \"IX_Link_Sort\" ON \"Link\" (\"Sort\")"
+  },
+  {
+    "kind": "Sql",
+    "value": "CREATE INDEX \"IX_LlmApp_CreateTime\" ON \"LlmApp\" (\"CreateTime\")"
+  },
+  {
+    "kind": "Sql",
+    "value": "CREATE INDEX \"IX_LlmApp_CreateUserId\" ON \"LlmApp\" (\"CreateUserId\")"
+  },
+  {
+    "kind": "Sql",
+    "value": "CREATE INDEX \"IX_LlmApp_DeleteTime\" ON \"LlmApp\" (\"DeleteTime\")"
+  },
+  {
+    "kind": "Sql",
+    "value": "CREATE INDEX \"IX_LlmApp_DeleteUserId\" ON \"LlmApp\" (\"DeleteUserId\")"
+  },
+  {
+    "kind": "Sql",
+    "value": "CREATE INDEX \"IX_LlmApp_IsEnable\" ON \"LlmApp\" (\"IsEnable\")"
+  },
+  {
+    "kind": "Sql",
+    "value": "CREATE INDEX \"IX_LlmApp_LlmModelId\" ON \"LlmApp\" (\"LlmModelId\")"
+  },
+  {
+    "kind": "Sql",
+    "value": "CREATE INDEX \"IX_LlmApp_UpdateTime\" ON \"LlmApp\" (\"UpdateTime\")"
+  },
+  {
+    "kind": "Sql",
+    "value": "CREATE INDEX \"IX_LlmApp_UpdateUserId\" ON \"LlmApp\" (\"UpdateUserId\")"
+  },
+  {
+    "kind": "Sql",
+    "value": "CREATE INDEX \"IX_LlmConversation_CreateTime\" ON \"LlmConversation\" (\"CreateTime\")"
+  },
+  {
+    "kind": "Sql",
+    "value": "CREATE INDEX \"IX_LlmConversation_CreateUserId\" ON \"LlmConversation\" (\"CreateUserId\")"
+  },
+  {
+    "kind": "Sql",
+    "value": "CREATE INDEX \"IX_LlmConversation_DeleteTime\" ON \"LlmConversation\" (\"DeleteTime\")"
+  },
+  {
+    "kind": "Sql",
+    "value": "CREATE INDEX \"IX_LlmConversation_LlmAppId\" ON \"LlmConversation\" (\"LlmAppId\")"
+  },
+  {
+    "kind": "Sql",
+    "value": "CREATE INDEX \"IX_LlmModel_CreateTime\" ON \"LlmModel\" (\"CreateTime\")"
+  },
+  {
+    "kind": "Sql",
+    "value": "CREATE INDEX \"IX_LlmModel_CreateUserId\" ON \"LlmModel\" (\"CreateUserId\")"
+  },
+  {
+    "kind": "Sql",
+    "value": "CREATE INDEX \"IX_LlmModel_DeleteTime\" ON \"LlmModel\" (\"DeleteTime\")"
+  },
+  {
+    "kind": "Sql",
+    "value": "CREATE INDEX \"IX_LlmModel_DeleteUserId\" ON \"LlmModel\" (\"DeleteUserId\")"
+  },
+  {
+    "kind": "Sql",
+    "value": "CREATE INDEX \"IX_LlmModel_IsEnable\" ON \"LlmModel\" (\"IsEnable\")"
+  },
+  {
+    "kind": "Sql",
+    "value": "CREATE INDEX \"IX_LlmModel_UpdateTime\" ON \"LlmModel\" (\"UpdateTime\")"
+  },
+  {
+    "kind": "Sql",
+    "value": "CREATE INDEX \"IX_LlmModel_UpdateUserId\" ON \"LlmModel\" (\"UpdateUserId\")"
+  },
+  {
+    "kind": "Sql",
+    "value": "CREATE INDEX \"IX_Order_CreateTime\" ON \"Order\" (\"CreateTime\")"
+  },
+  {
+    "kind": "Sql",
+    "value": "CREATE INDEX \"IX_Order_CreateUserId\" ON \"Order\" (\"CreateUserId\")"
+  },
+  {
+    "kind": "Sql",
+    "value": "CREATE INDEX \"IX_Order_DeleteTime\" ON \"Order\" (\"DeleteTime\")"
+  },
+  {
+    "kind": "Sql",
+    "value": "CREATE INDEX \"IX_Order_DeleteUserId\" ON \"Order\" (\"DeleteUserId\")"
+  },
+  {
+    "kind": "Sql",
+    "value": "CREATE INDEX \"IX_Order_UpdateTime\" ON \"Order\" (\"UpdateTime\")"
+  },
+  {
+    "kind": "Sql",
+    "value": "CREATE INDEX \"IX_Order_UpdateUserId\" ON \"Order\" (\"UpdateUserId\")"
+  },
+  {
+    "kind": "Sql",
+    "value": "CREATE INDEX \"IX_OrderDetail_CreateTime\" ON \"OrderDetail\" (\"CreateTime\")"
+  },
+  {
+    "kind": "Sql",
+    "value": "CREATE INDEX \"IX_OrderDetail_DeleteTime\" ON \"OrderDetail\" (\"DeleteTime\")"
+  },
+  {
+    "kind": "Sql",
+    "value": "CREATE INDEX \"IX_OrderDetail_OrderId\" ON \"OrderDetail\" (\"OrderId\")"
+  },
+  {
+    "kind": "Sql",
+    "value": "CREATE INDEX \"IX_OrderDetail_ProductId\" ON \"OrderDetail\" (\"ProductId\")"
+  },
+  {
+    "kind": "Sql",
+    "value": "CREATE INDEX \"IX_Product_CreateTime\" ON \"Product\" (\"CreateTime\")"
+  },
+  {
+    "kind": "Sql",
+    "value": "CREATE INDEX \"IX_Product_CreateUserId\" ON \"Product\" (\"CreateUserId\")"
+  },
+  {
+    "kind": "Sql",
+    "value": "CREATE INDEX \"IX_Product_DeleteTime\" ON \"Product\" (\"DeleteTime\")"
+  },
+  {
+    "kind": "Sql",
+    "value": "CREATE INDEX \"IX_Product_DeleteUserId\" ON \"Product\" (\"DeleteUserId\")"
+  },
+  {
+    "kind": "Sql",
+    "value": "CREATE INDEX \"IX_Product_UpdateTime\" ON \"Product\" (\"UpdateTime\")"
+  },
+  {
+    "kind": "Sql",
+    "value": "CREATE INDEX \"IX_Product_UpdateUserId\" ON \"Product\" (\"UpdateUserId\")"
+  },
+  {
+    "kind": "Sql",
+    "value": "CREATE INDEX \"IX_QueueTask_CreateTime\" ON \"QueueTask\" (\"CreateTime\")"
+  },
+  {
+    "kind": "Sql",
+    "value": "CREATE INDEX \"IX_QueueTask_DeleteTime\" ON \"QueueTask\" (\"DeleteTime\")"
+  },
+  {
+    "kind": "Sql",
+    "value": "CREATE INDEX \"IX_RegionArea_Area\" ON \"RegionArea\" (\"Area\")"
+  },
+  {
+    "kind": "Sql",
+    "value": "CREATE INDEX \"IX_RegionArea_CityId\" ON \"RegionArea\" (\"CityId\")"
+  },
+  {
+    "kind": "Sql",
+    "value": "CREATE INDEX \"IX_RegionArea_CreateTime\" ON \"RegionArea\" (\"CreateTime\")"
+  },
+  {
+    "kind": "Sql",
+    "value": "CREATE INDEX \"IX_RegionArea_DeleteTime\" ON \"RegionArea\" (\"DeleteTime\")"
+  },
+  {
+    "kind": "Sql",
+    "value": "CREATE INDEX \"IX_RegionCity_City\" ON \"RegionCity\" (\"City\")"
+  },
+  {
+    "kind": "Sql",
+    "value": "CREATE INDEX \"IX_RegionCity_CreateTime\" ON \"RegionCity\" (\"CreateTime\")"
+  },
+  {
+    "kind": "Sql",
+    "value": "CREATE INDEX \"IX_RegionCity_DeleteTime\" ON \"RegionCity\" (\"DeleteTime\")"
+  },
+  {
+    "kind": "Sql",
+    "value": "CREATE INDEX \"IX_RegionCity_ProvinceId\" ON \"RegionCity\" (\"ProvinceId\")"
+  },
+  {
+    "kind": "Sql",
+    "value": "CREATE INDEX \"IX_RegionProvince_CreateTime\" ON \"RegionProvince\" (\"CreateTime\")"
+  },
+  {
+    "kind": "Sql",
+    "value": "CREATE INDEX \"IX_RegionProvince_DeleteTime\" ON \"RegionProvince\" (\"DeleteTime\")"
+  },
+  {
+    "kind": "Sql",
+    "value": "CREATE INDEX \"IX_RegionProvince_Province\" ON \"RegionProvince\" (\"Province\")"
+  },
+  {
+    "kind": "Sql",
+    "value": "CREATE INDEX \"IX_RegionTown_AreaId\" ON \"RegionTown\" (\"AreaId\")"
+  },
+  {
+    "kind": "Sql",
+    "value": "CREATE INDEX \"IX_RegionTown_CreateTime\" ON \"RegionTown\" (\"CreateTime\")"
+  },
+  {
+    "kind": "Sql",
+    "value": "CREATE INDEX \"IX_RegionTown_DeleteTime\" ON \"RegionTown\" (\"DeleteTime\")"
+  },
+  {
+    "kind": "Sql",
+    "value": "CREATE INDEX \"IX_RegionTown_Town\" ON \"RegionTown\" (\"Town\")"
+  },
+  {
+    "kind": "Sql",
+    "value": "CREATE INDEX \"IX_Role_CreateTime\" ON \"Role\" (\"CreateTime\")"
+  },
+  {
+    "kind": "Sql",
+    "value": "CREATE INDEX \"IX_Role_DeleteTime\" ON \"Role\" (\"DeleteTime\")"
+  },
+  {
+    "kind": "Sql",
+    "value": "CREATE INDEX \"IX_TaskSetting_CreateTime\" ON \"TaskSetting\" (\"CreateTime\")"
+  },
+  {
+    "kind": "Sql",
+    "value": "CREATE INDEX \"IX_TaskSetting_DeleteTime\" ON \"TaskSetting\" (\"DeleteTime\")"
+  },
+  {
+    "kind": "Sql",
+    "value": "CREATE INDEX \"IX_TaskSetting_UpdateTime\" ON \"TaskSetting\" (\"UpdateTime\")"
+  },
+  {
+    "kind": "Sql",
+    "value": "CREATE INDEX \"IX_UserInfo_CreateTime\" ON \"UserInfo\" (\"CreateTime\")"
+  },
+  {
+    "kind": "Sql",
+    "value": "CREATE INDEX \"IX_UserInfo_DeleteTime\" ON \"UserInfo\" (\"DeleteTime\")"
+  },
+  {
+    "kind": "Sql",
+    "value": "CREATE INDEX \"IX_UserInfo_RegionAreaId\" ON \"UserInfo\" (\"RegionAreaId\")"
+  },
+  {
+    "kind": "Sql",
+    "value": "CREATE INDEX \"IX_UserInfo_UpdateTime\" ON \"UserInfo\" (\"UpdateTime\")"
+  },
+  {
+    "kind": "Sql",
+    "value": "CREATE INDEX \"IX_UserInfo_UpdateUserId\" ON \"UserInfo\" (\"UpdateUserId\")"
+  },
+  {
+    "kind": "Sql",
+    "value": "CREATE INDEX \"IX_UserRole_CreateTime\" ON \"UserRole\" (\"CreateTime\")"
+  },
+  {
+    "kind": "Sql",
+    "value": "CREATE INDEX \"IX_UserRole_CreateUserId\" ON \"UserRole\" (\"CreateUserId\")"
+  },
+  {
+    "kind": "Sql",
+    "value": "CREATE INDEX \"IX_UserRole_DeleteTime\" ON \"UserRole\" (\"DeleteTime\")"
+  },
+  {
+    "kind": "Sql",
+    "value": "CREATE INDEX \"IX_UserRole_DeleteUserId\" ON \"UserRole\" (\"DeleteUserId\")"
+  },
+  {
+    "kind": "Sql",
+    "value": "CREATE INDEX \"IX_UserRole_RoleId\" ON \"UserRole\" (\"RoleId\")"
+  },
+  {
+    "kind": "Sql",
+    "value": "CREATE INDEX \"IX_UserRole_UpdateTime\" ON \"UserRole\" (\"UpdateTime\")"
+  },
+  {
+    "kind": "Sql",
+    "value": "CREATE INDEX \"IX_UserRole_UpdateUserId\" ON \"UserRole\" (\"UpdateUserId\")"
+  },
+  {
+    "kind": "Sql",
+    "value": "CREATE INDEX \"IX_UserRole_UserId\" ON \"UserRole\" (\"UserId\")"
+  },
+  {
+    "kind": "Sql",
+    "value": "CREATE INDEX \"IX_UserToken_CreateTime\" ON \"UserToken\" (\"CreateTime\")"
+  },
+  {
+    "kind": "Sql",
+    "value": "CREATE INDEX \"IX_UserToken_DeleteTime\" ON \"UserToken\" (\"DeleteTime\")"
+  },
+  {
+    "kind": "Sql",
+    "value": "CREATE INDEX \"IX_UserToken_UserId\" ON \"UserToken\" (\"UserId\")"
+  }
+]

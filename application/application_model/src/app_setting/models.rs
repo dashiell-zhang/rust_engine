@@ -13,6 +13,7 @@ pub struct AppSettingDto {
     pub module: String,
 
     /// 配置分组 ID
+    #[schema(value_type = Option<String>)]
     pub group_id: Option<i64>,
 
     /// 配置键
@@ -48,6 +49,7 @@ pub struct SetAppSettingDto {
 
 /// 获取配置列表的查询参数
 #[derive(Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
 #[serde(rename_all = "camelCase")]
 pub struct GetAppSettingListQuery {
     /// 配置模块
@@ -56,6 +58,7 @@ pub struct GetAppSettingListQuery {
 
 /// 获取单个配置的查询参数
 #[derive(Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
 #[serde(rename_all = "camelCase")]
 pub struct GetAppSettingQuery {
     /// 配置模块
@@ -67,15 +70,18 @@ pub struct GetAppSettingQuery {
 
 /// 获取字典值列表查询参数
 #[derive(Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
 #[serde(rename_all = "camelCase")]
+#[derive(common::json_helper::input::QueryModel)]
 pub struct GetValueListQuery {
     /// 字典分组 ID
-    #[serde(rename = "groupId")]
+    #[serde(rename = "groupId", default)]
     pub group_id: i64,
 }
 
 /// 删除配置项的查询参数
 #[derive(Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
 #[serde(rename_all = "camelCase")]
 pub struct DeleteAppSettingQuery {
     /// 配置模块

@@ -1,0 +1,2909 @@
+{
+  "format": 1,
+  "target": "business",
+  "migration_id": "20261107105933_align_stored_file_table",
+  "model": {
+    "tables": {
+      "\"AppSetting\"": {
+        "schema": null,
+        "name": "AppSetting",
+        "columns": [
+          {
+            "name": "Id",
+            "sql_type": "bigint",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "Module",
+            "sql_type": "text",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "GroupId",
+            "sql_type": "bigint",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "Key",
+            "sql_type": "text",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "Value",
+            "sql_type": "text",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "CreateTime",
+            "sql_type": "timestamp with time zone",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "DeleteTime",
+            "sql_type": "timestamp with time zone",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          }
+        ],
+        "primary_key": [
+          "Id"
+        ],
+        "foreign_keys": {},
+        "indexes": {
+          "IX_AppSetting_CreateTime": "CREATE INDEX \"IX_AppSetting_CreateTime\" ON \"AppSetting\" (\"CreateTime\")",
+          "IX_AppSetting_DeleteTime": "CREATE INDEX \"IX_AppSetting_DeleteTime\" ON \"AppSetting\" (\"DeleteTime\")",
+          "IX_AppSetting_Module": "CREATE INDEX \"IX_AppSetting_Module\" ON \"AppSetting\" (\"Module\")",
+          "IX_AppSetting_Module_GroupId_NotDeleted": "CREATE INDEX \"IX_AppSetting_Module_GroupId_NotDeleted\" ON \"AppSetting\" (\"Module\", \"GroupId\") WHERE \"AppSetting\".\"DeleteTime\" IS NULL",
+          "IX_AppSetting_Module_Key_NotDeleted": "CREATE INDEX \"IX_AppSetting_Module_Key_NotDeleted\" ON \"AppSetting\" (\"Module\", \"Key\") WHERE \"AppSetting\".\"DeleteTime\" IS NULL"
+        },
+        "partition": null,
+        "comment": null
+      },
+      "\"Article\"": {
+        "schema": null,
+        "name": "Article",
+        "columns": [
+          {
+            "name": "Id",
+            "sql_type": "bigint",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "CategoryId",
+            "sql_type": "bigint",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "Title",
+            "sql_type": "text",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "Content",
+            "sql_type": "text",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "IsRecommend",
+            "sql_type": "bool",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "IsDisplay",
+            "sql_type": "bool",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "Sort",
+            "sql_type": "integer",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "ClickCount",
+            "sql_type": "integer",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "Digest",
+            "sql_type": "text",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "CreateTime",
+            "sql_type": "timestamp with time zone",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "DeleteTime",
+            "sql_type": "timestamp with time zone",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "CreateUserId",
+            "sql_type": "bigint",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "DeleteUserId",
+            "sql_type": "bigint",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          }
+        ],
+        "primary_key": [
+          "Id"
+        ],
+        "foreign_keys": {
+          "fk-Article-CategoryId": "ALTER TABLE \"Article\" ADD CONSTRAINT \"fk-Article-CategoryId\" FOREIGN KEY (\"CategoryId\") REFERENCES \"Category\" (\"Id\") ON DELETE RESTRICT ON UPDATE NO ACTION",
+          "fk-Article-CreateUserId": "ALTER TABLE \"Article\" ADD CONSTRAINT \"fk-Article-CreateUserId\" FOREIGN KEY (\"CreateUserId\") REFERENCES \"User\" (\"Id\") ON DELETE RESTRICT ON UPDATE NO ACTION",
+          "fk-Article-DeleteUserId": "ALTER TABLE \"Article\" ADD CONSTRAINT \"fk-Article-DeleteUserId\" FOREIGN KEY (\"DeleteUserId\") REFERENCES \"User\" (\"Id\") ON DELETE RESTRICT ON UPDATE NO ACTION"
+        },
+        "indexes": {
+          "IX_Article_CategoryId": "CREATE INDEX \"IX_Article_CategoryId\" ON \"Article\" (\"CategoryId\")",
+          "IX_Article_CategoryId_NotDeleted": "CREATE INDEX \"IX_Article_CategoryId_NotDeleted\" ON \"Article\" (\"CategoryId\") WHERE \"Article\".\"DeleteTime\" IS NULL",
+          "IX_Article_CreateTime": "CREATE INDEX \"IX_Article_CreateTime\" ON \"Article\" (\"CreateTime\")",
+          "IX_Article_CreateUserId": "CREATE INDEX \"IX_Article_CreateUserId\" ON \"Article\" (\"CreateUserId\")",
+          "IX_Article_DeleteTime": "CREATE INDEX \"IX_Article_DeleteTime\" ON \"Article\" (\"DeleteTime\")",
+          "IX_Article_DeleteUserId": "CREATE INDEX \"IX_Article_DeleteUserId\" ON \"Article\" (\"DeleteUserId\")",
+          "IX_Article_IsDisplay_NotDeleted": "CREATE INDEX \"IX_Article_IsDisplay_NotDeleted\" ON \"Article\" (\"IsDisplay\") WHERE \"Article\".\"DeleteTime\" IS NULL",
+          "IX_Article_Title": "CREATE INDEX \"IX_Article_Title\" ON \"Article\" (\"Title\")"
+        },
+        "partition": null,
+        "comment": null
+      },
+      "\"Category\"": {
+        "schema": null,
+        "name": "Category",
+        "columns": [
+          {
+            "name": "Id",
+            "sql_type": "bigint",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "Name",
+            "sql_type": "text",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "Sort",
+            "sql_type": "integer",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "ParentId",
+            "sql_type": "bigint",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "Remark",
+            "sql_type": "text",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "CreateTime",
+            "sql_type": "timestamp with time zone",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "DeleteTime",
+            "sql_type": "timestamp with time zone",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "CreateUserId",
+            "sql_type": "bigint",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "DeleteUserId",
+            "sql_type": "bigint",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          }
+        ],
+        "primary_key": [
+          "Id"
+        ],
+        "foreign_keys": {
+          "fk-Category-CreateUserId": "ALTER TABLE \"Category\" ADD CONSTRAINT \"fk-Category-CreateUserId\" FOREIGN KEY (\"CreateUserId\") REFERENCES \"User\" (\"Id\") ON DELETE RESTRICT ON UPDATE NO ACTION",
+          "fk-Category-DeleteUserId": "ALTER TABLE \"Category\" ADD CONSTRAINT \"fk-Category-DeleteUserId\" FOREIGN KEY (\"DeleteUserId\") REFERENCES \"User\" (\"Id\") ON DELETE RESTRICT ON UPDATE NO ACTION",
+          "fk-Category-ParentId": "ALTER TABLE \"Category\" ADD CONSTRAINT \"fk-Category-ParentId\" FOREIGN KEY (\"ParentId\") REFERENCES \"Category\" (\"Id\") ON DELETE RESTRICT ON UPDATE NO ACTION"
+        },
+        "indexes": {
+          "IX_Category_CreateTime": "CREATE INDEX \"IX_Category_CreateTime\" ON \"Category\" (\"CreateTime\")",
+          "IX_Category_CreateUserId": "CREATE INDEX \"IX_Category_CreateUserId\" ON \"Category\" (\"CreateUserId\")",
+          "IX_Category_DeleteTime": "CREATE INDEX \"IX_Category_DeleteTime\" ON \"Category\" (\"DeleteTime\")",
+          "IX_Category_DeleteUserId": "CREATE INDEX \"IX_Category_DeleteUserId\" ON \"Category\" (\"DeleteUserId\")",
+          "IX_Category_Name": "CREATE INDEX \"IX_Category_Name\" ON \"Category\" (\"Name\")",
+          "IX_Category_ParentId": "CREATE INDEX \"IX_Category_ParentId\" ON \"Category\" (\"ParentId\")",
+          "IX_Category_ParentId_NotDeleted": "CREATE INDEX \"IX_Category_ParentId_NotDeleted\" ON \"Category\" (\"ParentId\") WHERE \"Category\".\"DeleteTime\" IS NULL"
+        },
+        "partition": null,
+        "comment": null
+      },
+      "\"DataUpdateLog\"": {
+        "schema": null,
+        "name": "DataUpdateLog",
+        "columns": [
+          {
+            "name": "Id",
+            "sql_type": "bigint",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "Table",
+            "sql_type": "text",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "TableId",
+            "sql_type": "bigint",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "Content",
+            "sql_type": "text",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "ActionUserId",
+            "sql_type": "bigint",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "IpAddress",
+            "sql_type": "text",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "DeviceMark",
+            "sql_type": "text",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "CreateTime",
+            "sql_type": "timestamp with time zone",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "DeleteTime",
+            "sql_type": "timestamp with time zone",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          }
+        ],
+        "primary_key": [
+          "Id"
+        ],
+        "foreign_keys": {
+          "fk-DataUpdateLog-ActionUserId": "ALTER TABLE \"DataUpdateLog\" ADD CONSTRAINT \"fk-DataUpdateLog-ActionUserId\" FOREIGN KEY (\"ActionUserId\") REFERENCES \"User\" (\"Id\") ON DELETE RESTRICT ON UPDATE NO ACTION"
+        },
+        "indexes": {
+          "IX_DataUpdateLog_ActionUserId": "CREATE INDEX \"IX_DataUpdateLog_ActionUserId\" ON \"DataUpdateLog\" (\"ActionUserId\")",
+          "IX_DataUpdateLog_CreateTime": "CREATE INDEX \"IX_DataUpdateLog_CreateTime\" ON \"DataUpdateLog\" (\"CreateTime\")",
+          "IX_DataUpdateLog_CreateTime_NotDeleted": "CREATE INDEX \"IX_DataUpdateLog_CreateTime_NotDeleted\" ON \"DataUpdateLog\" (\"CreateTime\") WHERE \"DataUpdateLog\".\"DeleteTime\" IS NULL",
+          "IX_DataUpdateLog_DeleteTime": "CREATE INDEX \"IX_DataUpdateLog_DeleteTime\" ON \"DataUpdateLog\" (\"DeleteTime\")",
+          "IX_DataUpdateLog_Table": "CREATE INDEX \"IX_DataUpdateLog_Table\" ON \"DataUpdateLog\" (\"Table\")",
+          "IX_DataUpdateLog_TableId": "CREATE INDEX \"IX_DataUpdateLog_TableId\" ON \"DataUpdateLog\" (\"TableId\")"
+        },
+        "partition": null,
+        "comment": null
+      },
+      "\"Function\"": {
+        "schema": null,
+        "name": "Function",
+        "columns": [
+          {
+            "name": "Id",
+            "sql_type": "bigint",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "Name",
+            "sql_type": "text",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "Sign",
+            "sql_type": "text",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "Remark",
+            "sql_type": "text",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "ParentId",
+            "sql_type": "bigint",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "Type",
+            "sql_type": "integer",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "CreateTime",
+            "sql_type": "timestamp with time zone",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "DeleteTime",
+            "sql_type": "timestamp with time zone",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          }
+        ],
+        "primary_key": [
+          "Id"
+        ],
+        "foreign_keys": {
+          "fk-Function-ParentId": "ALTER TABLE \"Function\" ADD CONSTRAINT \"fk-Function-ParentId\" FOREIGN KEY (\"ParentId\") REFERENCES \"Function\" (\"Id\") ON DELETE RESTRICT ON UPDATE NO ACTION"
+        },
+        "indexes": {
+          "IX_Function_CreateTime": "CREATE INDEX \"IX_Function_CreateTime\" ON \"Function\" (\"CreateTime\")",
+          "IX_Function_DeleteTime": "CREATE INDEX \"IX_Function_DeleteTime\" ON \"Function\" (\"DeleteTime\")",
+          "IX_Function_ParentId": "CREATE INDEX \"IX_Function_ParentId\" ON \"Function\" (\"ParentId\")",
+          "IX_Function_ParentId_NotDeleted": "CREATE INDEX \"IX_Function_ParentId_NotDeleted\" ON \"Function\" (\"ParentId\") WHERE \"Function\".\"DeleteTime\" IS NULL",
+          "IX_Function_Sign": "CREATE INDEX \"IX_Function_Sign\" ON \"Function\" (\"Sign\")"
+        },
+        "partition": null,
+        "comment": null
+      },
+      "\"FunctionAuthorize\"": {
+        "schema": null,
+        "name": "FunctionAuthorize",
+        "columns": [
+          {
+            "name": "Id",
+            "sql_type": "bigint",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "FunctionId",
+            "sql_type": "bigint",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "RoleId",
+            "sql_type": "bigint",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "UserId",
+            "sql_type": "bigint",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "CreateTime",
+            "sql_type": "timestamp with time zone",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "DeleteTime",
+            "sql_type": "timestamp with time zone",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "UpdateTime",
+            "sql_type": "timestamp with time zone",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "CreateUserId",
+            "sql_type": "bigint",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "UpdateUserId",
+            "sql_type": "bigint",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "DeleteUserId",
+            "sql_type": "bigint",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          }
+        ],
+        "primary_key": [
+          "Id"
+        ],
+        "foreign_keys": {
+          "fk-FunctionAuthorize-CreateUserId": "ALTER TABLE \"FunctionAuthorize\" ADD CONSTRAINT \"fk-FunctionAuthorize-CreateUserId\" FOREIGN KEY (\"CreateUserId\") REFERENCES \"User\" (\"Id\") ON DELETE RESTRICT ON UPDATE NO ACTION",
+          "fk-FunctionAuthorize-DeleteUserId": "ALTER TABLE \"FunctionAuthorize\" ADD CONSTRAINT \"fk-FunctionAuthorize-DeleteUserId\" FOREIGN KEY (\"DeleteUserId\") REFERENCES \"User\" (\"Id\") ON DELETE RESTRICT ON UPDATE NO ACTION",
+          "fk-FunctionAuthorize-FunctionId": "ALTER TABLE \"FunctionAuthorize\" ADD CONSTRAINT \"fk-FunctionAuthorize-FunctionId\" FOREIGN KEY (\"FunctionId\") REFERENCES \"Function\" (\"Id\") ON DELETE RESTRICT ON UPDATE NO ACTION",
+          "fk-FunctionAuthorize-RoleId": "ALTER TABLE \"FunctionAuthorize\" ADD CONSTRAINT \"fk-FunctionAuthorize-RoleId\" FOREIGN KEY (\"RoleId\") REFERENCES \"Role\" (\"Id\") ON DELETE RESTRICT ON UPDATE NO ACTION",
+          "fk-FunctionAuthorize-UpdateUserId": "ALTER TABLE \"FunctionAuthorize\" ADD CONSTRAINT \"fk-FunctionAuthorize-UpdateUserId\" FOREIGN KEY (\"UpdateUserId\") REFERENCES \"User\" (\"Id\") ON DELETE RESTRICT ON UPDATE NO ACTION",
+          "fk-FunctionAuthorize-UserId": "ALTER TABLE \"FunctionAuthorize\" ADD CONSTRAINT \"fk-FunctionAuthorize-UserId\" FOREIGN KEY (\"UserId\") REFERENCES \"User\" (\"Id\") ON DELETE RESTRICT ON UPDATE NO ACTION"
+        },
+        "indexes": {
+          "IX_FunctionAuthorize_CreateTime": "CREATE INDEX \"IX_FunctionAuthorize_CreateTime\" ON \"FunctionAuthorize\" (\"CreateTime\")",
+          "IX_FunctionAuthorize_CreateUserId": "CREATE INDEX \"IX_FunctionAuthorize_CreateUserId\" ON \"FunctionAuthorize\" (\"CreateUserId\")",
+          "IX_FunctionAuthorize_DeleteTime": "CREATE INDEX \"IX_FunctionAuthorize_DeleteTime\" ON \"FunctionAuthorize\" (\"DeleteTime\")",
+          "IX_FunctionAuthorize_DeleteUserId": "CREATE INDEX \"IX_FunctionAuthorize_DeleteUserId\" ON \"FunctionAuthorize\" (\"DeleteUserId\")",
+          "IX_FunctionAuthorize_FunctionId": "CREATE INDEX \"IX_FunctionAuthorize_FunctionId\" ON \"FunctionAuthorize\" (\"FunctionId\")",
+          "IX_FunctionAuthorize_RoleId": "CREATE INDEX \"IX_FunctionAuthorize_RoleId\" ON \"FunctionAuthorize\" (\"RoleId\")",
+          "IX_FunctionAuthorize_UpdateTime": "CREATE INDEX \"IX_FunctionAuthorize_UpdateTime\" ON \"FunctionAuthorize\" (\"UpdateTime\")",
+          "IX_FunctionAuthorize_UpdateUserId": "CREATE INDEX \"IX_FunctionAuthorize_UpdateUserId\" ON \"FunctionAuthorize\" (\"UpdateUserId\")",
+          "IX_FunctionAuthorize_UserId": "CREATE INDEX \"IX_FunctionAuthorize_UserId\" ON \"FunctionAuthorize\" (\"UserId\")"
+        },
+        "partition": null,
+        "comment": null
+      },
+      "\"FunctionRoute\"": {
+        "schema": null,
+        "name": "FunctionRoute",
+        "columns": [
+          {
+            "name": "Id",
+            "sql_type": "bigint",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "FunctionId",
+            "sql_type": "bigint",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "Module",
+            "sql_type": "text",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "Route",
+            "sql_type": "text",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "Remark",
+            "sql_type": "text",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "CreateTime",
+            "sql_type": "timestamp with time zone",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "DeleteTime",
+            "sql_type": "timestamp with time zone",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          }
+        ],
+        "primary_key": [
+          "Id"
+        ],
+        "foreign_keys": {
+          "fk-FunctionRoute-FunctionId": "ALTER TABLE \"FunctionRoute\" ADD CONSTRAINT \"fk-FunctionRoute-FunctionId\" FOREIGN KEY (\"FunctionId\") REFERENCES \"Function\" (\"Id\") ON DELETE RESTRICT ON UPDATE NO ACTION"
+        },
+        "indexes": {
+          "IX_FunctionRoute_CreateTime": "CREATE INDEX \"IX_FunctionRoute_CreateTime\" ON \"FunctionRoute\" (\"CreateTime\")",
+          "IX_FunctionRoute_DeleteTime": "CREATE INDEX \"IX_FunctionRoute_DeleteTime\" ON \"FunctionRoute\" (\"DeleteTime\")",
+          "IX_FunctionRoute_FunctionId": "CREATE INDEX \"IX_FunctionRoute_FunctionId\" ON \"FunctionRoute\" (\"FunctionId\")"
+        },
+        "partition": null,
+        "comment": null
+      },
+      "\"Link\"": {
+        "schema": null,
+        "name": "Link",
+        "columns": [
+          {
+            "name": "Id",
+            "sql_type": "bigint",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "Name",
+            "sql_type": "text",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "Url",
+            "sql_type": "text",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "Sort",
+            "sql_type": "integer",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "Remark",
+            "sql_type": "text",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "CreateTime",
+            "sql_type": "timestamp with time zone",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "DeleteTime",
+            "sql_type": "timestamp with time zone",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "CreateUserId",
+            "sql_type": "bigint",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "DeleteUserId",
+            "sql_type": "bigint",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          }
+        ],
+        "primary_key": [
+          "Id"
+        ],
+        "foreign_keys": {
+          "fk-Link-CreateUserId": "ALTER TABLE \"Link\" ADD CONSTRAINT \"fk-Link-CreateUserId\" FOREIGN KEY (\"CreateUserId\") REFERENCES \"User\" (\"Id\") ON DELETE RESTRICT ON UPDATE NO ACTION",
+          "fk-Link-DeleteUserId": "ALTER TABLE \"Link\" ADD CONSTRAINT \"fk-Link-DeleteUserId\" FOREIGN KEY (\"DeleteUserId\") REFERENCES \"User\" (\"Id\") ON DELETE RESTRICT ON UPDATE NO ACTION"
+        },
+        "indexes": {
+          "IX_Link_CreateTime": "CREATE INDEX \"IX_Link_CreateTime\" ON \"Link\" (\"CreateTime\")",
+          "IX_Link_CreateUserId": "CREATE INDEX \"IX_Link_CreateUserId\" ON \"Link\" (\"CreateUserId\")",
+          "IX_Link_DeleteTime": "CREATE INDEX \"IX_Link_DeleteTime\" ON \"Link\" (\"DeleteTime\")",
+          "IX_Link_DeleteUserId": "CREATE INDEX \"IX_Link_DeleteUserId\" ON \"Link\" (\"DeleteUserId\")",
+          "IX_Link_Sort": "CREATE INDEX \"IX_Link_Sort\" ON \"Link\" (\"Sort\")"
+        },
+        "partition": null,
+        "comment": null
+      },
+      "\"LlmApp\"": {
+        "schema": null,
+        "name": "LlmApp",
+        "columns": [
+          {
+            "name": "Id",
+            "sql_type": "bigint",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "Code",
+            "sql_type": "text",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "Name",
+            "sql_type": "text",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "LlmModelId",
+            "sql_type": "bigint",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "SystemPromptTemplate",
+            "sql_type": "text",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "PromptTemplate",
+            "sql_type": "text",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "ExtraBodyJson",
+            "sql_type": "text",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "IsEnable",
+            "sql_type": "bool",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "Remark",
+            "sql_type": "text",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "CreateTime",
+            "sql_type": "timestamp with time zone",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "DeleteTime",
+            "sql_type": "timestamp with time zone",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "UpdateTime",
+            "sql_type": "timestamp with time zone",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "CreateUserId",
+            "sql_type": "bigint",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "UpdateUserId",
+            "sql_type": "bigint",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "DeleteUserId",
+            "sql_type": "bigint",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          }
+        ],
+        "primary_key": [
+          "Id"
+        ],
+        "foreign_keys": {
+          "fk-LlmApp-CreateUserId": "ALTER TABLE \"LlmApp\" ADD CONSTRAINT \"fk-LlmApp-CreateUserId\" FOREIGN KEY (\"CreateUserId\") REFERENCES \"User\" (\"Id\") ON DELETE RESTRICT ON UPDATE NO ACTION",
+          "fk-LlmApp-DeleteUserId": "ALTER TABLE \"LlmApp\" ADD CONSTRAINT \"fk-LlmApp-DeleteUserId\" FOREIGN KEY (\"DeleteUserId\") REFERENCES \"User\" (\"Id\") ON DELETE RESTRICT ON UPDATE NO ACTION",
+          "fk-LlmApp-LlmModelId": "ALTER TABLE \"LlmApp\" ADD CONSTRAINT \"fk-LlmApp-LlmModelId\" FOREIGN KEY (\"LlmModelId\") REFERENCES \"LlmModel\" (\"Id\") ON DELETE RESTRICT ON UPDATE NO ACTION",
+          "fk-LlmApp-UpdateUserId": "ALTER TABLE \"LlmApp\" ADD CONSTRAINT \"fk-LlmApp-UpdateUserId\" FOREIGN KEY (\"UpdateUserId\") REFERENCES \"User\" (\"Id\") ON DELETE RESTRICT ON UPDATE NO ACTION"
+        },
+        "indexes": {
+          "IX_LlmApp_Code": "CREATE INDEX \"IX_LlmApp_Code\" ON \"LlmApp\" (\"Code\")",
+          "IX_LlmApp_CreateTime": "CREATE INDEX \"IX_LlmApp_CreateTime\" ON \"LlmApp\" (\"CreateTime\")",
+          "IX_LlmApp_CreateUserId": "CREATE INDEX \"IX_LlmApp_CreateUserId\" ON \"LlmApp\" (\"CreateUserId\")",
+          "IX_LlmApp_DeleteTime": "CREATE INDEX \"IX_LlmApp_DeleteTime\" ON \"LlmApp\" (\"DeleteTime\")",
+          "IX_LlmApp_DeleteUserId": "CREATE INDEX \"IX_LlmApp_DeleteUserId\" ON \"LlmApp\" (\"DeleteUserId\")",
+          "IX_LlmApp_IsEnable": "CREATE INDEX \"IX_LlmApp_IsEnable\" ON \"LlmApp\" (\"IsEnable\")",
+          "IX_LlmApp_IsEnable_NotDeleted": "CREATE INDEX \"IX_LlmApp_IsEnable_NotDeleted\" ON \"LlmApp\" (\"IsEnable\") WHERE \"LlmApp\".\"DeleteTime\" IS NULL",
+          "IX_LlmApp_LlmModelId": "CREATE INDEX \"IX_LlmApp_LlmModelId\" ON \"LlmApp\" (\"LlmModelId\")",
+          "IX_LlmApp_LlmModelId_NotDeleted": "CREATE INDEX \"IX_LlmApp_LlmModelId_NotDeleted\" ON \"LlmApp\" (\"LlmModelId\") WHERE \"LlmApp\".\"DeleteTime\" IS NULL",
+          "IX_LlmApp_Name_NotDeleted": "CREATE INDEX \"IX_LlmApp_Name_NotDeleted\" ON \"LlmApp\" (\"Name\") WHERE \"LlmApp\".\"DeleteTime\" IS NULL",
+          "IX_LlmApp_UpdateTime": "CREATE INDEX \"IX_LlmApp_UpdateTime\" ON \"LlmApp\" (\"UpdateTime\")",
+          "IX_LlmApp_UpdateUserId": "CREATE INDEX \"IX_LlmApp_UpdateUserId\" ON \"LlmApp\" (\"UpdateUserId\")"
+        },
+        "partition": null,
+        "comment": null
+      },
+      "\"LlmConversation\"": {
+        "schema": null,
+        "name": "LlmConversation",
+        "columns": [
+          {
+            "name": "Id",
+            "sql_type": "bigint",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "LlmAppId",
+            "sql_type": "bigint",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "SystemContent",
+            "sql_type": "text",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "UserContent",
+            "sql_type": "text",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "AssistantContent",
+            "sql_type": "text",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "CreateUserId",
+            "sql_type": "bigint",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "CreateTime",
+            "sql_type": "timestamp with time zone",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "DeleteTime",
+            "sql_type": "timestamp with time zone",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          }
+        ],
+        "primary_key": [
+          "Id"
+        ],
+        "foreign_keys": {
+          "fk-LlmConversation-CreateUserId": "ALTER TABLE \"LlmConversation\" ADD CONSTRAINT \"fk-LlmConversation-CreateUserId\" FOREIGN KEY (\"CreateUserId\") REFERENCES \"User\" (\"Id\") ON DELETE RESTRICT ON UPDATE NO ACTION",
+          "fk-LlmConversation-LlmAppId": "ALTER TABLE \"LlmConversation\" ADD CONSTRAINT \"fk-LlmConversation-LlmAppId\" FOREIGN KEY (\"LlmAppId\") REFERENCES \"LlmApp\" (\"Id\") ON DELETE RESTRICT ON UPDATE NO ACTION"
+        },
+        "indexes": {
+          "IX_LlmConversation_CreateTime": "CREATE INDEX \"IX_LlmConversation_CreateTime\" ON \"LlmConversation\" (\"CreateTime\")",
+          "IX_LlmConversation_CreateTime_NotDeleted": "CREATE INDEX \"IX_LlmConversation_CreateTime_NotDeleted\" ON \"LlmConversation\" (\"CreateTime\") WHERE \"LlmConversation\".\"DeleteTime\" IS NULL",
+          "IX_LlmConversation_CreateUserId": "CREATE INDEX \"IX_LlmConversation_CreateUserId\" ON \"LlmConversation\" (\"CreateUserId\")",
+          "IX_LlmConversation_CreateUserId_NotDeleted": "CREATE INDEX \"IX_LlmConversation_CreateUserId_NotDeleted\" ON \"LlmConversation\" (\"CreateUserId\") WHERE \"LlmConversation\".\"DeleteTime\" IS NULL",
+          "IX_LlmConversation_DeleteTime": "CREATE INDEX \"IX_LlmConversation_DeleteTime\" ON \"LlmConversation\" (\"DeleteTime\")",
+          "IX_LlmConversation_LlmAppId": "CREATE INDEX \"IX_LlmConversation_LlmAppId\" ON \"LlmConversation\" (\"LlmAppId\")",
+          "IX_LlmConversation_LlmAppId_NotDeleted": "CREATE INDEX \"IX_LlmConversation_LlmAppId_NotDeleted\" ON \"LlmConversation\" (\"LlmAppId\") WHERE \"LlmConversation\".\"DeleteTime\" IS NULL"
+        },
+        "partition": null,
+        "comment": null
+      },
+      "\"LlmModel\"": {
+        "schema": null,
+        "name": "LlmModel",
+        "columns": [
+          {
+            "name": "Id",
+            "sql_type": "bigint",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "Name",
+            "sql_type": "text",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "ModelId",
+            "sql_type": "text",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "Endpoint",
+            "sql_type": "text",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "ApiKey",
+            "sql_type": "text",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "ProtocolType",
+            "sql_type": "integer",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "IsEnable",
+            "sql_type": "bool",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "Remark",
+            "sql_type": "text",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "CreateTime",
+            "sql_type": "timestamp with time zone",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "DeleteTime",
+            "sql_type": "timestamp with time zone",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "UpdateTime",
+            "sql_type": "timestamp with time zone",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "CreateUserId",
+            "sql_type": "bigint",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "UpdateUserId",
+            "sql_type": "bigint",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "DeleteUserId",
+            "sql_type": "bigint",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          }
+        ],
+        "primary_key": [
+          "Id"
+        ],
+        "foreign_keys": {
+          "fk-LlmModel-CreateUserId": "ALTER TABLE \"LlmModel\" ADD CONSTRAINT \"fk-LlmModel-CreateUserId\" FOREIGN KEY (\"CreateUserId\") REFERENCES \"User\" (\"Id\") ON DELETE RESTRICT ON UPDATE NO ACTION",
+          "fk-LlmModel-DeleteUserId": "ALTER TABLE \"LlmModel\" ADD CONSTRAINT \"fk-LlmModel-DeleteUserId\" FOREIGN KEY (\"DeleteUserId\") REFERENCES \"User\" (\"Id\") ON DELETE RESTRICT ON UPDATE NO ACTION",
+          "fk-LlmModel-UpdateUserId": "ALTER TABLE \"LlmModel\" ADD CONSTRAINT \"fk-LlmModel-UpdateUserId\" FOREIGN KEY (\"UpdateUserId\") REFERENCES \"User\" (\"Id\") ON DELETE RESTRICT ON UPDATE NO ACTION"
+        },
+        "indexes": {
+          "IX_LlmModel_CreateTime": "CREATE INDEX \"IX_LlmModel_CreateTime\" ON \"LlmModel\" (\"CreateTime\")",
+          "IX_LlmModel_CreateUserId": "CREATE INDEX \"IX_LlmModel_CreateUserId\" ON \"LlmModel\" (\"CreateUserId\")",
+          "IX_LlmModel_DeleteTime": "CREATE INDEX \"IX_LlmModel_DeleteTime\" ON \"LlmModel\" (\"DeleteTime\")",
+          "IX_LlmModel_DeleteUserId": "CREATE INDEX \"IX_LlmModel_DeleteUserId\" ON \"LlmModel\" (\"DeleteUserId\")",
+          "IX_LlmModel_IsEnable": "CREATE INDEX \"IX_LlmModel_IsEnable\" ON \"LlmModel\" (\"IsEnable\")",
+          "IX_LlmModel_IsEnable_NotDeleted": "CREATE INDEX \"IX_LlmModel_IsEnable_NotDeleted\" ON \"LlmModel\" (\"IsEnable\") WHERE \"LlmModel\".\"DeleteTime\" IS NULL",
+          "IX_LlmModel_UpdateTime": "CREATE INDEX \"IX_LlmModel_UpdateTime\" ON \"LlmModel\" (\"UpdateTime\")",
+          "IX_LlmModel_UpdateUserId": "CREATE INDEX \"IX_LlmModel_UpdateUserId\" ON \"LlmModel\" (\"UpdateUserId\")"
+        },
+        "partition": null,
+        "comment": null
+      },
+      "\"Order\"": {
+        "schema": null,
+        "name": "Order",
+        "columns": [
+          {
+            "name": "Id",
+            "sql_type": "bigint",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "OrderNo",
+            "sql_type": "text",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "Type",
+            "sql_type": "text",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "Price",
+            "sql_type": "decimal(38, 2)",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "SerialNo",
+            "sql_type": "text",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "State",
+            "sql_type": "text",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "PayType",
+            "sql_type": "text",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "PayState",
+            "sql_type": "bool",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "PayTime",
+            "sql_type": "timestamp with time zone",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "PayPrice",
+            "sql_type": "decimal(38, 2)",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "CreateTime",
+            "sql_type": "timestamp with time zone",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "DeleteTime",
+            "sql_type": "timestamp with time zone",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "UpdateTime",
+            "sql_type": "timestamp with time zone",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "CreateUserId",
+            "sql_type": "bigint",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "UpdateUserId",
+            "sql_type": "bigint",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "DeleteUserId",
+            "sql_type": "bigint",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          }
+        ],
+        "primary_key": [
+          "Id"
+        ],
+        "foreign_keys": {
+          "fk-Order-CreateUserId": "ALTER TABLE \"Order\" ADD CONSTRAINT \"fk-Order-CreateUserId\" FOREIGN KEY (\"CreateUserId\") REFERENCES \"User\" (\"Id\") ON DELETE RESTRICT ON UPDATE NO ACTION",
+          "fk-Order-DeleteUserId": "ALTER TABLE \"Order\" ADD CONSTRAINT \"fk-Order-DeleteUserId\" FOREIGN KEY (\"DeleteUserId\") REFERENCES \"User\" (\"Id\") ON DELETE RESTRICT ON UPDATE NO ACTION",
+          "fk-Order-UpdateUserId": "ALTER TABLE \"Order\" ADD CONSTRAINT \"fk-Order-UpdateUserId\" FOREIGN KEY (\"UpdateUserId\") REFERENCES \"User\" (\"Id\") ON DELETE RESTRICT ON UPDATE NO ACTION"
+        },
+        "indexes": {
+          "IX_Order_CreateTime": "CREATE INDEX \"IX_Order_CreateTime\" ON \"Order\" (\"CreateTime\")",
+          "IX_Order_CreateUserId": "CREATE INDEX \"IX_Order_CreateUserId\" ON \"Order\" (\"CreateUserId\")",
+          "IX_Order_CreateUserId_NotDeleted": "CREATE INDEX \"IX_Order_CreateUserId_NotDeleted\" ON \"Order\" (\"CreateUserId\") WHERE \"Order\".\"DeleteTime\" IS NULL",
+          "IX_Order_DeleteTime": "CREATE INDEX \"IX_Order_DeleteTime\" ON \"Order\" (\"DeleteTime\")",
+          "IX_Order_DeleteUserId": "CREATE INDEX \"IX_Order_DeleteUserId\" ON \"Order\" (\"DeleteUserId\")",
+          "IX_Order_OrderNo": "CREATE INDEX \"IX_Order_OrderNo\" ON \"Order\" (\"OrderNo\")",
+          "IX_Order_UpdateTime": "CREATE INDEX \"IX_Order_UpdateTime\" ON \"Order\" (\"UpdateTime\")",
+          "IX_Order_UpdateUserId": "CREATE INDEX \"IX_Order_UpdateUserId\" ON \"Order\" (\"UpdateUserId\")"
+        },
+        "partition": null,
+        "comment": null
+      },
+      "\"OrderDetail\"": {
+        "schema": null,
+        "name": "OrderDetail",
+        "columns": [
+          {
+            "name": "Id",
+            "sql_type": "bigint",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "OrderId",
+            "sql_type": "bigint",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "ProductId",
+            "sql_type": "bigint",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "Number",
+            "sql_type": "integer",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "CreateTime",
+            "sql_type": "timestamp with time zone",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "DeleteTime",
+            "sql_type": "timestamp with time zone",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          }
+        ],
+        "primary_key": [
+          "Id"
+        ],
+        "foreign_keys": {
+          "fk-OrderDetail-OrderId": "ALTER TABLE \"OrderDetail\" ADD CONSTRAINT \"fk-OrderDetail-OrderId\" FOREIGN KEY (\"OrderId\") REFERENCES \"Order\" (\"Id\") ON DELETE RESTRICT ON UPDATE NO ACTION",
+          "fk-OrderDetail-ProductId": "ALTER TABLE \"OrderDetail\" ADD CONSTRAINT \"fk-OrderDetail-ProductId\" FOREIGN KEY (\"ProductId\") REFERENCES \"Product\" (\"Id\") ON DELETE RESTRICT ON UPDATE NO ACTION"
+        },
+        "indexes": {
+          "IX_OrderDetail_CreateTime": "CREATE INDEX \"IX_OrderDetail_CreateTime\" ON \"OrderDetail\" (\"CreateTime\")",
+          "IX_OrderDetail_DeleteTime": "CREATE INDEX \"IX_OrderDetail_DeleteTime\" ON \"OrderDetail\" (\"DeleteTime\")",
+          "IX_OrderDetail_OrderId": "CREATE INDEX \"IX_OrderDetail_OrderId\" ON \"OrderDetail\" (\"OrderId\")",
+          "IX_OrderDetail_OrderId_NotDeleted": "CREATE INDEX \"IX_OrderDetail_OrderId_NotDeleted\" ON \"OrderDetail\" (\"OrderId\") WHERE \"OrderDetail\".\"DeleteTime\" IS NULL",
+          "IX_OrderDetail_ProductId": "CREATE INDEX \"IX_OrderDetail_ProductId\" ON \"OrderDetail\" (\"ProductId\")",
+          "IX_OrderDetail_ProductId_NotDeleted": "CREATE INDEX \"IX_OrderDetail_ProductId_NotDeleted\" ON \"OrderDetail\" (\"ProductId\") WHERE \"OrderDetail\".\"DeleteTime\" IS NULL"
+        },
+        "partition": null,
+        "comment": null
+      },
+      "\"Product\"": {
+        "schema": null,
+        "name": "Product",
+        "columns": [
+          {
+            "name": "Id",
+            "sql_type": "bigint",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "SKU",
+            "sql_type": "text",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "Name",
+            "sql_type": "text",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "Price",
+            "sql_type": "decimal(38, 2)",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "Detail",
+            "sql_type": "text",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "CreateTime",
+            "sql_type": "timestamp with time zone",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "DeleteTime",
+            "sql_type": "timestamp with time zone",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "UpdateTime",
+            "sql_type": "timestamp with time zone",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "CreateUserId",
+            "sql_type": "bigint",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "UpdateUserId",
+            "sql_type": "bigint",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "DeleteUserId",
+            "sql_type": "bigint",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          }
+        ],
+        "primary_key": [
+          "Id"
+        ],
+        "foreign_keys": {
+          "fk-Product-CreateUserId": "ALTER TABLE \"Product\" ADD CONSTRAINT \"fk-Product-CreateUserId\" FOREIGN KEY (\"CreateUserId\") REFERENCES \"User\" (\"Id\") ON DELETE RESTRICT ON UPDATE NO ACTION",
+          "fk-Product-DeleteUserId": "ALTER TABLE \"Product\" ADD CONSTRAINT \"fk-Product-DeleteUserId\" FOREIGN KEY (\"DeleteUserId\") REFERENCES \"User\" (\"Id\") ON DELETE RESTRICT ON UPDATE NO ACTION",
+          "fk-Product-UpdateUserId": "ALTER TABLE \"Product\" ADD CONSTRAINT \"fk-Product-UpdateUserId\" FOREIGN KEY (\"UpdateUserId\") REFERENCES \"User\" (\"Id\") ON DELETE RESTRICT ON UPDATE NO ACTION"
+        },
+        "indexes": {
+          "IX_Product_CreateTime": "CREATE INDEX \"IX_Product_CreateTime\" ON \"Product\" (\"CreateTime\")",
+          "IX_Product_CreateUserId": "CREATE INDEX \"IX_Product_CreateUserId\" ON \"Product\" (\"CreateUserId\")",
+          "IX_Product_DeleteTime": "CREATE INDEX \"IX_Product_DeleteTime\" ON \"Product\" (\"DeleteTime\")",
+          "IX_Product_DeleteUserId": "CREATE INDEX \"IX_Product_DeleteUserId\" ON \"Product\" (\"DeleteUserId\")",
+          "IX_Product_Name": "CREATE INDEX \"IX_Product_Name\" ON \"Product\" (\"Name\")",
+          "IX_Product_SKU": "CREATE INDEX \"IX_Product_SKU\" ON \"Product\" (\"SKU\")",
+          "IX_Product_UpdateTime": "CREATE INDEX \"IX_Product_UpdateTime\" ON \"Product\" (\"UpdateTime\")",
+          "IX_Product_UpdateUserId": "CREATE INDEX \"IX_Product_UpdateUserId\" ON \"Product\" (\"UpdateUserId\")"
+        },
+        "partition": null,
+        "comment": null
+      },
+      "\"QueueTask\"": {
+        "schema": null,
+        "name": "QueueTask",
+        "columns": [
+          {
+            "name": "Id",
+            "sql_type": "bigint",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "Name",
+            "sql_type": "text",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "Parameter",
+            "sql_type": "text",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "Status",
+            "sql_type": "integer",
+            "nullable": false,
+            "default": "0",
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "Count",
+            "sql_type": "integer",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "FirstTime",
+            "sql_type": "timestamp with time zone",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "LastTime",
+            "sql_type": "timestamp with time zone",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "SuccessTime",
+            "sql_type": "timestamp with time zone",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "CreateTime",
+            "sql_type": "timestamp with time zone",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "DeleteTime",
+            "sql_type": "timestamp with time zone",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "PlanTime",
+            "sql_type": "timestamp with time zone",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "WorkerId",
+            "sql_type": "text",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "LeaseExpireTime",
+            "sql_type": "timestamp with time zone",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "CallbackName",
+            "sql_type": "text",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "CallbackParameter",
+            "sql_type": "text",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "ChildSuccessTime",
+            "sql_type": "timestamp with time zone",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "ParentTaskId",
+            "sql_type": "bigint",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          }
+        ],
+        "primary_key": [
+          "Id"
+        ],
+        "foreign_keys": {},
+        "indexes": {
+          "IX_QueueTask_CreateTime": "CREATE INDEX \"IX_QueueTask_CreateTime\" ON \"QueueTask\" (\"CreateTime\")",
+          "IX_QueueTask_DeleteTime": "CREATE INDEX \"IX_QueueTask_DeleteTime\" ON \"QueueTask\" (\"DeleteTime\")",
+          "IX_QueueTask_LeaseExpireTime_NotDeleted": "CREATE INDEX \"IX_QueueTask_LeaseExpireTime_NotDeleted\" ON \"QueueTask\" (\"LeaseExpireTime\") WHERE \"QueueTask\".\"DeleteTime\" IS NULL",
+          "IX_QueueTask_Name_NotDeleted": "CREATE INDEX \"IX_QueueTask_Name_NotDeleted\" ON \"QueueTask\" (\"Name\") WHERE \"QueueTask\".\"DeleteTime\" IS NULL",
+          "IX_QueueTask_Status_PlanTime_NotDeleted": "CREATE INDEX \"IX_QueueTask_Status_PlanTime_NotDeleted\" ON \"QueueTask\" (\"Status\", \"PlanTime\") WHERE \"QueueTask\".\"DeleteTime\" IS NULL",
+          "IX_QueueTask_SuccessTime_NotDeleted": "CREATE INDEX \"IX_QueueTask_SuccessTime_NotDeleted\" ON \"QueueTask\" (\"SuccessTime\") WHERE \"QueueTask\".\"DeleteTime\" IS NULL"
+        },
+        "partition": null,
+        "comment": null
+      },
+      "\"RegionArea\"": {
+        "schema": null,
+        "name": "RegionArea",
+        "columns": [
+          {
+            "name": "Id",
+            "sql_type": "integer",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "Area",
+            "sql_type": "text",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "CityId",
+            "sql_type": "integer",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "CreateTime",
+            "sql_type": "timestamp with time zone",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "DeleteTime",
+            "sql_type": "timestamp with time zone",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          }
+        ],
+        "primary_key": [
+          "Id"
+        ],
+        "foreign_keys": {
+          "fk-RegionArea-CityId": "ALTER TABLE \"RegionArea\" ADD CONSTRAINT \"fk-RegionArea-CityId\" FOREIGN KEY (\"CityId\") REFERENCES \"RegionCity\" (\"Id\") ON DELETE RESTRICT ON UPDATE NO ACTION"
+        },
+        "indexes": {
+          "IX_RegionArea_Area": "CREATE INDEX \"IX_RegionArea_Area\" ON \"RegionArea\" (\"Area\")",
+          "IX_RegionArea_CityId": "CREATE INDEX \"IX_RegionArea_CityId\" ON \"RegionArea\" (\"CityId\")",
+          "IX_RegionArea_CityId_NotDeleted": "CREATE INDEX \"IX_RegionArea_CityId_NotDeleted\" ON \"RegionArea\" (\"CityId\") WHERE \"RegionArea\".\"DeleteTime\" IS NULL",
+          "IX_RegionArea_CreateTime": "CREATE INDEX \"IX_RegionArea_CreateTime\" ON \"RegionArea\" (\"CreateTime\")",
+          "IX_RegionArea_DeleteTime": "CREATE INDEX \"IX_RegionArea_DeleteTime\" ON \"RegionArea\" (\"DeleteTime\")"
+        },
+        "partition": null,
+        "comment": null
+      },
+      "\"RegionCity\"": {
+        "schema": null,
+        "name": "RegionCity",
+        "columns": [
+          {
+            "name": "Id",
+            "sql_type": "integer",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "City",
+            "sql_type": "text",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "ProvinceId",
+            "sql_type": "integer",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "CreateTime",
+            "sql_type": "timestamp with time zone",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "DeleteTime",
+            "sql_type": "timestamp with time zone",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          }
+        ],
+        "primary_key": [
+          "Id"
+        ],
+        "foreign_keys": {
+          "fk-RegionCity-ProvinceId": "ALTER TABLE \"RegionCity\" ADD CONSTRAINT \"fk-RegionCity-ProvinceId\" FOREIGN KEY (\"ProvinceId\") REFERENCES \"RegionProvince\" (\"Id\") ON DELETE RESTRICT ON UPDATE NO ACTION"
+        },
+        "indexes": {
+          "IX_RegionCity_City": "CREATE INDEX \"IX_RegionCity_City\" ON \"RegionCity\" (\"City\")",
+          "IX_RegionCity_CreateTime": "CREATE INDEX \"IX_RegionCity_CreateTime\" ON \"RegionCity\" (\"CreateTime\")",
+          "IX_RegionCity_DeleteTime": "CREATE INDEX \"IX_RegionCity_DeleteTime\" ON \"RegionCity\" (\"DeleteTime\")",
+          "IX_RegionCity_ProvinceId": "CREATE INDEX \"IX_RegionCity_ProvinceId\" ON \"RegionCity\" (\"ProvinceId\")",
+          "IX_RegionCity_ProvinceId_NotDeleted": "CREATE INDEX \"IX_RegionCity_ProvinceId_NotDeleted\" ON \"RegionCity\" (\"ProvinceId\") WHERE \"RegionCity\".\"DeleteTime\" IS NULL"
+        },
+        "partition": null,
+        "comment": null
+      },
+      "\"RegionProvince\"": {
+        "schema": null,
+        "name": "RegionProvince",
+        "columns": [
+          {
+            "name": "Id",
+            "sql_type": "integer",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "Province",
+            "sql_type": "text",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "CreateTime",
+            "sql_type": "timestamp with time zone",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "DeleteTime",
+            "sql_type": "timestamp with time zone",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          }
+        ],
+        "primary_key": [
+          "Id"
+        ],
+        "foreign_keys": {},
+        "indexes": {
+          "IX_RegionProvince_CreateTime": "CREATE INDEX \"IX_RegionProvince_CreateTime\" ON \"RegionProvince\" (\"CreateTime\")",
+          "IX_RegionProvince_DeleteTime": "CREATE INDEX \"IX_RegionProvince_DeleteTime\" ON \"RegionProvince\" (\"DeleteTime\")",
+          "IX_RegionProvince_Province": "CREATE INDEX \"IX_RegionProvince_Province\" ON \"RegionProvince\" (\"Province\")"
+        },
+        "partition": null,
+        "comment": null
+      },
+      "\"RegionTown\"": {
+        "schema": null,
+        "name": "RegionTown",
+        "columns": [
+          {
+            "name": "Id",
+            "sql_type": "integer",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "Town",
+            "sql_type": "text",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "AreaId",
+            "sql_type": "integer",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "CreateTime",
+            "sql_type": "timestamp with time zone",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "DeleteTime",
+            "sql_type": "timestamp with time zone",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          }
+        ],
+        "primary_key": [
+          "Id"
+        ],
+        "foreign_keys": {
+          "fk-RegionTown-AreaId": "ALTER TABLE \"RegionTown\" ADD CONSTRAINT \"fk-RegionTown-AreaId\" FOREIGN KEY (\"AreaId\") REFERENCES \"RegionArea\" (\"Id\") ON DELETE RESTRICT ON UPDATE NO ACTION"
+        },
+        "indexes": {
+          "IX_RegionTown_AreaId": "CREATE INDEX \"IX_RegionTown_AreaId\" ON \"RegionTown\" (\"AreaId\")",
+          "IX_RegionTown_AreaId_NotDeleted": "CREATE INDEX \"IX_RegionTown_AreaId_NotDeleted\" ON \"RegionTown\" (\"AreaId\") WHERE \"RegionTown\".\"DeleteTime\" IS NULL",
+          "IX_RegionTown_CreateTime": "CREATE INDEX \"IX_RegionTown_CreateTime\" ON \"RegionTown\" (\"CreateTime\")",
+          "IX_RegionTown_DeleteTime": "CREATE INDEX \"IX_RegionTown_DeleteTime\" ON \"RegionTown\" (\"DeleteTime\")",
+          "IX_RegionTown_Town": "CREATE INDEX \"IX_RegionTown_Town\" ON \"RegionTown\" (\"Town\")"
+        },
+        "partition": null,
+        "comment": null
+      },
+      "\"Role\"": {
+        "schema": null,
+        "name": "Role",
+        "columns": [
+          {
+            "name": "Id",
+            "sql_type": "bigint",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "Name",
+            "sql_type": "text",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "Remark",
+            "sql_type": "text",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "CreateTime",
+            "sql_type": "timestamp with time zone",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "DeleteTime",
+            "sql_type": "timestamp with time zone",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "Code",
+            "sql_type": "text",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          }
+        ],
+        "primary_key": [
+          "Id"
+        ],
+        "foreign_keys": {},
+        "indexes": {
+          "IX_Role_CreateTime": "CREATE INDEX \"IX_Role_CreateTime\" ON \"Role\" (\"CreateTime\")",
+          "IX_Role_DeleteTime": "CREATE INDEX \"IX_Role_DeleteTime\" ON \"Role\" (\"DeleteTime\")"
+        },
+        "partition": null,
+        "comment": null
+      },
+      "\"StoredFile\"": {
+        "schema": null,
+        "name": "StoredFile",
+        "columns": [
+          {
+            "name": "Id",
+            "sql_type": "bigint",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "Name",
+            "sql_type": "text",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "Path",
+            "sql_type": "text",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "Table",
+            "sql_type": "text",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "TableId",
+            "sql_type": "bigint",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "Sign",
+            "sql_type": "text",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "Sort",
+            "sql_type": "integer",
+            "nullable": false,
+            "default": "0",
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "CreateTime",
+            "sql_type": "timestamp with time zone",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "DeleteTime",
+            "sql_type": "timestamp with time zone",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "CreateUserId",
+            "sql_type": "bigint",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "DeleteUserId",
+            "sql_type": "bigint",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "Length",
+            "sql_type": "bigint",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "IsPublicRead",
+            "sql_type": "bool",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          }
+        ],
+        "primary_key": [
+          "Id"
+        ],
+        "foreign_keys": {
+          "fk-StoredFile-CreateUserId": "ALTER TABLE \"StoredFile\" ADD CONSTRAINT \"fk-StoredFile-CreateUserId\" FOREIGN KEY (\"CreateUserId\") REFERENCES \"User\" (\"Id\") ON DELETE RESTRICT ON UPDATE NO ACTION",
+          "fk-StoredFile-DeleteUserId": "ALTER TABLE \"StoredFile\" ADD CONSTRAINT \"fk-StoredFile-DeleteUserId\" FOREIGN KEY (\"DeleteUserId\") REFERENCES \"User\" (\"Id\") ON DELETE RESTRICT ON UPDATE NO ACTION"
+        },
+        "indexes": {
+          "IX_StoredFile_CreateTime": "CREATE INDEX \"IX_StoredFile_CreateTime\" ON \"StoredFile\" (\"CreateTime\")",
+          "IX_StoredFile_CreateUserId": "CREATE INDEX \"IX_StoredFile_CreateUserId\" ON \"StoredFile\" (\"CreateUserId\")",
+          "IX_StoredFile_DeleteTime": "CREATE INDEX \"IX_StoredFile_DeleteTime\" ON \"StoredFile\" (\"DeleteTime\")",
+          "IX_StoredFile_DeleteUserId": "CREATE INDEX \"IX_StoredFile_DeleteUserId\" ON \"StoredFile\" (\"DeleteUserId\")",
+          "IX_StoredFile_Path_NotDeleted": "CREATE INDEX \"IX_StoredFile_Path_NotDeleted\" ON \"StoredFile\" (\"Path\") WHERE \"StoredFile\".\"DeleteTime\" IS NULL",
+          "IX_StoredFile_Sign": "CREATE INDEX \"IX_StoredFile_Sign\" ON \"StoredFile\" (\"Sign\")",
+          "IX_StoredFile_Table": "CREATE INDEX \"IX_StoredFile_Table\" ON \"StoredFile\" (\"Table\")",
+          "IX_StoredFile_TableId": "CREATE INDEX \"IX_StoredFile_TableId\" ON \"StoredFile\" (\"TableId\")",
+          "IX_StoredFile_Table_TableId_NotDeleted": "CREATE INDEX \"IX_StoredFile_Table_TableId_NotDeleted\" ON \"StoredFile\" (\"Table\", \"TableId\") WHERE \"StoredFile\".\"DeleteTime\" IS NULL"
+        },
+        "partition": null,
+        "comment": null
+      },
+      "\"TaskSetting\"": {
+        "schema": null,
+        "name": "TaskSetting",
+        "columns": [
+          {
+            "name": "Id",
+            "sql_type": "bigint",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "Name",
+            "sql_type": "text",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "Category",
+            "sql_type": "text",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "Semaphore",
+            "sql_type": "integer",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "Cron",
+            "sql_type": "text",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "Remark",
+            "sql_type": "text",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "CreateTime",
+            "sql_type": "timestamp with time zone",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "DeleteTime",
+            "sql_type": "timestamp with time zone",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "UpdateTime",
+            "sql_type": "timestamp with time zone",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "CreateUserId",
+            "sql_type": "bigint",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "UpdateUserId",
+            "sql_type": "bigint",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "DeleteUserId",
+            "sql_type": "bigint",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "IsEnable",
+            "sql_type": "bool",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "Parameter",
+            "sql_type": "text",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          }
+        ],
+        "primary_key": [
+          "Id"
+        ],
+        "foreign_keys": {},
+        "indexes": {
+          "IX_TaskSetting_Category_Name_NotDeleted": "CREATE INDEX \"IX_TaskSetting_Category_Name_NotDeleted\" ON \"TaskSetting\" (\"Category\", \"Name\") WHERE \"TaskSetting\".\"DeleteTime\" IS NULL",
+          "IX_TaskSetting_CreateTime": "CREATE INDEX \"IX_TaskSetting_CreateTime\" ON \"TaskSetting\" (\"CreateTime\")",
+          "IX_TaskSetting_DeleteTime": "CREATE INDEX \"IX_TaskSetting_DeleteTime\" ON \"TaskSetting\" (\"DeleteTime\")",
+          "IX_TaskSetting_UpdateTime": "CREATE INDEX \"IX_TaskSetting_UpdateTime\" ON \"TaskSetting\" (\"UpdateTime\")",
+          "UX_TaskSetting_Category_Name_ActiveDefinition": "CREATE UNIQUE INDEX \"UX_TaskSetting_Category_Name_ActiveDefinition\"\nON \"TaskSetting\" (\"Category\", \"Name\")\nWHERE \"DeleteTime\" IS NULL AND (\n    \"Category\" = 'QueueTask' OR (\n        \"Category\" = 'ScheduleTask' AND (\"Parameter\" IS NULL OR \"Parameter\" = '__args_default__')\n    )\n)"
+        },
+        "partition": null,
+        "comment": null
+      },
+      "\"User\"": {
+        "schema": null,
+        "name": "User",
+        "columns": [
+          {
+            "name": "Id",
+            "sql_type": "bigint",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "UserName",
+            "sql_type": "text",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "Name",
+            "sql_type": "citext",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "Phone",
+            "sql_type": "text",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "Email",
+            "sql_type": "text",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "Password",
+            "sql_type": "text",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "CreateTime",
+            "sql_type": "timestamp with time zone",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "DeleteTime",
+            "sql_type": "timestamp with time zone",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "UpdateTime",
+            "sql_type": "timestamp with time zone",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "CreateUserId",
+            "sql_type": "bigint",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "UpdateUserId",
+            "sql_type": "bigint",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "DeleteUserId",
+            "sql_type": "bigint",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          }
+        ],
+        "primary_key": [
+          "Id"
+        ],
+        "foreign_keys": {
+          "fk-User-CreateUserId": "ALTER TABLE \"User\" ADD CONSTRAINT \"fk-User-CreateUserId\" FOREIGN KEY (\"CreateUserId\") REFERENCES \"User\" (\"Id\") ON DELETE RESTRICT ON UPDATE NO ACTION",
+          "fk-User-DeleteUserId": "ALTER TABLE \"User\" ADD CONSTRAINT \"fk-User-DeleteUserId\" FOREIGN KEY (\"DeleteUserId\") REFERENCES \"User\" (\"Id\") ON DELETE RESTRICT ON UPDATE NO ACTION",
+          "fk-User-UpdateUserId": "ALTER TABLE \"User\" ADD CONSTRAINT \"fk-User-UpdateUserId\" FOREIGN KEY (\"UpdateUserId\") REFERENCES \"User\" (\"Id\") ON DELETE RESTRICT ON UPDATE NO ACTION"
+        },
+        "indexes": {
+          "IX_User_CreateTime": "CREATE INDEX \"IX_User_CreateTime\" ON \"User\" (\"CreateTime\")",
+          "IX_User_CreateUserId": "CREATE INDEX \"IX_User_CreateUserId\" ON \"User\" (\"CreateUserId\")",
+          "IX_User_DeleteTime": "CREATE INDEX \"IX_User_DeleteTime\" ON \"User\" (\"DeleteTime\")",
+          "IX_User_DeleteUserId": "CREATE INDEX \"IX_User_DeleteUserId\" ON \"User\" (\"DeleteUserId\")",
+          "IX_User_Email": "CREATE INDEX \"IX_User_Email\" ON \"User\" (\"Email\")",
+          "IX_User_Phone": "CREATE INDEX \"IX_User_Phone\" ON \"User\" (\"Phone\")",
+          "IX_User_UpdateTime": "CREATE INDEX \"IX_User_UpdateTime\" ON \"User\" (\"UpdateTime\")",
+          "IX_User_UpdateUserId": "CREATE INDEX \"IX_User_UpdateUserId\" ON \"User\" (\"UpdateUserId\")",
+          "IX_User_UserName": "CREATE INDEX \"IX_User_UserName\" ON \"User\" (\"UserName\")"
+        },
+        "partition": null,
+        "comment": null
+      },
+      "\"UserBindExternal\"": {
+        "schema": null,
+        "name": "UserBindExternal",
+        "columns": [
+          {
+            "name": "Id",
+            "sql_type": "bigint",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "UserId",
+            "sql_type": "bigint",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "AppName",
+            "sql_type": "text",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "AppId",
+            "sql_type": "text",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "OpenId",
+            "sql_type": "text",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "CreateTime",
+            "sql_type": "timestamp with time zone",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "DeleteTime",
+            "sql_type": "timestamp with time zone",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          }
+        ],
+        "primary_key": [
+          "Id"
+        ],
+        "foreign_keys": {
+          "fk-UserBindExternal-UserId": "ALTER TABLE \"UserBindExternal\" ADD CONSTRAINT \"fk-UserBindExternal-UserId\" FOREIGN KEY (\"UserId\") REFERENCES \"User\" (\"Id\") ON DELETE RESTRICT ON UPDATE NO ACTION"
+        },
+        "indexes": {
+          "IX_UserBindExternal_CreateTime": "CREATE INDEX \"IX_UserBindExternal_CreateTime\" ON \"UserBindExternal\" (\"CreateTime\")",
+          "IX_UserBindExternal_DeleteTime": "CREATE INDEX \"IX_UserBindExternal_DeleteTime\" ON \"UserBindExternal\" (\"DeleteTime\")",
+          "IX_UserBindExternal_UserId": "CREATE INDEX \"IX_UserBindExternal_UserId\" ON \"UserBindExternal\" (\"UserId\")"
+        },
+        "partition": null,
+        "comment": null
+      },
+      "\"UserInfo\"": {
+        "schema": null,
+        "name": "UserInfo",
+        "columns": [
+          {
+            "name": "Id",
+            "sql_type": "bigint",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "UserId",
+            "sql_type": "bigint",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "RegionAreaId",
+            "sql_type": "integer",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "Address",
+            "sql_type": "text",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "Sex",
+            "sql_type": "bool",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "UpdateUserId",
+            "sql_type": "bigint",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "CreateTime",
+            "sql_type": "timestamp with time zone",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "DeleteTime",
+            "sql_type": "timestamp with time zone",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "UpdateTime",
+            "sql_type": "timestamp with time zone",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          }
+        ],
+        "primary_key": [
+          "Id"
+        ],
+        "foreign_keys": {
+          "fk-UserInfo-RegionAreaId": "ALTER TABLE \"UserInfo\" ADD CONSTRAINT \"fk-UserInfo-RegionAreaId\" FOREIGN KEY (\"RegionAreaId\") REFERENCES \"RegionArea\" (\"Id\") ON DELETE RESTRICT ON UPDATE NO ACTION",
+          "fk-UserInfo-UpdateUserId": "ALTER TABLE \"UserInfo\" ADD CONSTRAINT \"fk-UserInfo-UpdateUserId\" FOREIGN KEY (\"UpdateUserId\") REFERENCES \"User\" (\"Id\") ON DELETE RESTRICT ON UPDATE NO ACTION",
+          "fk-UserInfo-UserId": "ALTER TABLE \"UserInfo\" ADD CONSTRAINT \"fk-UserInfo-UserId\" FOREIGN KEY (\"UserId\") REFERENCES \"User\" (\"Id\") ON DELETE RESTRICT ON UPDATE NO ACTION"
+        },
+        "indexes": {
+          "IX_UserInfo_CreateTime": "CREATE INDEX \"IX_UserInfo_CreateTime\" ON \"UserInfo\" (\"CreateTime\")",
+          "IX_UserInfo_DeleteTime": "CREATE INDEX \"IX_UserInfo_DeleteTime\" ON \"UserInfo\" (\"DeleteTime\")",
+          "IX_UserInfo_RegionAreaId": "CREATE INDEX \"IX_UserInfo_RegionAreaId\" ON \"UserInfo\" (\"RegionAreaId\")",
+          "IX_UserInfo_UpdateTime": "CREATE INDEX \"IX_UserInfo_UpdateTime\" ON \"UserInfo\" (\"UpdateTime\")",
+          "IX_UserInfo_UpdateUserId": "CREATE INDEX \"IX_UserInfo_UpdateUserId\" ON \"UserInfo\" (\"UpdateUserId\")",
+          "IX_UserInfo_UserId": "CREATE UNIQUE INDEX \"IX_UserInfo_UserId\" ON \"UserInfo\" (\"UserId\")"
+        },
+        "partition": null,
+        "comment": null
+      },
+      "\"UserRole\"": {
+        "schema": null,
+        "name": "UserRole",
+        "columns": [
+          {
+            "name": "Id",
+            "sql_type": "bigint",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "RoleId",
+            "sql_type": "bigint",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "UserId",
+            "sql_type": "bigint",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "CreateTime",
+            "sql_type": "timestamp with time zone",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "DeleteTime",
+            "sql_type": "timestamp with time zone",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "UpdateTime",
+            "sql_type": "timestamp with time zone",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "CreateUserId",
+            "sql_type": "bigint",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "UpdateUserId",
+            "sql_type": "bigint",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "DeleteUserId",
+            "sql_type": "bigint",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          }
+        ],
+        "primary_key": [
+          "Id"
+        ],
+        "foreign_keys": {
+          "fk-UserRole-CreateUserId": "ALTER TABLE \"UserRole\" ADD CONSTRAINT \"fk-UserRole-CreateUserId\" FOREIGN KEY (\"CreateUserId\") REFERENCES \"User\" (\"Id\") ON DELETE RESTRICT ON UPDATE NO ACTION",
+          "fk-UserRole-DeleteUserId": "ALTER TABLE \"UserRole\" ADD CONSTRAINT \"fk-UserRole-DeleteUserId\" FOREIGN KEY (\"DeleteUserId\") REFERENCES \"User\" (\"Id\") ON DELETE RESTRICT ON UPDATE NO ACTION",
+          "fk-UserRole-RoleId": "ALTER TABLE \"UserRole\" ADD CONSTRAINT \"fk-UserRole-RoleId\" FOREIGN KEY (\"RoleId\") REFERENCES \"Role\" (\"Id\") ON DELETE RESTRICT ON UPDATE NO ACTION",
+          "fk-UserRole-UpdateUserId": "ALTER TABLE \"UserRole\" ADD CONSTRAINT \"fk-UserRole-UpdateUserId\" FOREIGN KEY (\"UpdateUserId\") REFERENCES \"User\" (\"Id\") ON DELETE RESTRICT ON UPDATE NO ACTION",
+          "fk-UserRole-UserId": "ALTER TABLE \"UserRole\" ADD CONSTRAINT \"fk-UserRole-UserId\" FOREIGN KEY (\"UserId\") REFERENCES \"User\" (\"Id\") ON DELETE RESTRICT ON UPDATE NO ACTION"
+        },
+        "indexes": {
+          "IX_UserRole_CreateTime": "CREATE INDEX \"IX_UserRole_CreateTime\" ON \"UserRole\" (\"CreateTime\")",
+          "IX_UserRole_CreateUserId": "CREATE INDEX \"IX_UserRole_CreateUserId\" ON \"UserRole\" (\"CreateUserId\")",
+          "IX_UserRole_DeleteTime": "CREATE INDEX \"IX_UserRole_DeleteTime\" ON \"UserRole\" (\"DeleteTime\")",
+          "IX_UserRole_DeleteUserId": "CREATE INDEX \"IX_UserRole_DeleteUserId\" ON \"UserRole\" (\"DeleteUserId\")",
+          "IX_UserRole_RoleId": "CREATE INDEX \"IX_UserRole_RoleId\" ON \"UserRole\" (\"RoleId\")",
+          "IX_UserRole_UpdateTime": "CREATE INDEX \"IX_UserRole_UpdateTime\" ON \"UserRole\" (\"UpdateTime\")",
+          "IX_UserRole_UpdateUserId": "CREATE INDEX \"IX_UserRole_UpdateUserId\" ON \"UserRole\" (\"UpdateUserId\")",
+          "IX_UserRole_UserId": "CREATE INDEX \"IX_UserRole_UserId\" ON \"UserRole\" (\"UserId\")",
+          "IX_UserRole_UserId_RoleId_NotDeleted": "CREATE INDEX \"IX_UserRole_UserId_RoleId_NotDeleted\" ON \"UserRole\" (\"UserId\", \"RoleId\") WHERE \"UserRole\".\"DeleteTime\" IS NULL"
+        },
+        "partition": null,
+        "comment": null
+      },
+      "\"UserToken\"": {
+        "schema": null,
+        "name": "UserToken",
+        "columns": [
+          {
+            "name": "Id",
+            "sql_type": "bigint",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "UserId",
+            "sql_type": "bigint",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "LastId",
+            "sql_type": "bigint",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "CreateTime",
+            "sql_type": "timestamp with time zone",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "DeleteTime",
+            "sql_type": "timestamp with time zone",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          }
+        ],
+        "primary_key": [
+          "Id"
+        ],
+        "foreign_keys": {
+          "fk-UserToken-UserId": "ALTER TABLE \"UserToken\" ADD CONSTRAINT \"fk-UserToken-UserId\" FOREIGN KEY (\"UserId\") REFERENCES \"User\" (\"Id\") ON DELETE RESTRICT ON UPDATE NO ACTION"
+        },
+        "indexes": {
+          "IX_UserToken_CreateTime": "CREATE INDEX \"IX_UserToken_CreateTime\" ON \"UserToken\" (\"CreateTime\")",
+          "IX_UserToken_DeleteTime": "CREATE INDEX \"IX_UserToken_DeleteTime\" ON \"UserToken\" (\"DeleteTime\")",
+          "IX_UserToken_UserId": "CREATE INDEX \"IX_UserToken_UserId\" ON \"UserToken\" (\"UserId\")",
+          "IX_UserToken_UserId_NotDeleted": "CREATE INDEX \"IX_UserToken_UserId_NotDeleted\" ON \"UserToken\" (\"UserId\") WHERE \"UserToken\".\"DeleteTime\" IS NULL"
+        },
+        "partition": null,
+        "comment": null
+      }
+    },
+    "extensions": [
+      "citext"
+    ]
+  }
+}

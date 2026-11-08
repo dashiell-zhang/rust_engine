@@ -1,0 +1,6 @@
+# 工具专用连接；选择哪个目标就只操作该写模型，不加载 WebAPI 配置。
+# 同库部署也分别迁移各写模型；event-bus 仅在启用数据库事件后端时需要。
+[database]
+connection = "postgres://postgres:123456@127.0.0.1:5432/webcore"
+log_connection = "postgres://postgres:123456@127.0.0.1:5432/webcore"
+event_bus_connection = "postgres://postgres:123456@127.0.0.1:5432/webcore"

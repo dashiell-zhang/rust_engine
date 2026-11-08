@@ -4,14 +4,14 @@ use async_trait::async_trait;
 use common::app_error::AppError;
 use hmac::{Hmac, KeyInit, Mac};
 use percent_encoding::{AsciiSet, NON_ALPHANUMERIC, utf8_percent_encode};
-use reqwest::Client;
 use serde::Deserialize;
-use sha1::Sha1;
-use sms::{AppSmsSender, SendSmsRequest};
+use sha2::{Digest, Sha256};
+use sms::{AppSmsSender, HttpClientFactory, SendSmsRequest};
+use std::sync::Arc;
 use uuid::Uuid;
 
-/// HMAC-SHA1 签名器类型
-type HmacSha1 = Hmac<Sha1>;
+/// ACS3 HMAC-SHA256 签名器类型
+type HmacSha256 = Hmac<Sha256>;
 
 /// 阿里云签名专用百分号编码字符集
 const ALIYUN_ENCODE_SET: &AsciiSet = &NON_ALPHANUMERIC
@@ -48,15 +48,15 @@ pub struct AliyunSmsSender {
     settings: AliyunSmsSettings,
 
     /// 网络客户端
-    client: Client,
+    http_clients: Arc<HttpClientFactory>,
 }
 
 impl AliyunSmsSender {
     /// 创建阿里云短信发送器
-    pub fn new(settings: AliyunSmsSettings) -> Self {
+    pub fn new(settings: AliyunSmsSettings, http_clients: Arc<HttpClientFactory>) -> Self {
         Self {
             settings,
-            client: Client::new(),
+            http_clients,
         }
     }
 
@@ -82,55 +82,28 @@ impl AliyunSmsSender {
         &self,
         request: &SendSmsRequest,
     ) -> Result<BTreeMap<String, String>, AppError> {
-        let sign_name = request.sign_name.trim();
-        let template_code = request.template_code.trim();
-
-        if sign_name.is_empty() {
-            return Err(AppError::bad_request("阿里云短信 sign_name 不可以空"));
-        }
-
-        if template_code.is_empty() {
-            return Err(AppError::bad_request("阿里云短信 template_code 不可以空"));
-        }
-
         let template_param = serde_json::to_string(&request.template_params).map_err(|error| {
             AppError::internal(format!("阿里云短信模板参数序列化失败: {error}"))
         })?;
 
         let mut parameters = BTreeMap::new();
-        parameters.insert(
-            "AccessKeyId".to_string(),
-            self.settings.access_key_id.trim().to_string(),
-        );
-        parameters.insert("Action".to_string(), "SendSms".to_string());
-        parameters.insert("Format".to_string(), "JSON".to_string());
-        parameters.insert("OutId".to_string(), Uuid::new_v4().to_string());
-        parameters.insert("SignatureMethod".to_string(), "HMAC-SHA1".to_string());
-        parameters.insert("SignatureNonce".to_string(), Uuid::new_v4().to_string());
-        parameters.insert("SignatureVersion".to_string(), "1.0".to_string());
-        parameters.insert("Timestamp".to_string(), current_iso8601_timestamp());
-        parameters.insert(
-            "PhoneNumbers".to_string(),
-            normalize_phone_without_plus(&request.phone),
-        );
-        parameters.insert("Version".to_string(), default_aliyun_version().to_string());
-        parameters.insert("SignName".to_string(), sign_name.to_string());
-        parameters.insert("TemplateCode".to_string(), template_code.to_string());
+        if let Some(phone) = &request.phone {
+            parameters.insert("PhoneNumbers".to_string(), phone.clone());
+        }
+        if let Some(sign_name) = &request.sign_name {
+            parameters.insert("SignName".to_string(), sign_name.clone());
+        }
+        if let Some(template_code) = &request.template_code {
+            parameters.insert("TemplateCode".to_string(), template_code.clone());
+        }
         parameters.insert("TemplateParam".to_string(), template_param);
-        parameters.insert(
-            "RegionId".to_string(),
-            default_aliyun_region_id().to_string(),
-        );
-
         Ok(parameters)
     }
 
-    /// 计算签名
-    fn sign_query_parameters(
-        &self,
-        parameters: &BTreeMap<String, String>,
-    ) -> Result<String, AppError> {
-        let canonical_query = parameters
+    /// 构造 ACS3 请求；短信参数在查询串中，正文为空。
+    fn build_request(&self, request: &SendSmsRequest) -> Result<reqwest::RequestBuilder, AppError> {
+        let parameters = self.build_query_parameters(request)?;
+        let query = parameters
             .iter()
             .map(|(key, value)| {
                 format!(
@@ -141,157 +114,110 @@ impl AliyunSmsSender {
             })
             .collect::<Vec<_>>()
             .join("&");
-        let string_to_sign = format!("GET&%2F&{}", aliyun_percent_encode(&canonical_query));
-        let signing_key = format!("{}&", self.settings.access_key_secret.trim());
-        let mut mac = HmacSha1::new_from_slice(signing_key.as_bytes())
-            .map_err(|error| AppError::internal(format!("阿里云短信签名器初始化失败: {error}")))?;
+        let payload_hash = sha256_hex(b"");
+        let headers = BTreeMap::from([
+            ("host", default_aliyun_endpoint().to_owned()),
+            ("x-acs-action", "SendSms".to_owned()),
+            ("x-acs-content-sha256", payload_hash.clone()),
+            ("x-acs-date", current_iso8601_timestamp()),
+            ("x-acs-signature-nonce", Uuid::new_v4().to_string()),
+            ("x-acs-version", "2017-05-25".to_owned()),
+        ]);
+        let canonical_headers = headers
+            .iter()
+            .map(|(key, value)| format!("{key}:{}\n", value.trim()))
+            .collect::<String>();
+        let signed_headers = headers.keys().copied().collect::<Vec<_>>().join(";");
+        let canonical_request =
+            format!("POST\n/\n{query}\n{canonical_headers}\n{signed_headers}\n{payload_hash}");
+        let string_to_sign = format!(
+            "ACS3-HMAC-SHA256\n{}",
+            sha256_hex(canonical_request.as_bytes())
+        );
+        let mut mac = HmacSha256::new_from_slice(self.settings.access_key_secret.as_bytes())
+            .map_err(|_| AppError::internal("阿里云短信签名器初始化失败"))?;
         mac.update(string_to_sign.as_bytes());
-        Ok(base64_simple(mac.finalize().into_bytes().as_slice()))
+        let signature = hex_lower(mac.finalize().into_bytes().as_slice());
+        let authorization = format!(
+            "ACS3-HMAC-SHA256 Credential={},SignedHeaders={signed_headers},Signature={signature}",
+            self.settings.access_key_id
+        );
+        let mut builder = self
+            .http_clients
+            .client()
+            .post(format!("https://{}/?{query}", default_aliyun_endpoint()))
+            .header("accept", "application/json")
+            .header("authorization", authorization);
+        for (key, value) in headers {
+            builder = builder.header(key, value);
+        }
+        Ok(builder)
+    }
+
+    /// 请求结束即完成源组件调用，不检查业务 Code。
+    async fn send_request(&self, request: SendSmsRequest) -> Result<(), AppError> {
+        self.validate_settings()?;
+        let response = self
+            .build_request(&request)?
+            .send()
+            .await
+            .map_err(|_| AppError::internal("阿里云短信请求失败"))?;
+        let status = response.status();
+        if !status.is_success() {
+            return Err(AppError::internal(format!(
+                "阿里云短信 HTTP 请求失败: {status}"
+            )));
+        }
+        let _: AliyunSmsResponse = response
+            .json()
+            .await
+            .map_err(|_| AppError::internal("阿里云短信响应格式无效"))?;
+        Ok(())
     }
 }
 
 #[async_trait]
 impl AppSmsSender for AliyunSmsSender {
-    /// 发送短信
-    async fn send_sms(&self, request: SendSmsRequest) -> Result<(), AppError> {
-        self.validate_settings()?;
-        let mut parameters = self.build_query_parameters(&request)?;
-        let signature = self.sign_query_parameters(&parameters)?;
-        parameters.insert("Signature".to_string(), signature);
-
-        let response = self
-            .client
-            .get(format!("https://{}/", default_aliyun_endpoint()))
-            .query(&parameters)
-            .send()
-            .await
-            .map_err(|error| AppError::internal(format!("阿里云短信请求失败: {error}")))?;
-
-        let status = response.status();
-        let body = response
-            .text()
-            .await
-            .map_err(|error| AppError::internal(format!("阿里云短信响应读取失败: {error}")))?;
-
-        if !status.is_success() {
-            return Err(AppError::internal(format!(
-                "阿里云短信请求失败: {status}, body: {body}"
-            )));
-        }
-
-        let payload = serde_json::from_str::<AliyunSmsResponse>(&body).map_err(|error| {
-            AppError::internal(format!("阿里云短信响应解析失败: {error}, body: {body}"))
-        })?;
-
-        if payload.code.eq_ignore_ascii_case("OK") {
-            tracing::info!(
-                target: "sms.aliyun.send",
-                phone = %request.phone,
-                request_id = %payload.request_id,
-                biz_id = ?payload.biz_id,
-                "阿里云短信发送成功"
-            );
-            Ok(())
-        } else {
-            Err(AppError::internal(format!(
-                "阿里云短信发送失败: code={}, message={}, request_id={}",
-                payload.code, payload.message, payload.request_id
-            )))
-        }
+    /// 与源组件 catch 一致，发送异常返回 false。
+    async fn send_sms(&self, request: SendSmsRequest) -> Result<bool, AppError> {
+        Ok(self.send_request(request).await.is_ok())
     }
 }
 
-/// 阿里云短信响应
+/// SDK 响应字段允许缺失；业务 Code 不决定此组件的返回值。
 #[derive(Deserialize)]
 struct AliyunSmsResponse {
-    /// 请求标识
     #[serde(rename = "RequestId")]
-    request_id: String,
-
-    /// 业务流水号
+    _request_id: Option<String>,
     #[serde(rename = "BizId")]
-    biz_id: Option<String>,
-
-    /// 响应码
+    _biz_id: Option<String>,
     #[serde(rename = "Code")]
-    code: String,
-
-    /// 响应信息
+    _code: Option<String>,
     #[serde(rename = "Message")]
-    message: String,
+    _message: Option<String>,
 }
 
-/// 获取默认阿里云 endpoint
-fn default_aliyun_endpoint() -> String {
-    "dysmsapi.aliyuncs.com".to_string()
+/// 阿里云短信端点。
+fn default_aliyun_endpoint() -> &'static str {
+    "dysmsapi.aliyuncs.com"
 }
 
-/// 获取默认阿里云版本
-fn default_aliyun_version() -> String {
-    "2017-05-25".to_string()
-}
-
-/// 获取默认阿里云区域
-fn default_aliyun_region_id() -> String {
-    "cn-hangzhou".to_string()
-}
-
-/// 构建当前 ISO8601 时间
+/// 构建当前 ISO8601 UTC 时间。
 fn current_iso8601_timestamp() -> String {
     chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string()
 }
 
-/// 阿里云地址编码
+/// RFC 3986 查询参数编码。
 fn aliyun_percent_encode(value: &str) -> Cow<'_, str> {
     utf8_percent_encode(value, ALIYUN_ENCODE_SET).into()
 }
 
-/// 归一化手机号为无加号格式
-fn normalize_phone_without_plus(phone: &str) -> String {
-    let phone = phone.trim();
-
-    if let Some(phone) = phone.strip_prefix("+86") {
-        phone.to_string()
-    } else if let Some(phone) = phone.strip_prefix('+') {
-        phone.to_string()
-    } else {
-        phone.to_string()
-    }
+/// SHA256 十六进制摘要。
+fn sha256_hex(value: &[u8]) -> String {
+    hex_lower(&Sha256::digest(value))
 }
 
-/// Base64 编码
-fn base64_simple(value: &[u8]) -> String {
-    const TABLE: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    let mut output = String::new();
-    let mut index = 0;
-
-    while index < value.len() {
-        let first = value[index];
-        let second = value.get(index + 1).copied();
-        let third = value.get(index + 2).copied();
-
-        output.push(TABLE[(first >> 2) as usize] as char);
-        output.push(
-            TABLE[(((first & 0b0000_0011) << 4) | second.unwrap_or(0) >> 4) as usize] as char,
-        );
-
-        match second {
-            Some(second) => {
-                output.push(
-                    TABLE[(((second & 0b0000_1111) << 2) | third.unwrap_or(0) >> 6) as usize]
-                        as char,
-                );
-            }
-            None => output.push('='),
-        }
-
-        match third {
-            Some(third) => output.push(TABLE[(third & 0b0011_1111) as usize] as char),
-            None => output.push('='),
-        }
-
-        index += 3;
-    }
-
-    output
+/// 十六进制小写编码。
+fn hex_lower(value: &[u8]) -> String {
+    value.iter().map(|byte| format!("{byte:02x}")).collect()
 }

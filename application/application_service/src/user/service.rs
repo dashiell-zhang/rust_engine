@@ -1,19 +1,18 @@
 use async_recursion::async_recursion;
-use chrono::Utc;
 use common::crypto_helper::hash_password_pbkdf2_sha256;
 use common::string_helper::trim_prefix_name;
 use repository::extensions::{SoftDeleteQueryExt, not_deleted_expr};
 use repository::{
     function, function_authorize, region_area, region_city, region_province, role, user, user_info,
-    user_role, user_token,
+    user_role,
 };
+use repository_core::pagination::SignedPage;
+use repository_core::versioned::VersionedActiveModel;
 use sea_orm::{
-    ActiveModelTrait, ColumnTrait, ConnectionTrait, DatabaseConnection, DbErr, EntityTrait,
-    IntoActiveModel, PaginatorTrait, QueryFilter, QueryOrder, QuerySelect, Set,
-    sea_query::Condition,
+    ColumnTrait, ConnectionTrait, DatabaseConnection, DbErr, EntityTrait, IntoActiveModel,
+    PaginatorTrait, QueryFilter, QueryOrder, Set, sea_query::Condition,
 };
 use serde_json::json;
-use source_generator_runtime::logging;
 use std::collections::HashSet;
 
 use application_interface::{
@@ -23,7 +22,7 @@ use application_interface::{
 
 use crate::write_support::{
     apply_soft_delete_audit_fields, apply_update_user_audit_field, begin_transaction,
-    build_create_full_audit_fields, normalize_optional_text, normalize_page, validate_page_request,
+    build_create_full_audit_fields, normalize_optional_text, page_offset, validate_page_request,
     write_data_update_log_with_connection,
 };
 
@@ -58,7 +57,7 @@ impl<'a> UserService<'a> {
     /// 校验编辑用户请求
     fn validate_edit_user(dto: &EditUserDto) -> Result<(), AppError> {
         if dto.name.trim().is_empty() {
-            return Err(AppError::bad_request("姓名不可以空"));
+            return Err(AppError::bad_request("名称不可以空"));
         }
 
         if dto.user_name.trim().is_empty() {
@@ -69,8 +68,12 @@ impl<'a> UserService<'a> {
             return Err(AppError::bad_request("手机号不可以空"));
         }
 
-        if dto.password.is_empty() {
-            return Err(AppError::bad_request("密码不可以空"));
+        if dto.password.trim().is_empty() {
+            return Err(AppError::bad_request("密码不可以为空"));
+        }
+
+        if dto.role_ids.is_empty() {
+            return Err(AppError::bad_request("至少选择一个角色"));
         }
 
         Ok(())
@@ -86,19 +89,15 @@ impl<'a> UserService<'a> {
     }
 
     /// 解析角色标识列表
-    fn parse_role_ids(role_ids: &[String]) -> Result<Vec<i64>, AppError> {
+    fn parse_role_ids(role_ids: &[Option<String>]) -> Result<Vec<i64>, AppError> {
         role_ids
             .iter()
             .map(|item| {
-                let role_id = item
+                item.as_deref()
+                    .ok_or_else(|| AppError::internal("角色 ID 不可以为 null"))?
+                    .trim()
                     .parse::<i64>()
-                    .map_err(|_| AppError::bad_request("无效的 roleId"))?;
-
-                if role_id <= 0 {
-                    return Err(AppError::bad_request("无效的 roleId"));
-                }
-
-                Ok(role_id)
+                    .map_err(|error| AppError::internal(format!("解析角色 ID 失败: {error}")))
             })
             .collect()
     }
@@ -123,21 +122,20 @@ impl<'a> UserService<'a> {
             .count(self.context.db)
             .await
             .map_err(to_app_error)?;
+        let total = repository_core::pagination::count_i32(total).map_err(to_app_error)?;
 
         if total == 0 {
             return Ok(PageListDto {
                 total: 0,
-                list: vec![],
+                list: None,
             });
         }
 
-        let page = normalize_page(params.page);
-        let skip = (page - 1) * params.page_size;
+        let skip = page_offset(params.page, params.page_size);
         let users = user::Entity::find()
             .filter(base_condition)
             .order_by_desc(user::Column::Id)
-            .offset(skip)
-            .limit(params.page_size)
+            .signed_page(skip, params.page_size)
             .all(self.context.db)
             .await
             .map_err(to_app_error)?;
@@ -149,17 +147,17 @@ impl<'a> UserService<'a> {
             .map_err(to_app_error)?;
         let list = users
             .into_iter()
-            .map(|item| build_user_dto(item, &user_roles, &roles))
+            .map(|item| build_user_dto(item, &user_roles, &roles, "、"))
             .collect::<Vec<_>>();
 
-        Ok(PageListDto { total, list })
+        Ok(PageListDto {
+            total,
+            list: Some(list),
+        })
     }
 
     /// 获取单个用户
-    #[logging(key_scope = "application.user.get-user", key_include_self = false)]
     pub async fn get_user(&self, target_id: i64) -> Result<Option<UserDto>, AppError> {
-        Self::validate_user_id(target_id)?;
-
         let user_model = user::Entity::find()
             .filter(user::Column::Id.eq(target_id))
             .not_deleted(user::Column::DeleteTime)
@@ -174,20 +172,13 @@ impl<'a> UserService<'a> {
         let (user_roles, roles) = load_roles_for_users(self.context.db, &[user_model.id])
             .await
             .map_err(to_app_error)?;
-        Ok(Some(build_user_dto(user_model, &user_roles, &roles)))
+        let mut dto = build_user_dto(user_model, &user_roles, &roles, ",");
+        dto.role_ids = None;
+        Ok(Some(dto))
     }
 
     /// 获取用户角色列表
     pub async fn get_user_role_list(&self, user_id: i64) -> Result<Vec<UserRoleDto>, AppError> {
-        Self::validate_user_id(user_id)?;
-
-        if !user_exists(self.context.db, user_id)
-            .await
-            .map_err(to_app_error)?
-        {
-            return Err(AppError::bad_request("无效的 userId"));
-        }
-
         // 角色列表全量返回 由 is_check 标记当前用户是否已分配
         let checked_role_ids = user_role::Entity::find()
             .filter(user_role::Column::UserId.eq(user_id))
@@ -201,7 +192,6 @@ impl<'a> UserService<'a> {
 
         let role_list = role::Entity::find()
             .not_deleted(role::Column::DeleteTime)
-            .order_by_desc(role::Column::Id)
             .all(self.context.db)
             .await
             .map_err(to_app_error)?;
@@ -223,28 +213,7 @@ impl<'a> UserService<'a> {
         dto: SetUserRoleDto,
         current_user: &CurrentUser,
     ) -> Result<bool, AppError> {
-        Self::validate_user_id(dto.user_id)?;
-
-        if dto.role_id <= 0 {
-            return Err(AppError::bad_request("无效的 roleId"));
-        }
-
         let tx = begin_transaction(self.context.db).await?;
-
-        if !user_exists(&tx, dto.user_id).await.map_err(to_app_error)? {
-            return Err(AppError::bad_request("无效的 userId"));
-        }
-
-        let role_exists = role::Entity::find_by_id(dto.role_id)
-            .not_deleted(role::Column::DeleteTime)
-            .one(&tx)
-            .await
-            .map_err(to_app_error)?
-            .is_some();
-
-        if !role_exists {
-            return Err(AppError::bad_request("无效的 roleId"));
-        }
 
         let existing = user_role::Entity::find()
             .filter(user_role::Column::UserId.eq(dto.user_id))
@@ -263,6 +232,7 @@ impl<'a> UserService<'a> {
                 let audit_fields = build_create_full_audit_fields(current_user);
 
                 user_role::ActiveModel {
+                    row_version: Default::default(),
                     id: Set(relation_id),
                     user_id: Set(dto.user_id),
                     role_id: Set(dto.role_id),
@@ -273,33 +243,11 @@ impl<'a> UserService<'a> {
                     update_user_id: Set(audit_fields.update_user_id),
                     delete_user_id: Set(audit_fields.delete_user_id),
                 }
-                .insert(&tx)
+                .insert_versioned(&tx)
                 .await
                 .map_err(|error| AppError::internal(format!("设置用户角色失败: {error}")))?;
-
-                write_data_update_log_with_connection(
-                    &tx,
-                    self.context.id_generator,
-                    "UserRole",
-                    relation_id,
-                    "create",
-                    None,
-                    Some(json!({
-                        "id": relation_id,
-                        "user_id": dto.user_id,
-                        "role_id": dto.role_id,
-                    })),
-                    Some(current_user),
-                )
-                .await?;
             }
         } else if let Some(model) = existing {
-            let relation_id = model.id;
-            let before_log = json!({
-                "id": model.id,
-                "user_id": model.user_id,
-                "role_id": model.role_id,
-            });
             let mut active = model.into_active_model();
             apply_soft_delete_audit_fields(
                 &mut active.delete_time,
@@ -307,24 +255,9 @@ impl<'a> UserService<'a> {
                 current_user,
             );
             active
-                .update(&tx)
+                .update_versioned(&tx)
                 .await
                 .map_err(|error| AppError::internal(format!("取消用户角色失败: {error}")))?;
-
-            write_data_update_log_with_connection(
-                &tx,
-                self.context.id_generator,
-                "UserRole",
-                relation_id,
-                "delete",
-                Some(before_log),
-                Some(json!({
-                    "user_id": dto.user_id,
-                    "role_id": dto.role_id,
-                })),
-                Some(current_user),
-            )
-            .await?;
         }
 
         tx.commit()
@@ -336,16 +269,10 @@ impl<'a> UserService<'a> {
 
     /// 获取用户功能树
     pub async fn get_user_function(&self, user_id: i64) -> Result<Vec<UserFunctionDto>, AppError> {
-        Self::validate_user_id(user_id)?;
-
-        if !user_exists(self.context.db, user_id)
+        let role_ids = load_user_role_ids(self.context.db, user_id)
             .await
-            .map_err(to_app_error)?
-        {
-            return Err(AppError::bad_request("无效的 userId"));
-        }
-
-        load_user_function_tree(self.context.db, user_id, None, None)
+            .map_err(to_app_error)?;
+        load_user_function_tree(self.context.db, user_id, &role_ids, None, None)
             .await
             .map_err(to_app_error)
     }
@@ -356,62 +283,34 @@ impl<'a> UserService<'a> {
         dto: SetUserFunctionDto,
         current_user: &CurrentUser,
     ) -> Result<bool, AppError> {
-        Self::validate_user_id(dto.user_id)?;
-
-        if dto.function_id <= 0 {
-            return Err(AppError::bad_request("无效的 functionId"));
-        }
-
         let tx = begin_transaction(self.context.db).await?;
-
-        if !user_exists(&tx, dto.user_id).await.map_err(to_app_error)? {
-            return Err(AppError::bad_request("无效的 userId"));
-        }
-
-        let function_exists = function::Entity::find_by_id(dto.function_id)
-            .not_deleted(function::Column::DeleteTime)
-            .one(&tx)
-            .await
-            .map_err(to_app_error)?
-            .is_some();
-
-        if !function_exists {
-            return Err(AppError::bad_request("无效的 functionId"));
-        }
-
         let role_ids = load_user_role_ids(&tx, dto.user_id)
             .await
             .map_err(to_app_error)?;
-
-        let direct_authorize = function_authorize::Entity::find()
-            .filter(function_authorize::Column::UserId.eq(dto.user_id))
-            .filter(function_authorize::Column::FunctionId.eq(dto.function_id))
+        let mut owner_condition =
+            Condition::any().add(function_authorize::Column::UserId.eq(dto.user_id));
+        if !role_ids.is_empty() {
+            owner_condition =
+                owner_condition.add(function_authorize::Column::RoleId.is_in(role_ids));
+        }
+        let existing = function_authorize::Entity::find()
             .not_deleted(function_authorize::Column::DeleteTime)
+            .filter(function_authorize::Column::FunctionId.eq(dto.function_id))
+            .filter(owner_condition)
             .one(&tx)
             .await
             .map_err(to_app_error)?;
 
-        let inherited_authorize = if role_ids.is_empty() {
-            None
-        } else {
-            function_authorize::Entity::find()
-                .filter(function_authorize::Column::RoleId.is_in(role_ids.clone()))
-                .filter(function_authorize::Column::FunctionId.eq(dto.function_id))
-                .not_deleted(function_authorize::Column::DeleteTime)
-                .one(&tx)
-                .await
-                .map_err(to_app_error)?
-        };
-
         // 用户功能允许直授 但不允许单独移除从角色继承而来的权限
         if dto.is_check {
-            if direct_authorize.is_none() && inherited_authorize.is_none() {
+            if existing.is_none() {
                 let authorize_id = self.context.id_generator.get_id().await.map_err(|error| {
                     AppError::internal(format!("生成功能授权主键失败: {error}"))
                 })?;
                 let audit_fields = build_create_full_audit_fields(current_user);
 
                 function_authorize::ActiveModel {
+                    row_version: Default::default(),
                     id: Set(authorize_id),
                     function_id: Set(dto.function_id),
                     role_id: Set(None),
@@ -423,72 +322,24 @@ impl<'a> UserService<'a> {
                     update_user_id: Set(audit_fields.update_user_id),
                     delete_user_id: Set(audit_fields.delete_user_id),
                 }
-                .insert(&tx)
+                .insert_versioned(&tx)
                 .await
                 .map_err(|error| AppError::internal(format!("设置用户功能失败: {error}")))?;
-
-                write_data_update_log_with_connection(
-                    &tx,
-                    self.context.id_generator,
-                    "FunctionAuthorize",
-                    authorize_id,
-                    "create",
-                    None,
-                    Some(json!({
-                        "id": authorize_id,
-                        "user_id": dto.user_id,
-                        "function_id": dto.function_id,
-                    })),
-                    Some(current_user),
-                )
-                .await?;
             }
-        } else if direct_authorize.is_some() {
-            let user_authorize_list = function_authorize::Entity::find()
-                .filter(function_authorize::Column::UserId.eq(dto.user_id))
-                .filter(function_authorize::Column::FunctionId.eq(dto.function_id))
-                .not_deleted(function_authorize::Column::DeleteTime)
-                .all(&tx)
+        } else if let Some(model) = existing {
+            if model.role_id.is_some() {
+                return Err(AppError::bad_request("该权限继承自角色，无法单独删除！"));
+            }
+            let mut active = model.into_active_model();
+            apply_soft_delete_audit_fields(
+                &mut active.delete_time,
+                &mut active.delete_user_id,
+                current_user,
+            );
+            active
+                .update_versioned(&tx)
                 .await
-                .map_err(to_app_error)?;
-
-            for model in user_authorize_list {
-                let authorize_id = model.id;
-                let function_id = model.function_id;
-                let before_log = json!({
-                    "id": model.id,
-                    "function_id": model.function_id,
-                    "role_id": model.role_id,
-                    "user_id": model.user_id,
-                });
-                let mut active = model.into_active_model();
-                apply_soft_delete_audit_fields(
-                    &mut active.delete_time,
-                    &mut active.delete_user_id,
-                    current_user,
-                );
-                active
-                    .update(&tx)
-                    .await
-                    .map_err(|error| AppError::internal(format!("取消用户功能失败: {error}")))?;
-
-                write_data_update_log_with_connection(
-                    &tx,
-                    self.context.id_generator,
-                    "FunctionAuthorize",
-                    authorize_id,
-                    "delete",
-                    Some(before_log),
-                    Some(json!({
-                        "user_id": dto.user_id,
-                        "function_id": function_id,
-                    })),
-                    Some(current_user),
-                )
-                .await?;
-            }
-        } else if inherited_authorize.is_some() {
-            return Err(AppError::bad_request("该权限继承自角色，无法单独删除！"));
+                .map_err(|error| AppError::internal(format!("取消用户功能失败: {error}")))?;
         }
 
         tx.commit()
@@ -505,9 +356,8 @@ impl<'a> UserService<'a> {
         current_user: &CurrentUser,
     ) -> Result<String, AppError> {
         Self::validate_edit_user(&dto)?;
-        let role_ids = Self::parse_role_ids(&dto.role_ids)?;
 
-        // 用户基础信息 角色关系 审计日志统一放在一个事务里提交
+        // 用户基础信息与角色关系在同一事务中提交
         let tx = begin_transaction(self.context.db).await?;
 
         if user::Entity::find()
@@ -518,8 +368,10 @@ impl<'a> UserService<'a> {
             .map_err(to_app_error)?
             .is_some()
         {
-            return Err(AppError::conflict("用户名已被占用，无法保存"));
+            return Err(AppError::bad_request("用户名已被占用,无法保存"));
         }
+
+        let role_ids = Self::parse_role_ids(&dto.role_ids)?;
 
         let user_id = self
             .context
@@ -528,17 +380,10 @@ impl<'a> UserService<'a> {
             .await
             .map_err(|error| AppError::internal(format!("生成用户主键失败: {error}")))?;
         let password_hash = hash_password_pbkdf2_sha256(&dto.password, &user_id.to_string());
-        let audit_after = json!({
-            "id": user_id,
-            "user_name": dto.user_name,
-            "name": dto.name,
-            "phone": dto.phone,
-            "email": dto.email,
-            "role_ids": dto.role_ids,
-        });
         let audit_fields = build_create_full_audit_fields(current_user);
 
         let user_model = user::ActiveModel {
+            row_version: Default::default(),
             id: Set(user_id),
             user_name: Set(dto.user_name.clone()),
             name: Set(dto.name),
@@ -554,29 +399,19 @@ impl<'a> UserService<'a> {
         };
 
         user_model
-            .insert(&tx)
+            .insert_versioned(&tx)
             .await
             .map_err(|error| AppError::internal(format!("创建用户失败: {error}")))?;
 
-        write_data_update_log_with_connection(
-            &tx,
-            self.context.id_generator,
-            "User",
-            user_id,
-            "create",
-            None,
-            Some(audit_after),
-            Some(current_user),
-        )
-        .await?;
-
         for role_id in &role_ids {
-            let Ok(relation_id) = self.context.id_generator.get_id().await else {
-                continue;
-            };
+            let relation_id =
+                self.context.id_generator.get_id().await.map_err(|error| {
+                    AppError::internal(format!("生成用户角色主键失败: {error}"))
+                })?;
             let audit_fields = build_create_full_audit_fields(current_user);
 
             let relation = user_role::ActiveModel {
+                row_version: Default::default(),
                 id: Set(relation_id),
                 user_id: Set(user_id),
                 role_id: Set(*role_id),
@@ -589,7 +424,7 @@ impl<'a> UserService<'a> {
             };
 
             relation
-                .insert(&tx)
+                .insert_versioned(&tx)
                 .await
                 .map_err(|error| AppError::internal(format!("写入用户角色失败: {error}")))?;
         }
@@ -608,9 +443,7 @@ impl<'a> UserService<'a> {
         dto: EditUserDto,
         current_user: &CurrentUser,
     ) -> Result<bool, AppError> {
-        Self::validate_user_id(target_id)?;
         Self::validate_edit_user(&dto)?;
-        let new_role_ids = Self::parse_role_ids(&dto.role_ids)?;
 
         let tx = begin_transaction(self.context.db).await?;
 
@@ -623,8 +456,10 @@ impl<'a> UserService<'a> {
             .map_err(to_app_error)?
             .is_some()
         {
-            return Err(AppError::conflict("用户名已被占用，无法保存"));
+            return Err(AppError::bad_request("用户名已被占用,无法保存"));
         }
+
+        let mut new_role_ids = Self::parse_role_ids(&dto.role_ids)?;
 
         let user_model = user::Entity::find()
             .filter(user::Column::Id.eq(target_id))
@@ -634,34 +469,34 @@ impl<'a> UserService<'a> {
             .map_err(to_app_error)?;
 
         let Some(user_model) = user_model else {
-            return Err(AppError::bad_request("无效的 userId"));
+            return Err(AppError::bad_request("无效的UserId"));
         };
 
-        let before_log = json!({
-            "id": user_model.id,
-            "user_name": user_model.user_name,
-            "name": user_model.name,
-            "phone": user_model.phone,
-            "email": user_model.email,
-        });
-        let mut active = user_model.into_active_model();
-        active.name = Set(dto.name);
-        active.user_name = Set(dto.user_name.clone());
-        active.phone = Set(dto.phone);
-        active.email = Set(dto.email);
-        apply_update_user_audit_field(&mut active.update_user_id, current_user);
-
-        if dto.password != "default" {
-            active.password = Set(hash_password_pbkdf2_sha256(
-                &dto.password,
-                &target_id.to_string(),
-            ));
+        let password = if dto.password == "default" {
+            user_model.password.clone()
+        } else {
+            hash_password_pbkdf2_sha256(&dto.password, &target_id.to_string())
+        };
+        // 源仓储仅保存实际改变的实体；仅调整角色时不刷新用户版本。
+        let user_changed = user_model.name != dto.name
+            || user_model.user_name != dto.user_name
+            || user_model.phone != dto.phone
+            || user_model.email != dto.email
+            || user_model.password != password
+            || user_model.update_user_id != Some(current_user.user_id);
+        if user_changed {
+            let mut active = user_model.into_active_model();
+            active.name = Set(dto.name);
+            active.user_name = Set(dto.user_name);
+            active.phone = Set(dto.phone);
+            active.email = Set(dto.email);
+            active.password = Set(password);
+            apply_update_user_audit_field(&mut active.update_user_id, current_user);
+            active
+                .update_versioned(&tx)
+                .await
+                .map_err(|error| AppError::internal(format!("更新用户失败: {error}")))?;
         }
-
-        let updated_model = active
-            .update(&tx)
-            .await
-            .map_err(|error| AppError::internal(format!("更新用户失败: {error}")))?;
 
         // 先取旧角色关系 再按差异执行保留 删除 新增
         let existing_roles = user_role::Entity::find()
@@ -671,11 +506,9 @@ impl<'a> UserService<'a> {
             .await
             .map_err(to_app_error)?;
 
-        let mut roles_to_keep = Vec::new();
-
         for existing in &existing_roles {
-            if new_role_ids.contains(&existing.role_id) {
-                roles_to_keep.push(existing.role_id);
+            if let Some(index) = new_role_ids.iter().position(|id| *id == existing.role_id) {
+                new_role_ids.remove(index);
             } else {
                 let mut active = existing.clone().into_active_model();
                 apply_soft_delete_audit_fields(
@@ -684,56 +517,37 @@ impl<'a> UserService<'a> {
                     current_user,
                 );
                 active
-                    .update(&tx)
+                    .update_versioned(&tx)
                     .await
                     .map_err(|error| AppError::internal(format!("更新用户角色失败: {error}")))?;
             }
         }
 
         for role_id in &new_role_ids {
-            if !roles_to_keep.contains(role_id) {
-                let Ok(relation_id) = self.context.id_generator.get_id().await else {
-                    continue;
-                };
-                let audit_fields = build_create_full_audit_fields(current_user);
+            let relation_id =
+                self.context.id_generator.get_id().await.map_err(|error| {
+                    AppError::internal(format!("生成用户角色主键失败: {error}"))
+                })?;
+            let audit_fields = build_create_full_audit_fields(current_user);
 
-                let relation = user_role::ActiveModel {
-                    id: Set(relation_id),
-                    user_id: Set(target_id),
-                    role_id: Set(*role_id),
-                    create_time: Set(audit_fields.create_time),
-                    delete_time: Set(audit_fields.delete_time),
-                    update_time: Set(audit_fields.update_time),
-                    create_user_id: Set(audit_fields.create_user_id),
-                    update_user_id: Set(audit_fields.update_user_id),
-                    delete_user_id: Set(audit_fields.delete_user_id),
-                };
+            let relation = user_role::ActiveModel {
+                row_version: Default::default(),
+                id: Set(relation_id),
+                user_id: Set(target_id),
+                role_id: Set(*role_id),
+                create_time: Set(audit_fields.create_time),
+                delete_time: Set(audit_fields.delete_time),
+                update_time: Set(audit_fields.update_time),
+                create_user_id: Set(audit_fields.create_user_id),
+                update_user_id: Set(audit_fields.update_user_id),
+                delete_user_id: Set(audit_fields.delete_user_id),
+            };
 
-                relation
-                    .insert(&tx)
-                    .await
-                    .map_err(|error| AppError::internal(format!("写入用户角色失败: {error}")))?;
-            }
+            relation
+                .insert_versioned(&tx)
+                .await
+                .map_err(|error| AppError::internal(format!("写入用户角色失败: {error}")))?;
         }
-
-        write_data_update_log_with_connection(
-            &tx,
-            self.context.id_generator,
-            "User",
-            target_id,
-            "update",
-            Some(before_log),
-            Some(json!({
-                "id": updated_model.id,
-                "user_name": updated_model.user_name,
-                "name": updated_model.name,
-                "phone": updated_model.phone,
-                "email": updated_model.email,
-                "role_ids": new_role_ids,
-            })),
-            Some(current_user),
-        )
-        .await?;
 
         tx.commit()
             .await
@@ -748,8 +562,6 @@ impl<'a> UserService<'a> {
         target_id: i64,
         current_user: &CurrentUser,
     ) -> Result<bool, AppError> {
-        Self::validate_user_id(target_id)?;
-
         let user_model = user::Entity::find()
             .filter(user::Column::Id.eq(target_id))
             .not_deleted(user::Column::DeleteTime)
@@ -761,15 +573,7 @@ impl<'a> UserService<'a> {
             return Ok(true);
         };
 
-        let delete_time = Utc::now();
         let tx = begin_transaction(self.context.db).await?;
-        let before_log = json!({
-            "id": user_model.id,
-            "user_name": user_model.user_name,
-            "name": user_model.name,
-            "phone": user_model.phone,
-            "email": user_model.email,
-        });
         let mut active = user_model.into_active_model();
         apply_soft_delete_audit_fields(
             &mut active.delete_time,
@@ -777,40 +581,9 @@ impl<'a> UserService<'a> {
             current_user,
         );
         let _ = active
-            .update(&tx)
+            .update_versioned(&tx)
             .await
             .map_err(|error| AppError::internal(format!("删除用户失败: {error}")))?;
-
-        let token_list = user_token::Entity::find()
-            .filter(user_token::Column::UserId.eq(target_id))
-            .not_deleted(user_token::Column::DeleteTime)
-            .all(&tx)
-            .await
-            .map_err(|error| AppError::internal(format!("查询用户 Token 失败: {error}")))?;
-
-        for token in token_list {
-            let mut token_active = token.into_active_model();
-            token_active.delete_time = Set(Some(delete_time.into()));
-            token_active
-                .update(&tx)
-                .await
-                .map_err(|error| AppError::internal(format!("用户 Token 失效失败: {error}")))?;
-        }
-
-        write_data_update_log_with_connection(
-            &tx,
-            self.context.id_generator,
-            "User",
-            target_id,
-            "delete",
-            Some(before_log),
-            Some(json!({
-                "id": target_id,
-                "delete_time": delete_time.to_rfc3339(),
-            })),
-            Some(current_user),
-        )
-        .await?;
 
         tx.commit()
             .await
@@ -918,7 +691,7 @@ impl<'a> UserService<'a> {
             apply_update_user_audit_field(&mut active.update_user_id, current_user);
 
             let updated_model = active
-                .update(&tx)
+                .update_versioned(&tx)
                 .await
                 .map_err(|error| AppError::internal(format!("更新用户资料失败: {error}")))?;
 
@@ -960,6 +733,7 @@ impl<'a> UserService<'a> {
             let audit_fields = build_create_full_audit_fields(current_user);
 
             user_info::ActiveModel {
+                row_version: Default::default(),
                 id: Set(user_info_id),
                 user_id: Set(target_id),
                 region_area_id: Set(dto.region_area_id),
@@ -970,7 +744,7 @@ impl<'a> UserService<'a> {
                 delete_time: Set(audit_fields.delete_time),
                 update_time: Set(audit_fields.update_time),
             }
-            .insert(&tx)
+            .insert_versioned(&tx)
             .await
             .map_err(|error| AppError::internal(format!("创建用户资料失败: {error}")))?;
 
@@ -1000,28 +774,18 @@ fn build_keyword_condition(keyword: Option<&str>) -> Condition {
     let mut condition = Condition::all().add(not_deleted_expr(user::Column::DeleteTime));
 
     if let Some(keyword) = keyword {
+        // Contains 按字面子串搜索，不能把用户输入当作 SQL LIKE 通配符。
+        let pattern = repository_core::extensions::contains_pattern(keyword);
         condition = condition.add(
             Condition::any()
-                .add(user::Column::Name.contains(keyword))
-                .add(user::Column::UserName.contains(keyword))
-                .add(user::Column::Phone.contains(keyword))
-                .add(user::Column::Email.contains(keyword)),
+                .add(user::Column::Name.like(pattern.clone()))
+                .add(user::Column::UserName.like(pattern.clone()))
+                .add(user::Column::Phone.like(pattern.clone()))
+                .add(user::Column::Email.like(pattern.clone())),
         );
     }
 
     condition
-}
-
-/// 检查用户是否存在
-async fn user_exists<C>(db: &C, user_id: i64) -> Result<bool, DbErr>
-where
-    C: ConnectionTrait,
-{
-    user::Entity::find_by_id(user_id)
-        .not_deleted(user::Column::DeleteTime)
-        .one(db)
-        .await
-        .map(|item| item.is_some())
 }
 
 /// 加载用户角色 ID 列表
@@ -1070,22 +834,20 @@ async fn load_roles_for_users(
     Ok((user_roles, roles))
 }
 
-/// 组装用户返回模型
+/// 组装用户返回模型，按用户角色关系顺序关联有效角色。
 fn build_user_dto(
     model: user::Model,
     user_roles: &[user_role::Model],
     roles: &[role::Model],
+    role_separator: &str,
 ) -> UserDto {
-    // 角色展示字段拼接为简短字符串 供列表直接渲染
-    let user_role_ids = user_roles
+    let assigned_roles = user_roles
         .iter()
         .filter(|item| item.user_id == model.id)
-        .map(|item| item.role_id)
+        .filter_map(|item| roles.iter().find(|role| role.id == item.role_id))
         .collect::<Vec<_>>();
-
-    let role_codes = roles
+    let role_codes = assigned_roles
         .iter()
-        .filter(|item| user_role_ids.contains(&item.id))
         .map(|item| item.code.as_str())
         .collect::<Vec<_>>();
 
@@ -1095,13 +857,14 @@ fn build_user_dto(
         user_name: model.user_name,
         phone: model.phone,
         email: model.email,
-        roles: if role_codes.is_empty() {
-            None
-        } else {
-            Some(role_codes.join("、"))
-        },
-        role_ids: user_role_ids.iter().map(|item| item.to_string()).collect(),
-        create_time: model.create_time.to_rfc3339(),
+        roles: Some(role_codes.join(role_separator)),
+        role_ids: Some(
+            assigned_roles
+                .iter()
+                .map(|item| item.id.to_string())
+                .collect(),
+        ),
+        create_time: model.create_time,
     }
 }
 
@@ -1110,6 +873,7 @@ fn build_user_dto(
 async fn load_user_function_tree(
     db: &DatabaseConnection,
     user_id: i64,
+    role_ids: &[i64],
     parent_id: Option<i64>,
     parent_name: Option<String>,
 ) -> Result<Vec<UserFunctionDto>, DbErr> {
@@ -1131,7 +895,6 @@ async fn load_user_function_tree(
         return Ok(vec![]);
     }
 
-    let role_ids = load_user_role_ids(db, user_id).await?;
     let module_ids = module_list.iter().map(|item| item.id).collect::<Vec<_>>();
 
     let child_functions = function::Entity::find()
@@ -1152,8 +915,8 @@ async fn load_user_function_tree(
         Condition::any().add(function_authorize::Column::UserId.eq(user_id));
 
     if !role_ids.is_empty() {
-        authorize_condition =
-            authorize_condition.add(function_authorize::Column::RoleId.is_in(role_ids));
+        authorize_condition = authorize_condition
+            .add(function_authorize::Column::RoleId.is_in(role_ids.iter().copied()));
     }
 
     let checked_ids = function_authorize::Entity::find()
@@ -1170,9 +933,14 @@ async fn load_user_function_tree(
 
     for module in module_list {
         let module_name = trim_prefix_name(&module.name, parent_name.as_deref());
-        let children =
-            load_user_function_tree(db, user_id, Some(module.id), Some(module.name.clone()))
-                .await?;
+        let children = load_user_function_tree(
+            db,
+            user_id,
+            role_ids,
+            Some(module.id),
+            Some(module.name.clone()),
+        )
+        .await?;
         let functions = child_functions
             .iter()
             .filter(|item| item.parent_id == Some(module.id))
@@ -1181,8 +949,8 @@ async fn load_user_function_tree(
                 name: trim_prefix_name(&item.name, Some(&module.name)),
                 is_check: checked_ids.contains(&item.id),
                 sign: item.sign.clone(),
-                child_list: vec![],
-                function_list: vec![],
+                child_list: None,
+                function_list: None,
             })
             .collect::<Vec<_>>();
 
@@ -1191,8 +959,8 @@ async fn load_user_function_tree(
             name: module_name,
             is_check: checked_ids.contains(&module.id),
             sign: module.sign,
-            child_list: children,
-            function_list: functions,
+            child_list: Some(children),
+            function_list: Some(functions),
         });
     }
 
@@ -1294,12 +1062,8 @@ mod webapi_impl {
     use repository::extensions::SoftDeleteQueryExt;
 
     use super::UserService;
-    use crate::authorize::service::try_cache_token_validity;
     use crate::region::service::RegionWebApiService;
 
-    use crate::write_support::{
-        apply_update_user_audit_field, begin_transaction, write_data_update_log_with_connection,
-    };
     use application_interface::{
         context::{CurrentUser, WebApiContext},
         error::AppError,
@@ -1309,9 +1073,9 @@ mod webapi_impl {
         EditUserDto, EditUserPhoneBySmsDto, EditUserProfileDto, PageListDto, SetUserFunctionDto,
         SetUserRoleDto, UserDto, UserFunctionDto, UserPageRequest, UserProfileDto, UserRoleDto,
     };
-    use repository::{user, user_token};
-    use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, IntoActiveModel, QueryFilter, Set};
-    use serde_json::json;
+    use repository::user;
+    use repository_core::versioned::VersionedActiveModel;
+    use sea_orm::{ColumnTrait, EntityTrait, IntoActiveModel, QueryFilter, Set};
     use std::time::Duration;
 
     /// WebAPI 宿主用户应用服务
@@ -1328,7 +1092,7 @@ mod webapi_impl {
 
         /// 构建用户名互斥锁键
         fn build_user_name_lock_key(user_name: &str) -> Option<String> {
-            let normalized = user_name.trim().to_lowercase();
+            let normalized = user_name.to_lowercase();
             if normalized.is_empty() {
                 return None;
             }
@@ -1380,12 +1144,9 @@ mod webapi_impl {
             dto: SetUserRoleDto,
             current_user: &CurrentUser,
         ) -> Result<bool, AppError> {
-            let target_id = dto.user_id;
-            let result = UserService::new(self.context.app)
+            UserService::new(self.context.app)
                 .set_user_role(dto, current_user)
-                .await?;
-            self.invalidate_user_permission_cache(target_id).await;
-            Ok(result)
+                .await
         }
 
         /// 获取用户功能树
@@ -1404,12 +1165,9 @@ mod webapi_impl {
             dto: SetUserFunctionDto,
             current_user: &CurrentUser,
         ) -> Result<bool, AppError> {
-            let target_id = dto.user_id;
-            let result = UserService::new(self.context.app)
+            UserService::new(self.context.app)
                 .set_user_function(dto, current_user)
-                .await?;
-            self.invalidate_user_permission_cache(target_id).await;
-            Ok(result)
+                .await
         }
 
         /// 创建用户
@@ -1423,19 +1181,15 @@ mod webapi_impl {
             } else {
                 let lock_guard = self.try_lock_user_name(&dto.user_name).await?;
                 if lock_guard.is_none() {
-                    return Err(AppError::conflict("用户名已被占用，无法保存"));
+                    return Err(AppError::bad_request("用户名已被占用,无法保存"));
                 }
 
                 lock_guard
             };
 
-            let user_id = UserService::new(self.context.app)
+            UserService::new(self.context.app)
                 .create_user(dto, current_user)
-                .await?;
-            if let Ok(target_id) = user_id.parse::<i64>() {
-                self.invalidate_user_permission_cache(target_id).await;
-            }
-            Ok(user_id)
+                .await
         }
 
         /// 更新用户
@@ -1450,17 +1204,15 @@ mod webapi_impl {
             } else {
                 let lock_guard = self.try_lock_user_name(&dto.user_name).await?;
                 if lock_guard.is_none() {
-                    return Err(AppError::conflict("用户名已被占用，无法保存"));
+                    return Err(AppError::bad_request("用户名已被占用,无法保存"));
                 }
 
                 lock_guard
             };
 
-            let result = UserService::new(self.context.app)
+            UserService::new(self.context.app)
                 .update_user(target_id, dto, current_user)
-                .await?;
-            self.invalidate_user_permission_cache(target_id).await;
-            Ok(result)
+                .await
         }
 
         /// 删除用户
@@ -1469,26 +1221,9 @@ mod webapi_impl {
             target_id: i64,
             current_user: &CurrentUser,
         ) -> Result<bool, AppError> {
-            let token_ids = user_token::Entity::find()
-                .filter(user_token::Column::UserId.eq(target_id))
-                .not_deleted(user_token::Column::DeleteTime)
-                .all(self.context.app.db)
-                .await
-                .map_err(to_app_error)?
-                .into_iter()
-                .map(|token| token.id)
-                .collect::<Vec<_>>();
-
-            let result = UserService::new(self.context.app)
+            UserService::new(self.context.app)
                 .delete_user(target_id, current_user)
-                .await?;
-
-            for token_id in token_ids {
-                try_cache_token_validity(self.context.cache, target_id, token_id, false).await;
-            }
-
-            self.invalidate_user_permission_cache(target_id).await;
-            Ok(result)
+                .await
         }
 
         /// 获取指定用户资料
@@ -1535,40 +1270,21 @@ mod webapi_impl {
                 .await
         }
 
-        /// 校验短信修改手机号请求
-        fn validate_edit_user_phone_by_sms_request(
-            request: &EditUserPhoneBySmsDto,
-        ) -> Result<(), AppError> {
-            if request.new_phone.trim().is_empty() {
-                return Err(AppError::bad_request("新手机号不可以空"));
-            }
-
-            if request.sms_code.trim().is_empty() {
-                return Err(AppError::bad_request("短信验证码不可以空"));
-            }
-
-            Ok(())
-        }
-
         /// 通过短信验证码修改当前用户手机号
         pub async fn edit_user_phone_by_sms(
             &self,
             request: EditUserPhoneBySmsDto,
             current_user: &CurrentUser,
         ) -> Result<bool, AppError> {
-            Self::validate_edit_user_phone_by_sms_request(&request)?;
-
             let Some(cache) = self.context.cache else {
                 return Err(AppError::internal("当前宿主未启用缓存，无法校验短信验证码"));
             };
 
-            let cache_key = format!("VerifyPhone_{}", request.new_phone.trim());
+            let cache_key = format!("VerifyPhone_{}", request.new_phone);
             let cached_code = cache.get_string(&cache_key).await?;
 
             match cached_code.as_deref() {
-                Some(code) if code == request.sms_code.trim() => {
-                    cache.remove(&cache_key).await?;
-                }
+                Some(code) if !code.is_empty() && code == request.sms_code => {}
                 _ => return Err(AppError::bad_request("短信验证码错误")),
             }
 
@@ -1584,7 +1300,7 @@ mod webapi_impl {
 
             let phone_exists = user::Entity::find()
                 .filter(user::Column::Id.ne(current_user.user_id))
-                .filter(user::Column::Phone.eq(request.new_phone.trim()))
+                .filter(user::Column::Phone.eq(&request.new_phone))
                 .not_deleted(user::Column::DeleteTime)
                 .one(self.context.app.db)
                 .await
@@ -1592,47 +1308,21 @@ mod webapi_impl {
                 .is_some();
 
             if phone_exists {
-                return Err(AppError::conflict("手机号已被其他账户绑定"));
+                return Err(AppError::bad_request("手机号已被其他账户绑定"));
             }
 
-            let before_log = json!({
-                "id": user_model.id,
-                "phone": user_model.phone,
-            });
-            let tx = begin_transaction(self.context.app.db).await?;
+            // 与源仓储的变更跟踪一致：相同值不更新版本及审计时间。
+            if user_model.phone == request.new_phone {
+                return Ok(true);
+            }
             let mut active = user_model.into_active_model();
-            active.phone = Set(request.new_phone.trim().to_string());
-            apply_update_user_audit_field(&mut active.update_user_id, current_user);
-            let updated_model = active.update(&tx).await.map_err(to_app_error)?;
-
-            write_data_update_log_with_connection(
-                &tx,
-                self.context.app.id_generator,
-                "User",
-                current_user.user_id,
-                "update_phone_by_sms",
-                Some(before_log),
-                Some(json!({
-                    "id": updated_model.id,
-                    "phone": updated_model.phone,
-                })),
-                Some(current_user),
-            )
-            .await?;
-            tx.commit()
+            active.phone = Set(request.new_phone);
+            active
+                .update_versioned(self.context.app.db)
                 .await
-                .map_err(|error| AppError::internal(format!("提交事务失败: {error}")))?;
-
-            self.invalidate_user_permission_cache(current_user.user_id)
-                .await;
+                .map_err(to_app_error)?;
 
             Ok(true)
-        }
-
-        /// 使指定用户的权限缓存失效
-        async fn invalidate_user_permission_cache(&self, user_id: i64) {
-            crate::authorize::service::invalidate_user_authorize_cache(self.context.cache, user_id)
-                .await;
         }
     }
 

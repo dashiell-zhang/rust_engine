@@ -1,6 +1,7 @@
 use application_model::role::models::{
-    EditRoleDto, RoleDto, RoleFunctionDto, RolePageListDto, RoleSelectDto, SetRoleFunctionDto,
+    EditRoleDto, RoleDto, RoleFunctionDto, RoleSelectDto, SetRoleFunctionDto,
 };
+use application_model::shared::models::PageListDto;
 use utoipa::OpenApi;
 
 use crate::handlers::role;
@@ -20,7 +21,7 @@ use crate::handlers::role;
     ),
     components(
         schemas(
-            RolePageListDto,
+            PageListDto<RoleDto>,
             RoleDto,
             EditRoleDto,
             RoleFunctionDto,

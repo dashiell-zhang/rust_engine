@@ -3,6 +3,15 @@
 target
 dist
 logs
+Logs
+deployment/generated
+deployment/.generation.lock
+deployment/.generated-*
 presentation/admin_webapi/storage
 presentation/client_webapi/storage
 presentation/task_service/storage
+
+wwwroot/uploads
+wwwroot/temps
+uploads
+temps

@@ -10,10 +10,48 @@ use base64::{Engine as _, engine::general_purpose};
 use common::app_error::AppError as ApplicationError;
 use p256::{SecretKey, elliptic_curve::Generate, pkcs8::EncodePublicKey};
 use std::sync::Arc;
+use webapi_core::environment::is_development as is_development_environment;
 use webapi_core::extract::{Json, Query};
 use webapi_core::{auth::UserContext, error::AppError};
+use webapi_support::WebApiApplicationExt;
 
 use crate::state::AppState;
+
+/// 从可执行文件旁的初始化文件创建或恢复权限基础数据。
+#[utoipa::path(
+    post,
+    path = "/Authorize/InitData",
+    responses(
+        (status = 200, description = "初始化完成", body = application_model::authorize::seed::AuthorizeInitDataResult),
+        (status = 400, description = "仅允许 Development 环境调用"),
+        (status = 500, description = "文件读取或初始化失败"),
+    ),
+    tag = "授权"
+)]
+pub async fn init_data(State(app_state): State<Arc<AppState>>) -> Result<Response, AppError> {
+    use application_model::authorize::seed::{AuthorizeInitDataResult, AuthorizeSeedData};
+
+    if !is_development_environment() {
+        return Err(ApplicationError::bad_request("InitData 仅允许在 Development 环境执行").into());
+    }
+    let executable = std::env::current_exe()
+        .map_err(|error| ApplicationError::internal(format!("无法定位管理端程序: {error}")))?;
+    let directory = executable
+        .parent()
+        .ok_or_else(|| ApplicationError::internal("无法定位管理端程序目录"))?;
+    let file_path = directory.join("InitData").join("AuthorizeInitData.json");
+    let json = tokio::fs::read_to_string(&file_path)
+        .await
+        .map_err(|error| ApplicationError::internal(format!("读取初始化数据文件失败: {error}")))?;
+    let seed = AuthorizeSeedData::from_json(&json)
+        .map_err(|error| ApplicationError::internal(format!("初始化数据文件解析失败: {error}")))?;
+    let result = app_state.services().authorize().init_data(seed).await?;
+    Ok(Json(AuthorizeInitDataResult {
+        result,
+        file_path: file_path.to_string_lossy().into_owned(),
+    })
+    .into_response())
+}
 
 /// 用户名密码登录，成功返回 JWT Token
 #[utoipa::path(
@@ -22,8 +60,7 @@ use crate::state::AppState;
     request_body = GetTokenRequest,
     responses(
         (status = 200, description = "登录成功，返回 JWT Token", body = String),
-        (status = 400, description = "用户名或密码为空"),
-        (status = 401, description = "用户名或密码错误"),
+        (status = 400, description = "用户名或密码为空或不匹配"),
         (status = 500, description = "服务器内部错误"),
     ),
     tag = "授权"
@@ -32,10 +69,10 @@ pub async fn get_token(
     State(app_state): State<Arc<AppState>>,
     Json(request): Json<GetTokenRequest>,
 ) -> Result<Response, AppError> {
-    let service = app_state.authorize();
+    let service = app_state.services().authorize();
 
     match service.get_token(request).await {
-        Ok(token) => Ok(token.into_response()),
+        Ok(token) => Ok(webapi_core::text_response::Text(token).into_response()),
         Err(error) => Err(error.into()),
     }
 }
@@ -58,7 +95,7 @@ pub async fn get_function_list(
     user_ctx: UserContext,
     Query(request): Query<GetFunctionListRequest>,
 ) -> Result<Response, AppError> {
-    let service = app_state.authorize();
+    let service = app_state.services().authorize();
 
     match service
         .get_function_list(user_ctx.current_user(), request.sign.as_deref())
@@ -74,14 +111,14 @@ pub async fn get_function_list(
     get,
     path = "/Authorize/UpdateRoute",
     responses(
-        (status = 200, description = "同步成功", body = bool),
+        (status = 200, description = "同步成功，空正文"),
         (status = 500, description = "服务器内部错误"),
     ),
     tag = "授权"
 )]
 pub async fn update_route(State(app_state): State<Arc<AppState>>) -> Result<Response, AppError> {
     match app_state.sync_permission_routes().await {
-        Ok(result) => Ok((StatusCode::OK, Json(result)).into_response()),
+        Ok(_) => Ok(StatusCode::OK.into_response()),
         Err(error) => Err(error.into()),
     }
 }
@@ -126,11 +163,4 @@ pub async fn generate_ecdsa_key_pair() -> Result<Response, AppError> {
     };
 
     Ok((StatusCode::OK, Json(result)).into_response())
-}
-
-fn is_development_environment() -> bool {
-    std::env::var("APP_ENVIRONMENT")
-        .or_else(|_| std::env::var("ASPNETCORE_ENVIRONMENT"))
-        .map(|value| value.eq_ignore_ascii_case("Development"))
-        .unwrap_or(false)
 }

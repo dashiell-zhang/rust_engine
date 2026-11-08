@@ -1,21 +1,17 @@
-use std::{path::PathBuf, sync::Arc, time::Duration};
-
-use axum::{
-    Router,
-    http::{HeaderName, HeaderValue, Method},
-    middleware::from_fn_with_state,
-    routing::{MethodRouter, get},
+use crate::routes::MethodRouter;
+use std::{
+    path::PathBuf,
+    sync::{Arc, OnceLock},
 };
-use tower_http::cors::{AllowHeaders, AllowMethods, AllowOrigin, CorsLayer, MaxAge};
-use tower_http::services::ServeDir;
-use url::Url;
+
+use axum::{Router, middleware::from_fn_with_state, routing::any};
 use utoipa::openapi::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
 
 use crate::{
     auth::{
         JwtDecodingState, PermissionMiddlewareState, PermissionState, RoutePermissionMetadata,
-        TokenRenewalState, TokenValidationState, permission_middleware,
+        TokenRenewalState, permission_middleware,
     },
     health::{HealthState, healthz},
     host::settings::CorsSettings,
@@ -26,7 +22,7 @@ use crate::{
 /// WebAPI 路由构建器
 pub struct WebApiRouterBuilder<TState> {
     /// 业务路由
-    business_router: Router<Arc<TState>>,
+    business_router: crate::routes::WebApiRoutes<Arc<TState>>,
 
     /// OpenAPI 文档
     openapi_doc: OpenApi,
@@ -37,8 +33,13 @@ pub struct WebApiRouterBuilder<TState> {
     /// CORS 配置
     cors_settings: CorsSettings,
 
-    /// 公开静态目录挂载配置
-    public_static_mounts: Vec<(String, PathBuf)>,
+    /// 可选公开 Web 根目录；业务端点优先匹配。
+    public_web_root: Option<PathBuf>,
+
+    /// 外部 HTTPS 重定向端口。
+    https_port: Option<u16>,
+    https_listener_port: Arc<OnceLock<u16>>,
+    request_tasks: Option<crate::request_cancellation::RequestTasks>,
 }
 
 impl<TState> WebApiRouterBuilder<TState>
@@ -46,13 +47,19 @@ where
     TState: HealthState + Send + Sync + 'static,
 {
     /// 创建 WebAPI 路由构建器
-    pub fn new(business_router: Router<Arc<TState>>, openapi_doc: OpenApi) -> Self {
+    pub fn new(
+        business_router: crate::routes::WebApiRoutes<Arc<TState>>,
+        openapi_doc: OpenApi,
+    ) -> Self {
         Self {
             business_router,
             openapi_doc,
             rate_limiter: None,
             cors_settings: CorsSettings::default(),
-            public_static_mounts: Vec::new(),
+            public_web_root: None,
+            https_port: None,
+            https_listener_port: Arc::new(OnceLock::new()),
+            request_tasks: None,
         }
     }
 
@@ -68,148 +75,100 @@ where
         self
     }
 
-    /// 挂载公开静态目录
-    pub fn with_public_static_dir(
+    /// 挂载公开 Web 根目录，不自动提供目录首页。
+    pub fn with_public_web_root(mut self, directory: impl Into<PathBuf>) -> Self {
+        self.public_web_root = Some(directory.into());
+        self
+    }
+
+    /// 配置当前宿主对外 HTTPS 重定向端口。
+    pub fn with_https_port(mut self, port: Option<u16>) -> Self {
+        self.https_port = port;
+        self
+    }
+
+    pub(crate) fn with_https_listener_port(mut self, port: Arc<OnceLock<u16>>) -> Self {
+        self.https_listener_port = port;
+        self
+    }
+
+    pub(crate) fn with_request_tasks(
         mut self,
-        route_prefix: impl Into<String>,
-        directory: impl Into<PathBuf>,
+        tasks: crate::request_cancellation::RequestTasks,
     ) -> Self {
-        self.public_static_mounts
-            .push((route_prefix.into(), directory.into()));
+        self.request_tasks = Some(tasks);
         self
     }
 
     /// 构建包含公共路由与中间件的宿主路由
-    pub fn build(self) -> Router<Arc<TState>> {
+    pub fn build(self, state: Arc<TState>) -> Router {
+        let cors_settings = Arc::new(self.cors_settings);
+        let https_policy = Arc::new(crate::https_policy::HttpsPolicy::new(
+            self.https_port,
+            self.https_listener_port,
+        ));
+        let (business_router, mut paths) = self.business_router.into_parts();
+        paths.add_literal("/healthz");
         let mut router = Router::<Arc<TState>>::new()
-            .merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", self.openapi_doc))
-            .route("/healthz", get(healthz::<TState>))
-            .merge(self.business_router)
-            .layer(build_cors_layer(&self.cors_settings))
-            .layer(axum::middleware::from_fn(request_log_middleware));
-
-        for (route_prefix, directory) in self.public_static_mounts {
-            router = router.nest_service(&route_prefix, ServeDir::new(directory));
+            .route("/healthz", any(healthz::<TState>))
+            .merge(business_router.layer(axum::middleware::from_fn(
+                crate::object_response::format_object_response,
+            )));
+        if let Some(directory) = self.public_web_root {
+            router = router.fallback_service(tower::service_fn(move |request| {
+                let directory = directory.clone();
+                async move {
+                    Ok::<_, std::convert::Infallible>(
+                        crate::static_files::serve(directory, request).await,
+                    )
+                }
+            }));
         }
-
+        router = router.layer(from_fn_with_state(
+            cors_settings.clone(),
+            crate::cors::cors_middleware,
+        ));
         if let Some(limiter) = self.rate_limiter {
             router = router.layer(from_fn_with_state(limiter, rate_limit_middleware));
         }
-
-        router
-    }
-}
-
-fn build_cors_layer(settings: &CorsSettings) -> CorsLayer {
-    let allowed_origin_list = settings.allowed_origin_list.clone();
-
-    CorsLayer::new()
-        .allow_origin(AllowOrigin::predicate(move |origin, _request_parts| {
-            is_allowed_cors_origin(origin, &allowed_origin_list)
-        }))
-        .allow_methods(AllowMethods::list([
-            Method::GET,
-            Method::POST,
-            Method::PUT,
-            Method::PATCH,
-            Method::DELETE,
-            Method::OPTIONS,
-            Method::HEAD,
-        ]))
-        .allow_headers(AllowHeaders::mirror_request())
-        .expose_headers([
-            HeaderName::from_static("content-disposition"),
-            HeaderName::from_static("content-length"),
-            HeaderName::from_static("etag"),
-        ])
-        .allow_credentials(true)
-        .max_age(MaxAge::exact(Duration::from_secs(7200)))
-        .allow_private_network(true)
-}
-
-fn is_allowed_cors_origin(origin: &HeaderValue, allowed_origin_list: &[String]) -> bool {
-    let origin = match origin.to_str() {
-        Ok(origin) => origin,
-        Err(_) => return false,
-    };
-
-    let origin_url = match Url::parse(origin) {
-        Ok(origin_url) => origin_url,
-        Err(_) => return false,
-    };
-
-    let origin_host = match origin_url.host_str() {
-        Some(origin_host) => origin_host,
-        None => return false,
-    };
-
-    let origin_scheme = origin_url.scheme();
-    let origin_port = origin_url.port_or_known_default();
-
-    for allowed_host in allowed_origin_list {
-        if allowed_host == "*" {
-            return true;
+        router = router
+            .layer(from_fn_with_state(
+                https_policy.clone(),
+                crate::https_policy::https_policy,
+            ))
+            .layer(axum::middleware::from_fn(
+                crate::error::exception_middleware,
+            ));
+        // 源宿主 Swagger 在 CORS 等业务中间件之前直接响应。
+        if crate::environment::is_development() {
+            let swagger = Router::new()
+                .merge(SwaggerUi::new("/swagger").url("/swagger/v1/swagger.json", self.openapi_doc))
+                .layer(from_fn_with_state(
+                    cors_settings,
+                    crate::cors::swagger_cors_middleware,
+                ))
+                .layer(from_fn_with_state(
+                    https_policy,
+                    crate::https_policy::swagger_https_policy,
+                ));
+            router = router.merge(swagger);
+        } else {
+            router = router.layer(axum::middleware::from_fn(
+                crate::response_compression::response_compression,
+            ));
         }
+        router = router
+            .layer(axum::middleware::from_fn(request_log_middleware))
+            .layer(axum::middleware::from_fn(
+                crate::request_context::forwarded_headers,
+            ))
+            .layer(from_fn_with_state(
+                self.request_tasks,
+                crate::request_cancellation::request_cancellation,
+            ));
 
-        if is_cors_host_match(origin_scheme, origin_host, origin_port, allowed_host) {
-            return true;
-        }
+        crate::routes::dispatch(router.with_state(state), paths)
     }
-
-    false
-}
-
-fn is_cors_host_match(
-    origin_scheme: &str,
-    origin_host: &str,
-    origin_port: Option<u16>,
-    allowed_host: &str,
-) -> bool {
-    if allowed_host.trim().is_empty() {
-        return false;
-    }
-
-    let mut allowed_host_pattern = allowed_host.trim();
-    let mut allowed_scheme = None;
-    let mut allowed_port = None;
-
-    if allowed_host_pattern.len() >= "https://".len()
-        && allowed_host_pattern[.."https://".len()].eq_ignore_ascii_case("https://")
-    {
-        allowed_scheme = Some("https");
-        allowed_host_pattern = &allowed_host_pattern["https://".len()..];
-    } else if allowed_host_pattern.len() >= "http://".len()
-        && allowed_host_pattern[.."http://".len()].eq_ignore_ascii_case("http://")
-    {
-        allowed_scheme = Some("http");
-        allowed_host_pattern = &allowed_host_pattern["http://".len()..];
-    }
-
-    if let Some(allowed_scheme) = allowed_scheme
-        && !origin_scheme.eq_ignore_ascii_case(allowed_scheme)
-    {
-        return false;
-    }
-
-    if let Some((host_pattern, port_text)) = allowed_host_pattern.rsplit_once(':')
-        && let Ok(parsed_port) = port_text.parse::<u16>()
-    {
-        allowed_host_pattern = host_pattern;
-        allowed_port = Some(parsed_port);
-    }
-
-    if let Some(allowed_port) = allowed_port
-        && origin_port != Some(allowed_port)
-    {
-        return false;
-    }
-
-    if let Some(domain_suffix) = allowed_host_pattern.strip_prefix("*.") {
-        let domain_suffix = format!(".{domain_suffix}");
-        return origin_host.ends_with(&domain_suffix);
-    }
-
-    origin_host.eq_ignore_ascii_case(allowed_host_pattern)
 }
 
 /// 为单个路由挂载权限元数据与权限守卫
@@ -221,21 +180,17 @@ pub fn protect_method_router<TState>(
     allow_unbound: bool,
 ) -> MethodRouter<std::sync::Arc<TState>>
 where
-    TState: JwtDecodingState
-        + TokenValidationState
-        + PermissionState
-        + TokenRenewalState
-        + Send
-        + Sync
-        + 'static,
+    TState: JwtDecodingState + PermissionState + TokenRenewalState + Send + Sync + 'static,
 {
     let middleware_state = PermissionMiddlewareState {
         state,
         route_permission: RoutePermissionMetadata::new(module, route_path, allow_unbound),
     };
 
-    route.layer(from_fn_with_state(
-        middleware_state,
-        permission_middleware::<TState>,
-    ))
+    route.map(move |route| {
+        route.route_layer(from_fn_with_state(
+            middleware_state,
+            permission_middleware::<TState>,
+        ))
+    })
 }

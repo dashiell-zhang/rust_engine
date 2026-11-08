@@ -1,0 +1,10 @@
+[
+  {
+    "kind": "Sql",
+    "value": "DROP INDEX \"IX_Log_CreateTime\""
+  },
+  {
+    "kind": "Sql",
+    "value": "DROP INDEX \"IX_Log_DeleteTime\""
+  }
+]

@@ -5,16 +5,15 @@ use std::{
 };
 
 use axum::{
-    Json,
     extract::{Request, State},
     http::{HeaderName, HeaderValue, StatusCode},
     middleware::Next,
-    response::{IntoResponse, Response},
+    response::Response,
 };
 use dashmap::DashMap;
 use serde::Deserialize;
 
-use crate::error::ErrBody;
+use crate::error::json_error_response;
 
 /// 限流配置
 #[derive(Deserialize, Clone)]
@@ -103,26 +102,24 @@ impl RateLimiter {
 
 /// 限流中间件
 ///
-/// 从 `X-Forwarded-For` 或 `X-Real-IP` 请求头提取客户端 IP 作为限流键
-/// 若两个头均不存在则使用固定键 `"unknown"`
+/// 使用共享请求上下文中的客户端 IP 作为限流键
 /// 超限时返回 HTTP 429 并携带 `Retry-After` 响应头
 pub async fn rate_limit_middleware(
     State(limiter): State<Arc<RateLimiter>>,
+    context: crate::request_context::RequestContext,
     request: Request,
     next: Next,
 ) -> Response {
-    let client_key = extract_client_key(request.headers());
+    let client_key = match context.client_ip() {
+        Ok(ip) => ip,
+        Err(error) => return crate::error::internal_error_response(error.message()),
+    };
 
-    if !limiter.check_and_record(&client_key) {
+    if !limiter.check_and_record(client_key) {
         let retry_after = limiter.window_seconds().to_string();
 
-        let mut response = (
-            StatusCode::TOO_MANY_REQUESTS,
-            Json(ErrBody {
-                err_msg: "请求过于频繁，请稍后再试".to_string(),
-            }),
-        )
-            .into_response();
+        let mut response =
+            json_error_response(StatusCode::TOO_MANY_REQUESTS, "请求过于频繁，请稍后再试");
 
         if let Ok(value) = HeaderValue::from_str(&retry_after) {
             response
@@ -134,31 +131,6 @@ pub async fn rate_limit_middleware(
     }
 
     next.run(request).await
-}
-
-/// 从请求头中提取客户端标识键
-///
-/// 优先读取 `X-Forwarded-For`（取第一段），其次读取 `X-Real-IP`，均不存在时返回 `"unknown"`
-fn extract_client_key(headers: &axum::http::HeaderMap) -> String {
-    if let Some(forwarded_for) = headers.get("x-forwarded-for")
-        && let Ok(value) = forwarded_for.to_str()
-    {
-        let ip = value.split(',').next().unwrap_or("").trim();
-        if !ip.is_empty() {
-            return ip.to_string();
-        }
-    }
-
-    if let Some(real_ip) = headers.get("x-real-ip")
-        && let Ok(value) = real_ip.to_str()
-    {
-        let ip = value.trim();
-        if !ip.is_empty() {
-            return ip.to_string();
-        }
-    }
-
-    "unknown".to_string()
 }
 
 /// 获取默认限流启用状态

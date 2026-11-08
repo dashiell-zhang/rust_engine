@@ -1,6 +1,7 @@
 use application_model::authorize::models::{
     EcdsaKeyPairDto, GetFunctionListRequest, GetTokenRequest,
 };
+use application_model::authorize::seed::{AuthorizeInitDataResult, AuthorizeSeedResult};
 use utoipa::OpenApi;
 
 use crate::handlers::authorize;
@@ -10,6 +11,7 @@ use crate::handlers::authorize;
 #[openapi(
     paths(
         authorize::get_token,
+        authorize::init_data,
         authorize::get_function_list,
         authorize::update_route,
         authorize::generate_ecdsa_key_pair,
@@ -19,6 +21,8 @@ use crate::handlers::authorize;
             GetTokenRequest,
             GetFunctionListRequest,
             EcdsaKeyPairDto,
+            AuthorizeInitDataResult,
+            AuthorizeSeedResult,
         )
     ),
     tags(

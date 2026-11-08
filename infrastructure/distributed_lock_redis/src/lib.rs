@@ -127,7 +127,7 @@ impl RedisLock {
     /// 构建 Redis 锁句柄
     ///
     /// 注入 fire-and-forget 风格的释放回调：drop 时在后台任务中执行所有权校验和删除
-    /// 不等待脚本结果，以避免在 `Drop` 中阻塞当前任务
+    /// Drop 不阻塞，显式 release 则等待脚本完成；两种方式都保留所有权校验
     ///
     /// Redis 锁的续期由 `RedisLock::renew` 通过连接执行，句柄本身不持有续期回调
     fn build_guard(&self, redis_key: String, value: String) -> LockGuard {
@@ -141,19 +141,24 @@ impl RedisLock {
             let k = key_for_drop.clone();
             let v = value_for_drop.clone();
 
-            // Drop 可能发生在 Tokio 运行时之外，此时依赖 Redis TTL 完成兜底清理
-            if let Ok(runtime) = tokio::runtime::Handle::try_current() {
+            // 回调立即派发释放任务，Drop 与显式 release 共享同一执行路径。
+            let task = tokio::runtime::Handle::try_current().ok().map(|runtime| {
                 runtime.spawn(async move {
-                    let _: Result<i64, _> = redis::Script::new(RELEASE_SCRIPT)
-                        .key(k)
-                        .arg(v)
-                        .invoke_async(&mut c)
-                        .await;
-                });
-            }
+                    let result: Result<i64, _> = redis::Script::new(RELEASE_SCRIPT)
+                        .key(&k).arg(v).invoke_async(&mut c).await;
+                    if let Err(error) = result {
+                        tracing::warn!(target: "distributed_lock.redis", key = %k, %error, "释放锁失败，保留业务结果并等待租约到期");
+                    }
+                })
+            });
+            Box::pin(async move {
+                if let Some(task) = task {
+                    let _ = task.await;
+                }
+            }) as distributed_lock::ReleaseCompletion
         };
 
-        LockGuard::new(redis_key, value, Box::new(release_fn), None)
+        LockGuard::new_async(redis_key, value, Box::new(release_fn))
     }
 }
 

@@ -5,9 +5,19 @@ use sea_orm::entity::prelude::*;
 /// LLM 模型配置实体
 ///
 /// 存储模型连接信息与协议类型
+#[repository_core::model_documentation]
 #[derive(Clone, Debug, PartialEq, DeriveEntityModel)]
 #[sea_orm(table_name = "LlmModel")]
 pub struct Model {
+    /// PostgreSQL 系统行版本；读取为无符号事务 ID 的文本，保存时只用于并发条件。
+    #[sea_orm(
+        column_name = "xmin",
+        column_type = "Text",
+        select_as = "text",
+        save_as = "xid"
+    )]
+    pub row_version: String,
+
     /// 主键 ID
     #[sea_orm(column_name = "Id", primary_key, auto_increment = false)]
     pub id: i64,
@@ -107,10 +117,12 @@ impl ActiveModelBehavior for ActiveModel {
     where
         C: ConnectionTrait,
     {
-        if !insert {
+        if !insert && !self.update_time.is_set() {
             self.update_time = Set(Some(Utc::now().into()));
         }
 
         Ok(self)
     }
 }
+
+repository_core::impl_versioned_entity!(Entity, Column::RowVersion);

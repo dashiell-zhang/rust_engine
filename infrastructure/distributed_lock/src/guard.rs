@@ -1,4 +1,8 @@
-use std::time::Duration;
+use std::{future::Future, pin::Pin, time::Duration};
+
+/// 回调启动释放后返回的完成通知；丢弃通知不会取消已启动的释放。
+pub type ReleaseCompletion = Pin<Box<dyn Future<Output = ()> + Send>>;
+type ReleaseCallback = Box<dyn Fn() -> ReleaseCompletion + Send + Sync>;
 
 /// 分布式锁句柄
 ///
@@ -26,7 +30,7 @@ pub struct LockGuard {
     /// 释放锁的回调函数，fire-and-forget 风格
     ///
     /// 在 `Drop::drop` 中调用，由各实现在构造时注入具体的释放逻辑
-    release: Box<dyn Fn() + Send + Sync>,
+    release: Option<ReleaseCallback>,
 
     /// 内存锁专用的续期回调
     ///
@@ -48,9 +52,38 @@ impl LockGuard {
         Self {
             lock_key,
             lock_value,
-            release,
+            release: Some(Box::new(move || {
+                release();
+                Box::pin(async {})
+            })),
             local_renew,
         }
+    }
+
+    /// 异步后端使用：回调必须立即启动释放，即使返回的完成通知未被等待。
+    pub fn new_async(
+        lock_key: String,
+        lock_value: String,
+        release: Box<dyn Fn() -> ReleaseCompletion + Send + Sync>,
+    ) -> Self {
+        Self {
+            lock_key,
+            lock_value,
+            release: Some(release),
+            local_renew: None,
+        }
+    }
+
+    /// 主动释放并等待后端完成；取消等待不会重复释放或取消已启动的后端操作。
+    pub async fn release(mut self) {
+        if let Some(release) = self.release.take() {
+            release().await;
+        }
+    }
+
+    /// 保留已获取的租约直至自然到期，不主动解锁，也不泄漏句柄资源。
+    pub fn leave_until_expiry(mut self) {
+        self.release = None;
     }
 
     /// 获取锁的 Key
@@ -62,6 +95,8 @@ impl LockGuard {
 impl Drop for LockGuard {
     /// drop 时自动调用释放回调，归还锁资源
     fn drop(&mut self) {
-        (self.release)();
+        if let Some(release) = self.release.take() {
+            drop(release());
+        }
     }
 }

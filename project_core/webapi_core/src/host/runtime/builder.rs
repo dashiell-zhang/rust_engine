@@ -1,7 +1,6 @@
 use std::{
     net::{IpAddr, SocketAddr},
-    path::Path,
-    sync::Arc,
+    sync::{Arc, OnceLock},
 };
 
 use crate::api_doc::ApiDoc;
@@ -16,19 +15,12 @@ use crate::{
     builder::WebApiRouterBuilder, openapi::apply_openapi_enhancements, startup::WebApiStartup,
 };
 use application_interface::auth::EcJwtCodec;
-use application_interface::context::AppContext;
 use application_interface::email::AppEmailSender;
 use application_interface::http_client::HttpClientFactory;
-use application_interface::storage::AppFileStorage;
-use application_service::authorize::service::invalidate_route_authorize_cache;
-use application_service::permission_route::service::{
-    PermissionRouteService, PermissionRouteSyncItem,
-};
 use axum::Router;
 use identifier_generator::IdentifierGenerator;
-use identifier_generator::refresh::RefreshSignTask;
 use logger::LoggerRuntime;
-use repository::read_database::ReadDatabaseConnection;
+use repository_core::ReadDatabaseConnection;
 use sea_orm::Database;
 use utoipa::OpenApi;
 
@@ -38,7 +30,7 @@ pub struct WebApiHostBuilder {
     settings: Settings,
 
     /// 文件存储
-    file_storage: Option<Arc<dyn AppFileStorage>>,
+    build_file_storage: crate::host::BuildWebApiFileStorage,
 
     /// 邮件发送器
     email_sender: Arc<dyn AppEmailSender>,
@@ -51,9 +43,15 @@ pub struct WebApiHostBuilder {
 
     /// 日志运行时构建方法
     build_logger_runtime: BuildWebApiLoggerRuntime,
+    build_event_transport: Option<crate::host::BuildWebApiEventTransport>,
+
+    application: Option<Arc<dyn crate::host::application::WebApiApplication>>,
 
     /// 已注册特性
     features: Vec<Box<dyn WebApiFeature>>,
+    check_log_read_health: bool,
+    serve_web_root: bool,
+    configure_http_clients: Option<crate::host::ConfigureWebApiHttpClients>,
 }
 
 /// WebAPI 宿主实例
@@ -62,17 +60,22 @@ pub struct WebApiHost {
     app: Router,
 
     /// 监听地址
-    listen_address: String,
+    host_settings: crate::startup::HostSettings,
+    https_listener_port: Arc<OnceLock<u16>>,
 
     /// 日志运行时守卫
     _logger_runtime: LoggerRuntime,
+    event_bus: event_bus::PreparedEventBus,
+    event_listeners: event_bus::EventListenerRegistry,
+    health_state: Arc<AppState>,
+    request_runtime: crate::request_cancellation::RequestRuntime,
 }
 
 impl WebApiHostBuilder {
     /// 创建 WebAPI 宿主构建器
     pub fn new(
         settings: Settings,
-        file_storage: Option<Arc<dyn AppFileStorage>>,
+        build_file_storage: crate::host::BuildWebApiFileStorage,
         email_sender: Arc<dyn AppEmailSender>,
         build_distributed_lock: BuildWebApiLock,
         build_cache: BuildWebApiCache,
@@ -80,13 +83,55 @@ impl WebApiHostBuilder {
     ) -> Self {
         Self {
             settings,
-            file_storage,
+            build_file_storage,
             email_sender,
             build_distributed_lock,
             build_cache,
             build_logger_runtime,
             features: Vec::new(),
+            build_event_transport: None,
+            application: None,
+            check_log_read_health: false,
+            serve_web_root: false,
+            configure_http_clients: None,
         }
+    }
+
+    /// 由宿主档案决定是否注册日志读库健康检查。
+    pub fn with_log_read_health(mut self, enabled: bool) -> Self {
+        self.check_log_read_health = enabled;
+        self
+    }
+
+    /// 管理端把文件根目录公开为静态 Web 根目录。
+    pub fn with_web_root(mut self, enabled: bool) -> Self {
+        self.serve_web_root = enabled;
+        self
+    }
+
+    /// 运行入口指定事件后端，禁止公共宿主自行选择实现。
+    pub fn with_event_transport_factory(
+        mut self,
+        factory: crate::host::BuildWebApiEventTransport,
+    ) -> Self {
+        self.build_event_transport = Some(factory);
+        self
+    }
+
+    pub fn with_application(
+        mut self,
+        application: Arc<dyn crate::host::application::WebApiApplication>,
+    ) -> Self {
+        self.application = Some(application);
+        self
+    }
+
+    pub fn with_http_client_configuration(
+        mut self,
+        configure: Option<crate::host::ConfigureWebApiHttpClients>,
+    ) -> Self {
+        self.configure_http_clients = configure;
+        self
     }
 
     /// 注册单个 WebAPI 特性
@@ -105,21 +150,31 @@ impl WebApiHostBuilder {
 
     /// 构建 WebAPI 宿主实例
     pub async fn build(self) -> Result<WebApiHost, String> {
+        let application = self.application.ok_or("WebAPI 宿主未注册业务策略")?;
         let jwt_key_pair = WebApiStartup::parse_ec_jwt_key_pair(
             &self.settings.jwt.private_key,
             &self.settings.jwt.public_key,
         )?;
 
-        let role_code_lock = (self.build_distributed_lock)(&self.settings).await?;
+        let distributed_lock = (self.build_distributed_lock)(&self.settings).await?;
         let distributed_cache = (self.build_cache)(&self.settings).await?;
-        let identifier_generator = IdentifierGenerator::from_infrastructure(
+        let mut http_client_factory = HttpClientFactory::new()
+            .map_err(|error| format!("HTTP 客户端工厂初始化失败: {error}"))?;
+        if let Some(configure) = self.configure_http_clients {
+            configure(
+                &self.settings,
+                distributed_cache.clone(),
+                &mut http_client_factory,
+            )?;
+        }
+        let http_client_factory = Arc::new(http_client_factory);
+        let file_storage = (self.build_file_storage)(&self.settings, http_client_factory.clone())?;
+        let identifier_generator = IdentifierGenerator::from_settings(
             &self.settings.identifier_generator,
-            Arc::clone(&role_code_lock),
-            Arc::clone(&distributed_cache),
+            &self.settings.cache.connection,
         )
         .await
         .map_err(|error| format!("ID 服务初始化失败: {error}"))?;
-        let should_refresh_identifier_sign = identifier_generator.requires_sign_refresh().await;
         let cache = Arc::clone(&distributed_cache);
 
         let db_pool = Arc::new(
@@ -149,13 +204,90 @@ impl WebApiHostBuilder {
                 .map_err(|error| format!("只读数据库连接初始化失败: {error}"))?,
         ));
 
+        let log_db_pool = if self.settings.logger.component == logger::LoggerComponent::Database {
+            let mut options = WebApiStartup::build_postgres_connect_options(
+                self.settings
+                    .logger
+                    .write_connection(&self.settings.database.connection),
+                &self.settings.host.database_pool,
+            );
+            // 日志数据库自身的 SQL 不回流日志管线，避免递归记录。
+            options.sqlx_logging(false);
+            Some(Arc::new(
+                Database::connect(options)
+                    .await
+                    .map_err(|error| format!("日志写连接初始化失败: {error}"))?,
+            ))
+        } else {
+            None
+        };
+
+        let log_health_db_pool = match &log_db_pool {
+            Some(db) => db.clone(),
+            None => {
+                let mut options = WebApiStartup::build_postgres_connect_options(
+                    self.settings
+                        .logger
+                        .write_connection(&self.settings.database.connection),
+                    &self.settings.host.database_pool,
+                );
+                options
+                    .sqlx_logging(false)
+                    .min_connections(0)
+                    .connect_lazy(true);
+                Arc::new(
+                    Database::connect(options)
+                        .await
+                        .map_err(|error| format!("日志健康检查连接配置失败: {error}"))?,
+                )
+            }
+        };
+        let mut log_read_options = WebApiStartup::build_postgres_connect_options(
+            self.settings
+                .logger
+                .query_connection(&self.settings.database.connection),
+            &self.settings.host.database_pool,
+        );
+        log_read_options.sqlx_logging(false);
+        if !self.check_log_read_health {
+            log_read_options.min_connections(0).connect_lazy(true);
+        }
+        let log_query = logger_database::query::LogQueryService::new(Arc::new(
+            ReadDatabaseConnection::connect(log_read_options)
+                .await
+                .map_err(|error| format!("日志只读连接初始化失败: {error}"))?,
+        ));
+
         let logger_runtime = (self.build_logger_runtime)(
             &self.settings,
             &WebApiLoggerBuilderContext {
-                db_pool: Arc::clone(&db_pool),
+                log_db_pool: log_db_pool.clone(),
                 identifier_generator: identifier_generator.clone(),
             },
-        )?;
+        )
+        .await?;
+
+        let build_event_transport = self.build_event_transport.ok_or("宿主未注册事件后端")?;
+        let transport = build_event_transport(&self.settings, &identifier_generator)?;
+        let event_publisher = event_bus::EventPublisher::new(transport.clone());
+        let startup_stopping = event_bus::CancellationToken::new();
+        let prepare = event_bus::PreparedEventBus::prepare(
+            transport,
+            self.settings.event_bus.clone(),
+            &startup_stopping,
+        );
+        tokio::pin!(prepare);
+        let event_bus = tokio::select! {
+            result = &mut prepare => result?,
+            signal = common::system_helper::wait_for_shutdown() => {
+                startup_stopping.cancel();
+                // 让适配器完成服务器端取消，仍遵守宿主三十秒停机上限。
+                let _ = tokio::time::timeout(std::time::Duration::from_secs(30), &mut prepare).await;
+                signal?;
+                return Err("事件总线启动已取消".to_string());
+            },
+        };
+        let mut event_listeners = event_bus::EventListenerRegistry::default();
 
         // 输出关键宿主配置 便于排查启动期依赖装配问题
         tracing::info!(
@@ -184,47 +316,27 @@ impl WebApiHostBuilder {
             .flat_map(|feature| feature.permission_routes())
             .collect::<Vec<WebApiRoutePermission>>();
 
-        let permission_route_sync_items = permission_routes
-            .iter()
-            .map(|item| PermissionRouteSyncItem {
-                route: item.route,
-                remark: item.remark,
-            })
-            .collect::<Vec<_>>();
-
-        let route_permissions_changed = PermissionRouteService::new(AppContext {
-            db: db_pool.as_ref(),
-            id_generator: &id_generator,
-            // 启动阶段同步权限路由时尚未进入请求上下文
-            current_user: None,
-        })
-        .sync_routes(
-            &self.settings.permission_module,
-            &permission_route_sync_items,
-        )
-        .await
-        .map_err(|error| error.message().to_string())?;
-
-        if route_permissions_changed {
-            invalidate_route_authorize_cache(Some(distributed_cache.as_ref())).await;
-        }
-
         // 提前取出限流配置，避免 settings move 进 AppState 后无法访问
         let rate_limit_settings = self.settings.rate_limit.clone();
         let cors_settings = self.settings.cors.clone();
 
-        tracing::info!(target: "app.startup", "权限路由同步完成，开始构建 AppState");
+        tracing::info!(target: "app.startup", "开始构建 WebAPI 共享状态");
 
         let app_state = Arc::new(AppState {
+            application,
+            event_publisher,
             db_pool,
             read_db_pool,
+            log_query,
+            log_db_pool,
+            log_health_db_pool,
+            check_log_read_health: self.check_log_read_health,
             id_generator,
-            role_code_lock,
-            file_storage: self.file_storage,
+            distributed_lock,
+            file_storage,
             cache,
             email_sender: self.email_sender,
-            http_client_factory: HttpClientFactory::new()
-                .map_err(|error| format!("HTTP 客户端工厂初始化失败: {error}"))?,
+            http_client_factory,
             settings: self.settings,
             permission_routes,
             jwt_codec: EcJwtCodec::new(jwt_key_pair.encoding_key, jwt_key_pair.decoding_key),
@@ -233,9 +345,10 @@ impl WebApiHostBuilder {
         tracing::info!(target: "app.startup", "AppState 构建完成，开始合并业务路由与 OpenAPI");
 
         let mut openapi_doc = ApiDoc::openapi();
-        let mut business_router = Router::new();
+        let mut business_router = crate::routes::WebApiRoutes::default();
 
         for (feature_index, feature) in self.features.into_iter().enumerate() {
+            feature.register_event_listeners(&mut event_listeners, app_state.clone())?;
             tracing::info!(
                 target: "app.startup",
                 feature_index,
@@ -267,15 +380,17 @@ impl WebApiHostBuilder {
 
         tracing::info!(target: "app.startup", "OpenAPI 增强完成，开始构建宿主路由");
 
+        let https_listener_port = Arc::new(OnceLock::new());
+        let request_runtime = crate::request_cancellation::RequestRuntime::new();
         let mut router_builder = WebApiRouterBuilder::<AppState>::new(business_router, openapi_doc)
-            .with_cors_settings(cors_settings);
+            .with_request_tasks(request_runtime.tasks())
+            .with_cors_settings(cors_settings)
+            .with_https_port(app_state.settings.host.https_port)
+            .with_https_listener_port(https_listener_port.clone());
 
-        if matches!(
-            app_state.settings.file.component,
-            FileStorageComponent::Local
-        ) {
-            let upload_root = Path::new(&app_state.settings.file.root_path).join("uploads");
-            router_builder = router_builder.with_public_static_dir("/uploads", upload_root);
+        if self.serve_web_root {
+            router_builder =
+                router_builder.with_public_web_root(&app_state.settings.file.root_path);
         }
 
         if rate_limit_settings.enabled {
@@ -292,75 +407,131 @@ impl WebApiHostBuilder {
             router_builder = router_builder.with_rate_limiter(limiter);
         }
 
-        let app = router_builder.build().with_state(app_state.clone());
+        let app = router_builder.build(app_state.clone());
 
         tracing::info!(target: "app.startup", "宿主路由构建完成，开始处理启动后任务");
-
-        if should_refresh_identifier_sign {
-            RefreshSignTask::new(
-                Arc::new(identifier_generator.clone()),
-                Arc::clone(&distributed_cache),
-            )
-            .run()
-            .await;
-        }
 
         tracing::info!(target: "app.startup", "宿主构建完成，准备进入运行态");
 
         Ok(WebApiHost {
             app,
-            listen_address: app_state.settings.host.listen_address.clone(),
+            host_settings: app_state.settings.host.clone(),
+            https_listener_port,
             _logger_runtime: logger_runtime,
+            event_bus,
+            event_listeners,
+            health_state: app_state,
+            request_runtime,
         })
     }
 }
 
 impl WebApiHost {
     /// 启动 WebAPI 宿主
-    pub async fn run(self) -> Result<(), String> {
-        let listener = WebApiStartup::bind_listener(&self.listen_address).await?;
-        let bound_address = listener
-            .local_addr()
-            .map_err(|error| format!("读取监听地址失败: {error}"))?;
+    pub async fn run(mut self) -> Result<(), String> {
+        let bound = async {
+            let listener = crate::listener::HostListener::bind(&self.host_settings).await?;
+            let addresses = listener
+                .addresses()
+                .map_err(|error| format!("读取监听地址失败: {error}"))?;
+            Ok::<_, String>((listener, addresses))
+        }
+        .await;
+        let (listener, bound_addresses) = match bound {
+            Ok(bound) => bound,
+            Err(error) => {
+                logger::critical!(target: "app.startup", %error, "WebAPI 启动失败");
+                self._logger_runtime
+                    .shutdown(std::time::Duration::from_secs(30))
+                    .await;
+                return Err(error);
+            }
+        };
 
-        tracing::info!(
-            target: "app.startup",
-            configured_listen_address = %self.listen_address,
-            bound_address = %bound_address,
-            "WebAPI 启动完成"
-        );
-
-        for swagger_ui_url in build_swagger_ui_urls(bound_address) {
+        for connection in bound_addresses {
+            if connection.tls {
+                let _ = self.https_listener_port.set(connection.address.port());
+            }
+            let scheme = if connection.tls { "https" } else { "http" };
             tracing::info!(
                 target: "app.startup",
-                swagger_ui_url = %swagger_ui_url,
-                "Swagger UI 地址"
+                bound_address = %connection.address, scheme,
+                "WebAPI 启动完成"
             );
+            if crate::environment::is_development() {
+                for swagger_ui_url in build_swagger_ui_urls(connection.address, scheme) {
+                    tracing::info!(target: "app.startup", %swagger_ui_url, "Swagger UI 地址");
+                }
+            }
         }
 
-        axum::serve(listener, self.app)
+        let mut events = self.event_bus.start(self.event_listeners);
+        let shutdown = event_bus::CancellationToken::new();
+        let mut health_task = tokio::spawn(crate::health::publish_health(
+            self.health_state.clone(),
+            shutdown.clone(),
+        ));
+        let server_shutdown = shutdown.clone();
+        let server = axum::serve(
+            listener,
+            self.app
+                .into_make_service_with_connect_info::<crate::listener::ConnectionInfo>(),
+        )
+        .with_graceful_shutdown(async move { server_shutdown.cancelled().await });
+        let server = std::future::IntoFuture::into_future(server);
+        tokio::pin!(server);
+        let (mut result, drain_server) = tokio::select! {
+            result = &mut server => (result.map_err(|error| format!("WebAPI 运行失败: {error}")), false),
+            failure = events.wait_failure() => (failure, true),
+            signal = common::system_helper::wait_for_shutdown() => (signal, true),
+        };
+        let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(30);
+        events.cancel();
+        shutdown.cancel();
+        if tokio::time::timeout_at(deadline, &mut health_task)
             .await
-            .map_err(|error| format!("WebAPI 运行失败: {error}"))
+            .is_err()
+        {
+            health_task.abort();
+            let _ = health_task.await;
+        }
+        if drain_server {
+            let drain = tokio::time::timeout_at(deadline, &mut server)
+                .await
+                .map_err(|_| "WebAPI 停机等待超时".to_string())
+                .and_then(|result| result.map_err(|error| error.to_string()));
+            result = result.and(drain);
+        }
+        if !self.request_runtime.shutdown(deadline).await {
+            tracing::warn!(target: "app.shutdown", "请求清理期限耗尽");
+            result = result.and(Err("请求停机等待超时".into()));
+        }
+        let _ = tokio::time::timeout_at(deadline, events.shutdown()).await;
+        drop(events);
+        self._logger_runtime
+            .shutdown(deadline.saturating_duration_since(tokio::time::Instant::now()))
+            .await;
+        result
     }
 }
 
-fn build_swagger_ui_urls(bound_address: SocketAddr) -> Vec<String> {
+fn build_swagger_ui_urls(bound_address: SocketAddr, scheme: &str) -> Vec<String> {
     match bound_address.ip() {
         IpAddr::V4(ipv4) if ipv4.is_unspecified() => vec![
-            format!("http://127.0.0.1:{}/swagger-ui", bound_address.port()),
-            format!("http://localhost:{}/swagger-ui", bound_address.port()),
+            format!("{scheme}://127.0.0.1:{}/swagger", bound_address.port()),
+            format!("{scheme}://localhost:{}/swagger", bound_address.port()),
         ],
         IpAddr::V6(ipv6) if ipv6.is_unspecified() => vec![
-            format!("http://[::1]:{}/swagger-ui", bound_address.port()),
-            format!("http://localhost:{}/swagger-ui", bound_address.port()),
+            format!("{scheme}://[::1]:{}/swagger", bound_address.port()),
+            format!("{scheme}://localhost:{}/swagger", bound_address.port()),
         ],
         IpAddr::V4(ipv4) => vec![format!(
-            "http://{}:{}/swagger-ui",
+            "{scheme}://{}:{}/swagger",
             ipv4,
             bound_address.port()
         )],
         IpAddr::V6(ipv6) => vec![format!(
-            "http://[{}]:{}/swagger-ui",
+            "{scheme}://[{}]:{}/swagger",
             ipv6,
             bound_address.port()
         )],

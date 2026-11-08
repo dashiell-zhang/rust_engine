@@ -62,6 +62,14 @@ pub struct HostSettings {
     #[serde(default = "default_listen_address")]
     pub listen_address: String,
 
+    /// 外部 HTTPS 重定向端口；未配置时读取 HTTPS_PORT 等宿主环境配置。
+    #[serde(default)]
+    pub https_port: Option<u16>,
+
+    /// 可选直接 HTTPS 监听。
+    #[serde(default)]
+    pub tls: Option<crate::tls::TlsSettings>,
+
     /// 数据库连接池配置
     #[serde(default)]
     pub database_pool: DatabasePoolSettings,
@@ -88,6 +96,8 @@ impl Default for HostSettings {
     fn default() -> Self {
         Self {
             listen_address: default_listen_address(),
+            https_port: None,
+            tls: None,
             database_pool: DatabasePoolSettings::default(),
         }
     }

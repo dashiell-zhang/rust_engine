@@ -2,9 +2,9 @@ use crate::{
     features::protect_method_router, handlers::log::get_log_list, openapi::log::LogApiDoc,
     state::AppState,
 };
-use axum::Router;
 use std::sync::Arc;
 use utoipa::{OpenApi, openapi::OpenApi as OpenApiDocument};
+use webapi_core::routes::WebApiRoutes as Router;
 
 use super::{WebApiFeature, WebApiRoutePermission};
 
@@ -23,7 +23,7 @@ impl WebApiFeature for LogFeature {
         router.route(
             "/Operations/GetLogList",
             protect_method_router(
-                axum::routing::get(get_log_list),
+                webapi_core::routes::get(get_log_list),
                 app_state,
                 permission_module,
                 "/Operations/GetLogList",

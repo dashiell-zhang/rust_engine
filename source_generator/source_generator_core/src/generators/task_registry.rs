@@ -12,10 +12,10 @@ pub(crate) struct TaskRegistryRegistrationInput {
 /// 任务注册项
 pub(crate) enum TaskRegistryRegistrationEntry {
     /// 队列任务
-    Queue { definition: Expr, handler: Expr },
+    Queue { definition: Expr, factory: Expr },
 
     /// 定时任务
-    Schedule { definition: Expr, handler: Expr },
+    Schedule { definition: Expr, factory: Expr },
 
     /// 队列任务别名
     QueueAlias { alias: Expr, target: Expr },
@@ -57,11 +57,11 @@ impl Parse for TaskRegistryRegistrationEntry {
         let entry = match kind.to_string().as_str() {
             "queue" => Self::Queue {
                 definition: parse_named_expr(&content, "definition")?,
-                handler: parse_named_expr(&content, "handler")?,
+                factory: parse_named_expr(&content, "factory")?,
             },
             "schedule" => Self::Schedule {
                 definition: parse_named_expr(&content, "definition")?,
-                handler: parse_named_expr(&content, "handler")?,
+                factory: parse_named_expr(&content, "factory")?,
             },
             "queue_alias" => Self::QueueAlias {
                 alias: parse_named_expr(&content, "alias")?,
@@ -118,18 +118,18 @@ pub(crate) fn expand_task_registry_registration(
         match entry {
             TaskRegistryRegistrationEntry::Queue {
                 definition,
-                handler,
+                factory,
             } => {
                 task_statements.push(quote! {
-                    #registry_target.register_queue_with_definition(#definition, #handler)?;
+                    #registry_target.register_queue_with_definition(#definition, #factory)?;
                 });
             }
             TaskRegistryRegistrationEntry::Schedule {
                 definition,
-                handler,
+                factory,
             } => {
                 task_statements.push(quote! {
-                    #registry_target.register_schedule_with_definition(#definition, #handler)?;
+                    #registry_target.register_schedule_with_definition(#definition, #factory)?;
                 });
             }
             TaskRegistryRegistrationEntry::QueueAlias { alias, target } => {

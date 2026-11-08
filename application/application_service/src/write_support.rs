@@ -1,10 +1,12 @@
 #![allow(clippy::too_many_arguments)]
 
+use repository_core::versioned::VersionedActiveModel;
+
 use chrono::Utc;
 use repository::data_update_log;
 use sea_orm::{
-    ActiveModelTrait, ActiveValue, ActiveValue::Set, ConnectionTrait, DatabaseConnection,
-    DatabaseTransaction, TransactionTrait, entity::prelude::DateTimeWithTimeZone,
+    ActiveValue, ActiveValue::Set, ConnectionTrait, DatabaseConnection, DatabaseTransaction,
+    TransactionTrait, entity::prelude::DateTimeWithTimeZone,
 };
 use serde_json::Value;
 
@@ -14,7 +16,7 @@ use application_interface::{
 };
 use common::identifier_generator::IdentifierGenerator;
 
-pub use application_model::shared::models::{normalize_page, validate_page_request};
+pub use application_model::shared::models::{page_offset, validate_page_request};
 pub use common::string_helper::normalize_optional_text;
 
 /// 创建操作审计字段
@@ -141,7 +143,7 @@ pub async fn write_data_update_log_with_connection<C>(
     current_user: Option<&CurrentUser>,
 ) -> Result<(), AppError>
 where
-    C: ConnectionTrait,
+    C: ConnectionTrait + sea_orm::TransactionTrait,
 {
     let log_id = id_generator
         .get_id()
@@ -156,6 +158,7 @@ where
         .map_err(|error| AppError::internal(format!("序列化数据变更日志失败: {error}")))?;
 
     data_update_log::ActiveModel {
+        row_version: Default::default(),
         id: Set(log_id),
         table: Set(table_name.to_string()),
         table_id: Set(table_id),
@@ -166,7 +169,7 @@ where
         create_time: Set(Utc::now().into()),
         delete_time: Set(None),
     }
-    .insert(db)
+    .insert_versioned(db)
     .await
     .ok();
 

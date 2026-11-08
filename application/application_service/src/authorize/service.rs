@@ -1,10 +1,11 @@
 #![allow(clippy::collapsible_if)]
 
+use repository_core::versioned::VersionedActiveModel;
+
 use async_recursion::async_recursion;
 use chrono::{Duration, Utc};
 use common::{
-    crypto_helper::{base64_encode, hash_password_pbkdf2_sha256, verify_password_pbkdf2_sha256},
-    img_helper,
+    crypto_helper::{hash_password_pbkdf2_sha256, verify_password_pbkdf2_sha256},
     string_helper::trim_prefix_name,
 };
 use distributed_cache::{CacheEntryOptions, DistributedCacheExt};
@@ -15,24 +16,16 @@ use repository::{
     user_token,
 };
 use sea_orm::{
-    ActiveModelTrait, ColumnTrait, DatabaseConnection, DbErr, EntityTrait, IntoActiveModel,
-    QueryFilter, QueryOrder, Set, prelude::DateTimeWithTimeZone, sea_query::Condition,
+    ColumnTrait, ConnectionTrait, DatabaseConnection, DbErr, EntityTrait, IntoActiveModel,
+    QueryFilter, QueryOrder, Set, TransactionTrait, prelude::DateTimeWithTimeZone,
+    sea_query::Condition,
 };
-use serde_json::{self, json};
-use source_generator_runtime::retry;
-use std::{
-    borrow::Cow,
-    collections::HashMap,
-    sync::{Mutex, OnceLock},
-    time::{Duration as StdDuration, Instant},
-};
-use uuid::Uuid;
+use serde_json::json;
+use std::collections::HashMap;
 
 use crate::{
     task_center::{models::CreateQueueTaskDto, service::TaskCenterService},
-    write_support::{
-        apply_update_user_audit_field, build_system_create_audit_fields, write_data_update_log,
-    },
+    write_support::{build_system_create_audit_fields, write_data_update_log},
 };
 use application_interface::{
     context::{AuthorizeContext, CurrentUser},
@@ -45,7 +38,7 @@ use application_model::{
         GetWeiXinAppUserInfoDto, JwtClaims, SendSmsVerifyCodeRequest, SetFunctionRouteDto,
         UpdatePasswordByOldPasswordRequest, UpdatePasswordBySmsRequest,
     },
-    message::models::SendSmsMessage,
+    message::models::SendSmsDto,
 };
 
 /// 模块类型
@@ -54,97 +47,24 @@ const FUNCTION_TYPE_MODULE: i32 = 1;
 /// 功能类型
 const FUNCTION_TYPE_FUNCTION: i32 = 2;
 
-/// 路由权限缓存版本键
-const AUTHORIZE_ROUTE_VERSION_KEY: &str = "authorize:route:version";
-
-/// 授权版本进程内快照缓存时长（毫秒）
-const AUTHORIZE_VERSION_LOCAL_TTL_MILLIS: u64 = 3_000;
-
-/// Token 有效性缓存时长（秒）
-const TOKEN_VALID_CACHE_TTL_SECONDS: u64 = 60;
-
-#[derive(Clone, Copy)]
-struct LocalAuthorizeVersionCacheItem {
-    value: u64,
-    expires_at: Instant,
-}
-
-static ROUTE_AUTHORIZE_VERSION_LOCAL_CACHE: OnceLock<
-    Mutex<Option<LocalAuthorizeVersionCacheItem>>,
-> = OnceLock::new();
-static USER_AUTHORIZE_VERSION_LOCAL_CACHE: OnceLock<
-    Mutex<HashMap<i64, LocalAuthorizeVersionCacheItem>>,
-> = OnceLock::new();
-
-fn route_authorize_version_local_cache() -> &'static Mutex<Option<LocalAuthorizeVersionCacheItem>> {
-    ROUTE_AUTHORIZE_VERSION_LOCAL_CACHE.get_or_init(|| Mutex::new(None))
-}
-
-fn user_authorize_version_local_cache()
--> &'static Mutex<HashMap<i64, LocalAuthorizeVersionCacheItem>> {
-    USER_AUTHORIZE_VERSION_LOCAL_CACHE.get_or_init(|| Mutex::new(HashMap::new()))
-}
-
-fn authorize_version_local_expiry() -> Instant {
-    Instant::now() + StdDuration::from_millis(AUTHORIZE_VERSION_LOCAL_TTL_MILLIS)
-}
-
-fn try_get_route_authorize_version_local() -> Option<u64> {
-    let mut guard = route_authorize_version_local_cache().lock().ok()?;
-
-    match *guard {
-        Some(item) if item.expires_at > Instant::now() => Some(item.value),
-        Some(_) => {
-            *guard = None;
-            None
-        }
-        None => None,
-    }
-}
-
-fn set_route_authorize_version_local(version: u64) {
-    if let Ok(mut guard) = route_authorize_version_local_cache().lock() {
-        *guard = Some(LocalAuthorizeVersionCacheItem {
-            value: version,
-            expires_at: authorize_version_local_expiry(),
-        });
-    }
-}
-
-fn try_get_user_authorize_version_local(user_id: i64) -> Option<u64> {
-    let mut guard = user_authorize_version_local_cache().lock().ok()?;
-    let item = guard.get(&user_id).copied()?;
-
-    if item.expires_at > Instant::now() {
-        Some(item.value)
-    } else {
-        guard.remove(&user_id);
-        None
-    }
-}
-
-fn set_user_authorize_version_local(user_id: i64, version: u64) {
-    if let Ok(mut guard) = user_authorize_version_local_cache().lock() {
-        guard.insert(
-            user_id,
-            LocalAuthorizeVersionCacheItem {
-                value: version,
-                expires_at: authorize_version_local_expiry(),
-            },
-        );
-    }
-}
-
 /// 授权模块应用服务
 pub struct AuthorizeService<'a> {
     /// 授权模块上下文
-    context: AuthorizeContext<'a>,
+    pub(super) context: AuthorizeContext<'a>,
 }
 
 impl<'a> AuthorizeService<'a> {
     /// 创建授权模块应用服务
     pub fn new(context: AuthorizeContext<'a>) -> Self {
         Self { context }
+    }
+
+    /// 按配置原样返回 RSA 公钥，不使用 JWT 公钥或派生私钥内容作为回退。
+    pub fn get_public_key(&self) -> Result<Option<String>, AppError> {
+        self.context
+            .rsa_public_key
+            .map(|key| key.map(str::to_owned))
+            .ok_or_else(|| AppError::bad_request("RSA公钥加载异常"))
     }
 
     /// 校验登录请求
@@ -154,7 +74,7 @@ impl<'a> AuthorizeService<'a> {
         }
 
         if request.password.is_empty() {
-            return Err(AppError::bad_request("密码不可以空"));
+            return Err(AppError::bad_request("密码不可以为空"));
         }
 
         Ok(())
@@ -219,7 +139,7 @@ impl<'a> AuthorizeService<'a> {
         Self::validate_get_token_request(&request)?;
 
         let user_models = user::Entity::find()
-            .filter(user::Column::UserName.eq(request.user_name.trim()))
+            .filter(user::Column::UserName.eq(&request.user_name))
             .not_deleted(user::Column::DeleteTime)
             .all(self.context.app.db)
             .await
@@ -232,7 +152,7 @@ impl<'a> AuthorizeService<'a> {
                 &user_model.password,
             )
         }) else {
-            return Err(AppError::unauthorized("账号或密码错误"));
+            return Err(AppError::bad_request("用户名或密码错误"));
         };
 
         self.get_token_by_user_id(user_model.id, None).await
@@ -245,12 +165,12 @@ impl<'a> AuthorizeService<'a> {
     ) -> Result<String, AppError> {
         Self::validate_get_token_by_sms_request(&request)?;
 
-        // 先消费验证码 再进入用户查询和自动注册流程
-        self.verify_phone_code(request.phone.trim(), request.verify_code.trim())
+        // 验证码在有效期内保留，按原始输入匹配手机号和验证码
+        self.verify_phone_code(&request.phone, &request.verify_code)
             .await?;
 
         let existing_user = user::Entity::find()
-            .filter(user::Column::Phone.eq(request.phone.trim()))
+            .filter(user::Column::Phone.eq(&request.phone))
             .not_deleted(user::Column::DeleteTime)
             .one(self.context.app.db)
             .await
@@ -270,47 +190,31 @@ impl<'a> AuthorizeService<'a> {
                     AppError::internal(format!("生成短信登录用户主键失败: {error}"))
                 })?;
             let audit_fields = build_system_create_audit_fields();
-            let user_name = format!("sms_user_{user_id}");
-            let display_name = format!("短信用户{user_id}");
+            let user_name = uuid::Uuid::new_v4().to_string();
+            let display_name = format!("{}手机短信新用户", Utc::now().format("%m/%d/%Y %H:%M:%S"));
             let password = hash_password_pbkdf2_sha256(
-                &base64_encode(&user_id.to_string()),
+                &uuid::Uuid::new_v4().to_string(),
                 &user_id.to_string(),
             );
 
             user::ActiveModel {
+                row_version: Default::default(),
                 id: Set(user_id),
                 user_name: Set(user_name),
                 name: Set(display_name),
-                phone: Set(request.phone.trim().to_string()),
+                phone: Set(request.phone),
                 email: Set(None),
                 password: Set(password),
                 create_time: Set(audit_fields.create_time),
                 delete_time: Set(audit_fields.delete_time),
-                update_time: Set(Some(audit_fields.create_time)),
+                update_time: Set(None),
                 create_user_id: Set(None),
                 update_user_id: Set(None),
                 delete_user_id: Set(None),
             }
-            .insert(self.context.app.db)
+            .insert_versioned(self.context.app.db)
             .await
             .map_err(|error| AppError::internal(format!("短信登录用户创建失败: {error}")))?;
-
-            // 记录短信首登自动注册产生的用户写入
-            write_data_update_log(
-                self.context.app,
-                "User",
-                user_id,
-                "auto_register_by_sms",
-                None,
-                Some(json!({
-                    "id": user_id,
-                    "user_name": format!("sms_user_{user_id}"),
-                    "name": format!("短信用户{user_id}"),
-                    "register_source": "sms",
-                })),
-                None,
-            )
-            .await?;
 
             user_id
         };
@@ -318,478 +222,271 @@ impl<'a> AuthorizeService<'a> {
         self.get_token_by_user_id(user_id, None).await
     }
 
-    /// 微信小程序登录并签发 Token
-    ///
-    /// 用 AppId + Code 换取 openId，再按 openId 匹配或自动注册用户
+    /// 微信小程序登录并签发 Token。
     pub async fn get_token_by_wx_mini_app(
         &self,
         request: GetTokenByWxMiniAppRequest,
     ) -> Result<String, AppError> {
-        let app_id = request.app_id.trim().to_string();
-        let code = request.code.trim().to_string();
-
-        if app_id.is_empty() {
-            return Err(AppError::bad_request("AppId 不可为空"));
-        }
-        if code.is_empty() {
-            return Err(AppError::bad_request("Code 不可为空"));
-        }
-
-        // 先向微信换取 open_id 再做本地绑定查找
-        let open_id = self.get_wx_mini_app_open_id(&app_id, &code).await?;
-
-        // 查询已有绑定记录
-        let existing_bind = user_bind_external::Entity::find()
-            .filter(user_bind_external::Column::AppName.eq("WeiXinMiniApp"))
-            .filter(user_bind_external::Column::AppId.eq(&app_id))
-            .filter(user_bind_external::Column::OpenId.eq(&open_id))
-            .not_deleted(user_bind_external::Column::DeleteTime)
-            .one(self.context.app.db)
-            .await
-            .map_err(|error| AppError::internal(format!("微信绑定记录查询失败: {error}")))?;
-
-        let user_id = if let Some(bind) = existing_bind {
-            bind.user_id
+        let open_id = self
+            .get_wx_mini_app_open_id(&request.app_id, &request.code)
+            .await?;
+        let existing = self
+            .find_external_user("WeiXinMiniApp", &request.app_id, Some(&open_id))
+            .await?;
+        let user_id = if let Some(user_id) = existing {
+            user_id
         } else {
-            let bind_lock_key = format!("authorize:wx-mini-app-bind:{app_id}:{open_id}");
-            let bind_lock_guard = self
+            let guard = self
                 .context
                 .authorize_lock
-                .try_lock(&bind_lock_key, std::time::Duration::from_secs(10), 1)
-                .await?;
-
-            let Some(_bind_lock_guard) = bind_lock_guard else {
-                return Err(AppError::conflict("微信登录处理中，请稍后重试"));
-            };
-
-            let existing_bind = user_bind_external::Entity::find()
-                .filter(user_bind_external::Column::AppName.eq("WeiXinMiniApp"))
-                .filter(user_bind_external::Column::AppId.eq(&app_id))
-                .filter(user_bind_external::Column::OpenId.eq(&open_id))
-                .not_deleted(user_bind_external::Column::DeleteTime)
-                .one(self.context.app.db)
-                .await
-                .map_err(|error| AppError::internal(format!("微信绑定记录查询失败: {error}")))?;
-
-            if let Some(bind) = existing_bind {
-                bind.user_id
-            } else {
-                // 自动注册新用户并绑定
-                let new_user_id =
-                    self.context
-                        .app
-                        .id_generator
-                        .get_id()
-                        .await
-                        .map_err(|error| {
-                            AppError::internal(format!("生成微信小程序用户主键失败: {error}"))
-                        })?;
-                let audit_fields = build_system_create_audit_fields();
-                let user_name = format!("wx_user_{new_user_id}");
-                let display_name = format!("微信用户{new_user_id}");
-                let password = hash_password_pbkdf2_sha256(
-                    &base64_encode(&new_user_id.to_string()),
-                    &new_user_id.to_string(),
-                );
-
-                user::ActiveModel {
-                    id: Set(new_user_id),
-                    user_name: Set(user_name),
-                    name: Set(display_name.clone()),
-                    phone: Set(String::new()),
-                    email: Set(None),
-                    password: Set(password),
-                    create_time: Set(audit_fields.create_time),
-                    delete_time: Set(audit_fields.delete_time),
-                    update_time: Set(Some(audit_fields.create_time)),
-                    create_user_id: Set(None),
-                    update_user_id: Set(None),
-                    delete_user_id: Set(None),
-                }
-                .insert(self.context.app.db)
-                .await
-                .map_err(|error| AppError::internal(format!("微信新用户创建失败: {error}")))?;
-
-                // 记录微信小程序首登自动注册产生的用户写入
-                write_data_update_log(
-                    self.context.app,
-                    "User",
-                    new_user_id,
-                    "auto_register_by_wx_mini_app",
-                    None,
-                    Some(json!({
-                        "id": new_user_id,
-                        "user_name": format!("wx_user_{new_user_id}"),
-                        "name": format!("微信用户{new_user_id}"),
-                        "register_source": "wx_mini_app",
-                        "app_id": app_id,
-                    })),
-                    None,
+                .lock(
+                    &format!("GetTokenByWeiXinMiniAppCode{open_id}"),
+                    std::time::Duration::ZERO,
+                    1,
                 )
                 .await?;
-
-                let bind_id = self
-                    .context
-                    .app
-                    .id_generator
-                    .get_id()
-                    .await
-                    .map_err(|error| {
-                        AppError::internal(format!("生成微信小程序绑定主键失败: {error}"))
-                    })?;
-
-                user_bind_external::ActiveModel {
-                    id: Set(bind_id),
-                    user_id: Set(new_user_id),
-                    app_name: Set("WeiXinMiniApp".to_string()),
-                    app_id: Set(app_id.clone()),
-                    open_id: Set(open_id.clone()),
-                    create_time: Set(audit_fields.create_time),
-                    delete_time: Set(audit_fields.delete_time),
+            // 获锁后再次读取；正常与错误结果都先等待异步解锁。
+            let result = async {
+                if let Some(user_id) = self
+                    .find_external_user("WeiXinMiniApp", &request.app_id, Some(&open_id))
+                    .await?
+                {
+                    Ok(user_id)
+                } else {
+                    let name =
+                        format!("{}微信小程序新用户", Utc::now().format("%m/%d/%Y %H:%M:%S"));
+                    self.create_external_user("WeiXinMiniApp", &request.app_id, &open_id, name)
+                        .await
                 }
-                .insert(self.context.app.db)
-                .await
-                .map_err(|error| AppError::internal(format!("微信绑定记录创建失败: {error}")))?;
-
-                new_user_id
             }
+            .await;
+            guard.release().await;
+            result?
         };
-
         self.get_token_by_user_id(user_id, None).await
     }
 
-    /// 微信公众号网页登录并签发 Token
+    /// 微信公众号网页登录并签发 Token。
     pub async fn get_token_by_wx_app(
         &self,
         request: GetTokenByWxAppRequest,
     ) -> Result<String, AppError> {
-        let app_id = request.app_id.trim().to_string();
-        let code = request.code.trim().to_string();
-
-        if app_id.is_empty() {
-            return Err(AppError::bad_request("AppId 不可为空"));
-        }
-
-        if code.is_empty() {
-            return Err(AppError::bad_request("Code 不可为空"));
-        }
-
         let (access_token, open_id) = self
-            .get_wx_app_access_token_and_open_id(&app_id, &code)
+            .get_wx_app_access_token_and_open_id(&request.app_id, &request.code)
             .await?;
-
-        // 公众号网页登录需要额外拉取用户资料 才能拿到昵称等注册信息
         let user_info = self.get_wx_app_user_info(&access_token, &open_id).await?;
-        let bind_open_id = user_info
-            .open_id
-            .as_deref()
-            .filter(|item| !item.is_empty())
-            .unwrap_or(&open_id)
-            .to_string();
-
-        let existing_bind = user_bind_external::Entity::find()
-            .filter(user_bind_external::Column::AppName.eq("WeiXinApp"))
-            .filter(user_bind_external::Column::AppId.eq(&app_id))
-            .filter(user_bind_external::Column::OpenId.eq(&bind_open_id))
-            .not_deleted(user_bind_external::Column::DeleteTime)
-            .one(self.context.app.db)
-            .await
-            .map_err(|error| AppError::internal(format!("微信绑定记录查询失败: {error}")))?;
-
-        let user_id = if let Some(bind) = existing_bind {
-            bind.user_id
-        } else {
-            let bind_lock_key = format!("authorize:wx-app-bind:{app_id}:{bind_open_id}");
-            let bind_lock_guard = self
-                .context
-                .authorize_lock
-                .try_lock(&bind_lock_key, std::time::Duration::from_secs(10), 1)
-                .await?;
-
-            let Some(_bind_lock_guard) = bind_lock_guard else {
-                return Err(AppError::conflict("微信登录处理中，请稍后重试"));
-            };
-
-            let existing_bind = user_bind_external::Entity::find()
-                .filter(user_bind_external::Column::AppName.eq("WeiXinApp"))
-                .filter(user_bind_external::Column::AppId.eq(&app_id))
-                .filter(user_bind_external::Column::OpenId.eq(&bind_open_id))
-                .not_deleted(user_bind_external::Column::DeleteTime)
-                .one(self.context.app.db)
-                .await
-                .map_err(|error| AppError::internal(format!("微信绑定记录查询失败: {error}")))?;
-
-            if let Some(bind) = existing_bind {
-                bind.user_id
-            } else {
-                // 首次登录时自动补齐最小可用用户并建立公众号绑定关系
-                let new_user_id =
-                    self.context
-                        .app
-                        .id_generator
-                        .get_id()
-                        .await
-                        .map_err(|error| {
-                            AppError::internal(format!("生成微信公众号用户主键失败: {error}"))
-                        })?;
-                let audit_fields = build_system_create_audit_fields();
-                let display_name = user_info
-                    .nick_name
-                    .as_deref()
-                    .map(str::trim)
-                    .filter(|item| !item.is_empty())
-                    .map(str::to_string)
-                    .unwrap_or_else(|| format!("微信用户{new_user_id}"));
-                let user_name = format!("wx_app_user_{new_user_id}");
-                let password = hash_password_pbkdf2_sha256(
-                    &base64_encode(&new_user_id.to_string()),
-                    &new_user_id.to_string(),
-                );
-
-                user::ActiveModel {
-                    id: Set(new_user_id),
-                    user_name: Set(user_name),
-                    name: Set(display_name.clone()),
-                    phone: Set(String::new()),
-                    email: Set(None),
-                    password: Set(password),
-                    create_time: Set(audit_fields.create_time),
-                    delete_time: Set(audit_fields.delete_time),
-                    update_time: Set(Some(audit_fields.create_time)),
-                    create_user_id: Set(None),
-                    update_user_id: Set(None),
-                    delete_user_id: Set(None),
-                }
-                .insert(self.context.app.db)
-                .await
-                .map_err(|error| {
-                    AppError::internal(format!("微信公众号新用户创建失败: {error}"))
-                })?;
-
-                // 记录微信公众号首登自动注册产生的用户写入
-                write_data_update_log(
-                    self.context.app,
-                    "User",
-                    new_user_id,
-                    "auto_register_by_wx_app",
-                    None,
-                    Some(json!({
-                        "id": new_user_id,
-                        "user_name": format!("wx_app_user_{new_user_id}"),
-                        "name": display_name,
-                        "register_source": "wx_app",
-                        "app_id": app_id,
-                    })),
-                    None,
-                )
-                .await?;
-
-                let bind_id = self
-                    .context
-                    .app
-                    .id_generator
-                    .get_id()
-                    .await
-                    .map_err(|error| {
-                        AppError::internal(format!("生成微信公众号绑定主键失败: {error}"))
-                    })?;
-
-                user_bind_external::ActiveModel {
-                    id: Set(bind_id),
-                    user_id: Set(new_user_id),
-                    app_name: Set("WeiXinApp".to_string()),
-                    app_id: Set(app_id),
-                    open_id: Set(bind_open_id),
-                    create_time: Set(audit_fields.create_time),
-                    delete_time: Set(audit_fields.delete_time),
-                }
-                .insert(self.context.app.db)
-                .await
-                .map_err(|error| {
-                    AppError::internal(format!("微信公众号绑定记录创建失败: {error}"))
-                })?;
-
-                new_user_id
+        let name = user_info
+            .nick_name
+            .ok_or_else(|| AppError::bad_request("微信授权失败"))?;
+        // 空昵称仍是有效返回；查询使用 userinfo 的 OpenId，新增绑定使用换取令牌时的 OpenId。
+        let existing = self
+            .find_external_user("WeiXinApp", &request.app_id, user_info.open_id.as_deref())
+            .await?;
+        let user_id = match existing {
+            Some(user_id) => user_id,
+            None => {
+                self.create_external_user("WeiXinApp", &request.app_id, &open_id, name)
+                    .await?
             }
         };
-
         self.get_token_by_user_id(user_id, None).await
     }
 
-    /// 通过 AppId + Code 获取微信小程序 openId
-    ///
-    /// 从 AppSetting 表读取对应 AppSecret，调用微信 jscode2session 接口
-    #[retry(
-        max_retries = 3,
-        delay_ms = 200,
-        key_scope = "application.authorize.get-wx-mini-app-open-id",
-        key_include_self = false
-    )]
-    async fn get_wx_mini_app_open_id(&self, app_id: &str, code: &str) -> Result<String, AppError> {
-        // 按 Module=WeiXinMiniApp, Key=AppId, Value=app_id 查分组
-        let app_id_setting = app_setting::Entity::find()
-            .filter(app_setting::Column::Module.eq("WeiXinMiniApp"))
+    /// 绑定和关联用户都必须仍有效，不能为软删除账户重新签发令牌。
+    async fn find_external_user(
+        &self,
+        app_name: &str,
+        app_id: &str,
+        open_id: Option<&str>,
+    ) -> Result<Option<i64>, AppError> {
+        let query = user_bind_external::Entity::find()
+            .inner_join(user::Entity)
+            .filter(user_bind_external::Column::AppName.eq(app_name))
+            .filter(user_bind_external::Column::AppId.eq(app_id))
+            .filter(user_bind_external::Column::DeleteTime.is_null())
+            .filter(user::Column::DeleteTime.is_null());
+        let query = match open_id {
+            Some(open_id) => query.filter(user_bind_external::Column::OpenId.eq(open_id)),
+            None => query.filter(user_bind_external::Column::OpenId.is_null()),
+        };
+        Ok(query
+            .one(self.context.app.db)
+            .await
+            .map_err(|error| AppError::internal(format!("微信绑定记录查询失败: {error}")))?
+            .map(|bind| bind.user_id))
+    }
+
+    /// 首登用户和外部绑定作为一次保存提交，不留下半注册账户。
+    async fn create_external_user(
+        &self,
+        app_name: &str,
+        app_id: &str,
+        open_id: &str,
+        name: String,
+    ) -> Result<i64, AppError> {
+        let user_id = self
+            .context
+            .app
+            .id_generator
+            .get_id()
+            .await
+            .map_err(|error| AppError::internal(format!("生成微信用户主键失败: {error}")))?;
+        let bind_id = self
+            .context
+            .app
+            .id_generator
+            .get_id()
+            .await
+            .map_err(|error| AppError::internal(format!("生成微信绑定主键失败: {error}")))?;
+        let audit = build_system_create_audit_fields();
+        let password =
+            hash_password_pbkdf2_sha256(&uuid::Uuid::new_v4().to_string(), &user_id.to_string());
+        let tx = crate::write_support::begin_transaction(self.context.app.db).await?;
+        user::ActiveModel {
+            row_version: Default::default(),
+            id: Set(user_id),
+            user_name: Set(uuid::Uuid::new_v4().to_string()),
+            name: Set(name),
+            phone: Set(String::new()),
+            email: Set(None),
+            password: Set(password),
+            create_time: Set(audit.create_time),
+            delete_time: Set(None),
+            update_time: Set(None),
+            create_user_id: Set(None),
+            update_user_id: Set(None),
+            delete_user_id: Set(None),
+        }
+        .insert_versioned(&tx)
+        .await
+        .map_err(|error| AppError::internal(format!("微信用户创建失败: {error}")))?;
+        user_bind_external::ActiveModel {
+            row_version: Default::default(),
+            id: Set(bind_id),
+            user_id: Set(user_id),
+            app_name: Set(app_name.to_string()),
+            app_id: Set(app_id.to_string()),
+            open_id: Set(open_id.to_string()),
+            create_time: Set(audit.create_time),
+            delete_time: Set(None),
+        }
+        .insert_versioned(&tx)
+        .await
+        .map_err(|error| AppError::internal(format!("微信绑定创建失败: {error}")))?;
+        tx.commit()
+            .await
+            .map_err(|error| AppError::internal(format!("提交微信注册失败: {error}")))?;
+        Ok(user_id)
+    }
+
+    /// 按 AppId 所属的分组读取密钥；空分组使用 SQL IS NULL。
+    async fn get_wx_app_secret(
+        &self,
+        module: &str,
+        app_id: &str,
+    ) -> Result<Option<String>, AppError> {
+        let group_id = app_setting::Entity::find()
+            .filter(app_setting::Column::Module.eq(module))
             .filter(app_setting::Column::Key.eq("AppId"))
             .filter(app_setting::Column::Value.eq(app_id))
             .not_deleted(app_setting::Column::DeleteTime)
             .one(self.context.app.db)
             .await
             .map_err(|error| AppError::internal(format!("微信配置查询失败: {error}")))?
-            .ok_or_else(|| AppError::bad_request("未找到对应的微信小程序配置"))?;
-
-        let group_id = app_id_setting
-            .group_id
-            .ok_or_else(|| AppError::internal("微信小程序配置缺少分组信息"))?;
-
-        // 通过同一 group_id 反查该小程序对应的 AppSecret
-        let secret_setting = app_setting::Entity::find()
-            .filter(app_setting::Column::Module.eq("WeiXinMiniApp"))
-            .filter(app_setting::Column::GroupId.eq(group_id))
+            .and_then(|setting| setting.group_id);
+        let query = app_setting::Entity::find()
+            .filter(app_setting::Column::Module.eq(module))
             .filter(app_setting::Column::Key.eq("AppSecret"))
-            .not_deleted(app_setting::Column::DeleteTime)
+            .not_deleted(app_setting::Column::DeleteTime);
+        let query = match group_id {
+            Some(group_id) => query.filter(app_setting::Column::GroupId.eq(group_id)),
+            None => query.filter(app_setting::Column::GroupId.is_null()),
+        };
+        Ok(query
             .one(self.context.app.db)
             .await
             .map_err(|error| AppError::internal(format!("微信 AppSecret 查询失败: {error}")))?
-            .ok_or_else(|| AppError::internal("未找到微信小程序 AppSecret 配置"))?;
+            .map(|setting| setting.value))
+    }
 
-        let app_secret = secret_setting.value;
-
-        let url = format!(
-            "https://api.weixin.qq.com/sns/jscode2session?appid={app_id}&secret={app_secret}&js_code={code}&grant_type=authorization_code"
-        );
-
+    /// 微信授权码仅发送一次；失败信息不包含 URL 中的密钥、授权码或令牌。
+    async fn get_wx_response(
+        &self,
+        url: &str,
+        error_message: &'static str,
+    ) -> Result<String, AppError> {
         let response = self
             .context
             .http_client_factory
             .client()
-            .get(&url)
+            .get(url)
             .send()
             .await
-            .map_err(|error| AppError::internal(format!("微信接口请求失败: {error}")))?;
-
-        let body = response
+            .map_err(|_| AppError::internal(error_message))?;
+        if !response.status().is_success() {
+            return Err(AppError::internal(error_message));
+        }
+        response
             .text()
             .await
-            .map_err(|error| AppError::internal(format!("微信接口响应读取失败: {error}")))?;
-
-        // 解析 openid 字段
-        let open_id = serde_json::from_str::<serde_json::Value>(&body)
-            .ok()
-            .and_then(|v| v.get("openid")?.as_str().map(str::to_string));
-
-        open_id.ok_or_else(|| AppError::internal(format!("微信 jscode2session 返回无效: {body}")))
+            .map_err(|_| AppError::internal(error_message))
     }
 
-    /// 通过 AppId + Code 获取微信公众号 AccessToken 与 OpenId
-    #[retry(
-        max_retries = 3,
-        delay_ms = 200,
-        key_scope = "application.authorize.get-wx-app-access-token-and-open-id",
-        key_include_self = false
-    )]
+    /// 通过 AppId + Code 获取微信小程序 openId，并验证 session_key 存在。
+    async fn get_wx_mini_app_open_id(&self, app_id: &str, code: &str) -> Result<String, AppError> {
+        const ERROR: &str = "GetWeiXinMiniAppOpenIdAndSessionKey 获取失败";
+        let secret = self
+            .get_wx_app_secret("WeiXinMiniApp", app_id)
+            .await?
+            .ok_or_else(|| AppError::internal(ERROR))?;
+        let url = format!(
+            "https://api.weixin.qq.com/sns/jscode2session?appid={app_id}&secret={secret}&js_code={code}&grant_type=authorization_code"
+        );
+        let body = self.get_wx_response(&url, ERROR).await?;
+        let open_id = common::json_helper::get_value_by_key(&body, "openid");
+        let session_key = common::json_helper::get_value_by_key(&body, "session_key");
+        match (open_id, session_key) {
+            (Some(open_id), Some(_)) => Ok(open_id),
+            _ => Err(AppError::internal(ERROR)),
+        }
+    }
+
+    /// 通过 AppId + Code 获取微信公众号 AccessToken 与 OpenId。
     async fn get_wx_app_access_token_and_open_id(
         &self,
         app_id: &str,
         code: &str,
     ) -> Result<(String, String), AppError> {
-        // 公众号配置与小程序配置保持一致 通过 AppId 所在分组反查 AppSecret
-        let app_id_setting = app_setting::Entity::find()
-            .filter(app_setting::Column::Module.eq("WeiXinApp"))
-            .filter(app_setting::Column::Key.eq("AppId"))
-            .filter(app_setting::Column::Value.eq(app_id))
-            .not_deleted(app_setting::Column::DeleteTime)
-            .one(self.context.app.db)
-            .await
-            .map_err(|error| AppError::internal(format!("微信公众号配置查询失败: {error}")))?
-            .ok_or_else(|| AppError::bad_request("未找到对应的微信公众号配置"))?;
-
-        let group_id = app_id_setting
-            .group_id
-            .ok_or_else(|| AppError::internal("微信公众号配置缺少分组信息"))?;
-
-        let secret_setting = app_setting::Entity::find()
-            .filter(app_setting::Column::Module.eq("WeiXinApp"))
-            .filter(app_setting::Column::GroupId.eq(group_id))
-            .filter(app_setting::Column::Key.eq("AppSecret"))
-            .not_deleted(app_setting::Column::DeleteTime)
-            .one(self.context.app.db)
-            .await
-            .map_err(|error| AppError::internal(format!("微信公众号 AppSecret 查询失败: {error}")))?
-            .ok_or_else(|| AppError::internal("未找到微信公众号 AppSecret 配置"))?;
-
+        const ERROR: &str = "获取 AccessToken 失败";
+        let secret = self
+            .get_wx_app_secret("WeiXinApp", app_id)
+            .await?
+            .ok_or_else(|| AppError::internal(ERROR))?;
         let url = format!(
-            "https://api.weixin.qq.com/sns/oauth2/access_token?appid={app_id}&secret={}&code={code}&grant_type=authorization_code",
-            secret_setting.value,
+            "https://api.weixin.qq.com/sns/oauth2/access_token?appid={app_id}&secret={secret}&code={code}&grant_type=authorization_code"
         );
-
-        let response = self
-            .context
-            .http_client_factory
-            .client()
-            .get(&url)
-            .send()
-            .await
-            .map_err(|error| AppError::internal(format!("微信公众号接口请求失败: {error}")))?;
-
-        let body = response
-            .text()
-            .await
-            .map_err(|error| AppError::internal(format!("微信公众号接口响应读取失败: {error}")))?;
-
-        let payload = serde_json::from_str::<serde_json::Value>(&body)
-            .map_err(|error| AppError::internal(format!("微信公众号响应解析失败: {error}")))?;
-
-        let access_token = payload
-            .get("access_token")
-            .and_then(|item| item.as_str())
-            .filter(|item| !item.is_empty())
-            .ok_or_else(|| {
-                AppError::internal(format!("微信公众号 access_token 返回无效: {body}"))
-            })?;
-        let open_id = payload
-            .get("openid")
-            .and_then(|item| item.as_str())
-            .filter(|item| !item.is_empty())
-            .ok_or_else(|| AppError::internal(format!("微信公众号 openid 返回无效: {body}")))?;
-
-        Ok((access_token.to_string(), open_id.to_string()))
+        let body = self.get_wx_response(&url, ERROR).await?;
+        match (
+            common::json_helper::get_value_by_key(&body, "access_token"),
+            common::json_helper::get_value_by_key(&body, "openid"),
+        ) {
+            (Some(access_token), Some(open_id)) => Ok((access_token, open_id)),
+            _ => Err(AppError::internal(ERROR)),
+        }
     }
 
-    /// 获取微信公众号用户信息
+    /// 获取微信公众号用户信息；授权失败由调用方按昵称是否为 null 判断。
     async fn get_wx_app_user_info(
         &self,
         access_token: &str,
         open_id: &str,
     ) -> Result<GetWeiXinAppUserInfoDto, AppError> {
-        // 公众号网页登录比小程序多一步 userinfo 拉取 用于昵称和头像等资料补全
         let url = format!(
-            "https://api.weixin.qq.com/sns/userinfo?access_token={access_token}&openid={open_id}",
+            "https://api.weixin.qq.com/sns/userinfo?access_token={access_token}&openid={open_id}"
         );
-
-        let response = self
-            .context
-            .http_client_factory
-            .client()
-            .get(&url)
-            .send()
-            .await
-            .map_err(|error| AppError::internal(format!("微信公众号用户信息请求失败: {error}")))?;
-
-        let body = response
-            .text()
-            .await
-            .map_err(|error| AppError::internal(format!("微信公众号用户信息读取失败: {error}")))?;
-
-        let user_info = serde_json::from_str::<GetWeiXinAppUserInfoDto>(&body)
-            .map_err(|error| AppError::internal(format!("微信公众号用户信息解析失败: {error}")))?;
-
-        if user_info.open_id.as_deref().is_none_or(str::is_empty) {
-            return Err(AppError::internal(format!(
-                "微信公众号用户信息返回无效: {body}"
-            )));
-        }
-
-        Ok(user_info)
+        let body = self.get_wx_response(&url, "获取微信用户信息失败").await?;
+        common::json_helper::json_to_object(&body)
+            .map_err(|_| AppError::internal("微信用户信息解析失败"))
     }
 
     /// 发送短信验证码
@@ -799,79 +496,45 @@ impl<'a> AuthorizeService<'a> {
     ) -> Result<bool, AppError> {
         Self::validate_send_sms_verify_code_request(&request)?;
 
-        let phone = request.phone.trim();
-        let code_key = build_phone_verify_code_key(phone);
-
-        // 与 .NET 行为对齐：验证码键存在期间不允许重复获取
-        if let Some(cache) = self.context.cache {
-            if cache.get_string(&code_key).await?.is_some() {
-                return Err(AppError::bad_request("请勿频繁获取验证码！"));
-            }
+        let cache = self
+            .context
+            .cache
+            .ok_or_else(|| AppError::internal("当前宿主未启用短信验证码缓存"))?;
+        let code_key = build_phone_verify_code_key(&request.phone);
+        // 源 IsContainKeyAsync 将缓存读取失败视为不存在。
+        if matches!(cache.get_string(&code_key).await, Ok(Some(_))) {
+            return Err(AppError::bad_request("请勿频繁获取验证码！"));
         }
-
-        // 验证码只入缓存 真正的短信发送交给任务中心异步处理
-        let code = rand::random_range(100000..1_000_000u32).to_string();
+        let code = rand::random_range(100000..999999u32).to_string();
         let mut template_params = IndexMap::new();
-        template_params.insert("code".to_string(), code.clone());
-
-        let task_center_service = TaskCenterService::new(self.context.app);
-        let payload = serde_json::to_string(&SendSmsMessage {
-            phone: phone.to_string(),
-            sign_name: self.context.sms_sign_name.to_string(),
-            template_code: self.context.sms_template_code.to_string(),
-            template_params,
-        })
-        .map_err(|error| AppError::internal(format!("短信任务参数序列化失败: {error}")))?;
-
-        task_center_service
-            .create_queue_task_single(CreateQueueTaskDto {
-                name: self.context.sms_queue_task_name.to_string(),
-                parameter: Some(payload),
-                plan_time: None,
-                callback_name: None,
-                callback_parameter: None,
-                parent_task_id: None,
-            })
-            .await?;
-
-        if let Some(cache) = self.context.cache {
-            // 与 .NET 保持一致：只写验证码键，键存在期间即视为发送冷却中
-            cache
-                .set_string_with_options(
-                    &code_key,
-                    &code,
-                    CacheEntryOptions::relative(std::time::Duration::from_secs(
-                        self.context.sms_verify_code_ttl_seconds,
-                    )),
-                )
-                .await?;
+        template_params.insert("code".to_string(), Some(code.clone()));
+        let payload = SendSmsDto {
+            phone: Some(request.phone),
+            sign_name: Some(String::new()),
+            template_code: Some(String::new()),
+            template_params: Some(template_params),
         }
+        .to_queue_json()
+        .map_err(|error| AppError::internal(format!("短信任务参数序列化失败: {error}")))?;
+        let task_center_service = TaskCenterService::new(self.context.app);
+        let task = task_center_service.create_queue_task_single(CreateQueueTaskDto {
+            name: "MessageTask.SendSMS".to_string(),
+            parameter: Some(payload),
+            plan_time: None,
+            callback_name: None,
+            callback_parameter: None,
+            parent_task_id: None,
+        });
+        let cache_write = cache.set_string_with_options(
+            &code_key,
+            &code,
+            CacheEntryOptions::relative(std::time::Duration::from_secs(300)),
+        );
+        // 与 Task.WhenAll 一致，等待入队和缓存都结束；源缓存扩展返回的失败标记不影响入队结果。
+        let (task_result, _cache_result) = tokio::join!(task, cache_write);
+        task_result?;
 
         Ok(true)
-    }
-
-    /// 获取图形验证码图片
-    pub async fn get_verify_code(&self, sign: Uuid) -> Result<Vec<u8>, AppError> {
-        let Some(cache) = self.context.cache else {
-            return Err(AppError::internal("当前宿主未启用缓存，无法生成图形验证码"));
-        };
-
-        // 图形验证码与 NetEngine 保持一致：四位数字且首位非零
-        let verify_code = rand::random_range(1000..9999u32).to_string();
-
-        // 先生成图片再写缓存 避免图片生成失败时留下无效验证码
-        let image_bytes = img_helper::get_verify_code(&verify_code)
-            .map_err(|error| AppError::internal(format!("生成图形验证码失败: {error}")))?;
-
-        cache
-            .set_string_with_options(
-                &build_graphic_verify_code_key(sign),
-                &verify_code,
-                CacheEntryOptions::relative(std::time::Duration::from_secs(300)),
-            )
-            .await?;
-
-        Ok(image_bytes)
     }
 
     /// 通过短信验证码修改账户密码
@@ -881,56 +544,39 @@ impl<'a> AuthorizeService<'a> {
         request: UpdatePasswordBySmsRequest,
     ) -> Result<bool, AppError> {
         Self::validate_update_password_by_sms_request(&request)?;
-
+        let phone_user = user::Entity::find_by_id(current_user.user_id)
+            .not_deleted(user::Column::DeleteTime)
+            .one(self.context.app.db)
+            .await
+            .map_err(|error| AppError::internal(format!("用户手机号查询失败: {error}")))?
+            .ok_or_else(|| AppError::internal("用户手机号查询没有返回记录"))?;
+        self.verify_phone_code(&phone_user.phone, &request.sms_code)
+            .await?;
+        // 验证码匹配后重新查询，对应源服务的第二次用户查询。
         let user_model = user::Entity::find_by_id(current_user.user_id)
             .not_deleted(user::Column::DeleteTime)
             .one(self.context.app.db)
             .await
-            .map_err(|error| AppError::internal(format!("用户信息查询失败: {error}")))?;
-
-        let Some(user_model) = user_model else {
-            return Err(AppError::bad_request("账户不存在"));
-        };
-
-        let before_log = json!({
-            "id": user_model.id,
-            "password_updated": false,
-            "update_mode": "sms",
-        });
-
-        // 使用当前账号绑定手机号完成验证码校验
-        self.verify_phone_code(&user_model.phone, request.sms_code.trim())
-            .await?;
-
-        let mut active = user_model.into_active_model();
-        active.password = Set(hash_password_pbkdf2_sha256(
-            &request.new_password,
-            &current_user.user_id.to_string(),
-        ));
-        apply_update_user_audit_field(&mut active.update_user_id, &current_user);
-        active
-            .update(self.context.app.db)
+            .map_err(|error| AppError::internal(format!("用户信息查询失败: {error}")))?
+            .ok_or_else(|| AppError::bad_request("账户不存在"))?;
+        let tx = crate::write_support::begin_transaction(self.context.app.db).await?;
+        let tokens = user_token::Entity::find()
+            .filter(user_token::Column::UserId.eq(current_user.user_id))
+            .not_deleted(user_token::Column::DeleteTime)
+            .all(&tx)
             .await
-            .map_err(|error| AppError::internal(format!("密码更新失败: {error}")))?;
-
-        self.invalidate_user_tokens(current_user.user_id).await?;
-
-        // 记录短信验证码改密写操作
-        write_data_update_log(
-            self.context.app,
-            "User",
-            current_user.user_id,
-            "update_password_by_sms",
-            Some(before_log),
-            Some(json!({
-                "id": current_user.user_id,
-                "password_updated": true,
-                "update_mode": "sms",
-            })),
-            Some(&current_user),
-        )
-        .await?;
-
+            .map_err(|error| AppError::internal(format!("查询用户 Token 记录失败: {error}")))?;
+        save_user_password(&tx, user_model, current_user.user_id, &request.new_password).await?;
+        for token in tokens {
+            token
+                .into_active_model()
+                .delete_versioned(&tx)
+                .await
+                .map_err(|error| AppError::internal(format!("清理用户 Token 记录失败: {error}")))?;
+        }
+        tx.commit()
+            .await
+            .map_err(|error| AppError::internal(format!("提交密码变更失败: {error}")))?;
         Ok(true)
     }
 
@@ -941,23 +587,12 @@ impl<'a> AuthorizeService<'a> {
         request: UpdatePasswordByOldPasswordRequest,
     ) -> Result<bool, AppError> {
         Self::validate_update_password_by_old_password_request(&request)?;
-
         let user_model = user::Entity::find_by_id(current_user.user_id)
             .not_deleted(user::Column::DeleteTime)
             .one(self.context.app.db)
             .await
-            .map_err(|error| AppError::internal(format!("用户信息查询失败: {error}")))?;
-
-        let Some(user_model) = user_model else {
-            return Err(AppError::bad_request("账户不存在"));
-        };
-
-        let before_log = json!({
-            "id": user_model.id,
-            "password_updated": false,
-            "update_mode": "old_password",
-        });
-
+            .map_err(|error| AppError::internal(format!("用户信息查询失败: {error}")))?
+            .ok_or_else(|| AppError::bad_request("账户异常，请联系后台工作人员"))?;
         if !verify_password_pbkdf2_sha256(
             &request.old_password,
             &current_user.user_id.to_string(),
@@ -965,36 +600,13 @@ impl<'a> AuthorizeService<'a> {
         ) {
             return Err(AppError::bad_request("原始密码验证失败"));
         }
-
-        let mut active = user_model.into_active_model();
-        active.password = Set(hash_password_pbkdf2_sha256(
-            &request.new_password,
-            &current_user.user_id.to_string(),
-        ));
-        apply_update_user_audit_field(&mut active.update_user_id, &current_user);
-        active
-            .update(self.context.app.db)
-            .await
-            .map_err(|error| AppError::internal(format!("密码更新失败: {error}")))?;
-
-        self.invalidate_user_tokens(current_user.user_id).await?;
-
-        // 记录旧密码改密写操作
-        write_data_update_log(
-            self.context.app,
-            "User",
+        save_user_password(
+            self.context.app.db,
+            user_model,
             current_user.user_id,
-            "update_password_by_old_password",
-            Some(before_log),
-            Some(json!({
-                "id": current_user.user_id,
-                "password_updated": true,
-                "update_mode": "old_password",
-            })),
-            Some(&current_user),
+            &request.new_password,
         )
         .await?;
-
         Ok(true)
     }
 
@@ -1014,6 +626,7 @@ impl<'a> AuthorizeService<'a> {
         let audit_fields = build_system_create_audit_fields();
 
         let user_token_active_model = user_token::ActiveModel {
+            row_version: Default::default(),
             id: Set(token_id),
             user_id: Set(user_id),
             last_id: Set(last_token_id),
@@ -1022,11 +635,9 @@ impl<'a> AuthorizeService<'a> {
         };
 
         user_token_active_model
-            .insert(self.context.app.db)
+            .insert_versioned(self.context.app.db)
             .await
             .map_err(|error| AppError::internal(format!("Token 记录保存失败: {error}")))?;
-
-        try_cache_token_validity(self.context.cache, user_id, token_id, true).await;
 
         Ok(token_id)
     }
@@ -1060,9 +671,7 @@ impl<'a> AuthorizeService<'a> {
         self.build_jwt_token(user_id, token_id)
     }
 
-    /// 尝试为当前 Token 续签
-    /// 剩余有效期不足总有效期一半时签发新 Token，并写入缓存防止并发重复签发
-    /// 同时机会性清理 7 天前的过期 Token 记录，通过缓存标记控制清理频率为每小时最多一次
+    /// 有效期过半时续签；同一旧令牌十分钟内复用新令牌，非阻塞锁避免并发签发。
     pub async fn try_renew_token(
         &self,
         user_id: i64,
@@ -1070,97 +679,54 @@ impl<'a> AuthorizeService<'a> {
         nbf: i64,
         exp: i64,
     ) -> Result<Option<String>, AppError> {
-        // 计算有效期中间时间点，未过半则不续签
-        let now = Utc::now().timestamp();
-        let half_life = nbf + (exp - nbf) / 2;
-
-        if now <= half_life {
+        let half_life_millis = (i128::from(nbf) + i128::from(exp)) * 500;
+        if i128::from(Utc::now().timestamp_millis()) <= half_life_millis {
             return Ok(None);
         }
-
-        // 已有续签缓存时直接返回，避免重复签发
-        let renew_cache_key = format!("token:renew:{token_id}");
-
-        if let Some(cache) = self.context.cache {
-            if let Some(cached_token) = cache.get_string(&renew_cache_key).await? {
-                return Ok(Some(cached_token));
-            }
-        }
-
-        let renew_lock_key = format!("token:renew:lock:{token_id}");
-        let renew_lock_guard = self
-            .context
-            .authorize_lock
-            .try_lock(&renew_lock_key, std::time::Duration::from_secs(10), 1)
-            .await?;
-
-        if renew_lock_guard.is_none() {
-            if let Some(cache) = self.context.cache {
-                if let Some(cached_token) = cache.get_string(&renew_cache_key).await? {
-                    return Ok(Some(cached_token));
-                }
-            }
-
-            return Ok(None);
-        }
-
-        if let Some(cache) = self.context.cache {
-            if let Some(cached_token) = cache.get_string(&renew_cache_key).await? {
-                return Ok(Some(cached_token));
-            }
-        }
-
-        // 签发新 Token，保留前驱 Token ID 用于追溯 Token 链
-        let new_token_id = self
-            .create_user_token_record(user_id, Some(token_id))
-            .await?;
-        let new_token = self.build_jwt_token(user_id, new_token_id)?;
-
-        // 记录续签生成的新 Token 写入
-        write_data_update_log(
-            self.context.app,
-            "UserToken",
-            new_token_id,
-            "renew_token",
-            None,
-            Some(json!({
-                "id": new_token_id,
-                "user_id": user_id,
-                "last_id": token_id,
-            })),
-            None,
-        )
-        .await?;
-
-        if let Some(cache) = self.context.cache {
-            // 缓存新 Token 10 分钟，防止并发请求触发重复签发
-            let _ = cache
-                .set_string_with_options(
-                    &renew_cache_key,
-                    &new_token,
-                    CacheEntryOptions::relative(std::time::Duration::from_secs(600)),
-                )
-                .await;
-        }
-
-        let cleanup_lock = self
+        let _renew_guard = match self
             .context
             .authorize_lock
             .try_lock(
-                "token:cleanup:lock",
-                std::time::Duration::from_secs(3600),
+                &format!("IssueNewToken{token_id}"),
+                std::time::Duration::ZERO,
                 1,
             )
-            .await?;
-        if cleanup_lock.is_some() {
-            let clear_time: DateTimeWithTimeZone = (Utc::now() - Duration::days(7)).into();
-            let _ = user_token::Entity::delete_many()
-                .filter(user_token::Column::CreateTime.lt(clear_time))
-                .exec(self.context.app.db)
-                .await;
+            .await?
+        {
+            Some(guard) => guard,
+            None => return Ok(None),
+        };
+        let cache = self
+            .context
+            .cache
+            .ok_or_else(|| AppError::internal("当前宿主未启用续签缓存"))?;
+        let cache_key = format!("{token_id}newToken");
+        if let Some(token) = cache.get_string(&cache_key).await? {
+            return Ok(Some(token));
         }
-
-        Ok(Some(new_token))
+        let token = self.get_token_by_user_id(user_id, Some(token_id)).await?;
+        let cleanup_guard = self
+            .context
+            .authorize_lock
+            .try_lock("ClearExpireToken", std::time::Duration::ZERO, 1)
+            .await?;
+        if cleanup_guard.is_some() {
+            let clear_time: DateTimeWithTimeZone = (Utc::now() - Duration::days(7)).into();
+            user_token::Entity::delete_many()
+                .filter(user_token::Column::CreateTime.lt(clear_time))
+                .filter(user_token::Column::DeleteTime.is_null())
+                .exec(self.context.app.db)
+                .await
+                .map_err(|error| AppError::internal(format!("清理过期 Token 记录失败: {error}")))?;
+        }
+        cache
+            .set_string_with_options(
+                &cache_key,
+                &token,
+                CacheEntryOptions::relative(std::time::Duration::from_secs(600)),
+            )
+            .await?;
+        Ok(Some(token))
     }
 
     /// 检测当前用户是否具备指定路由权限
@@ -1169,14 +735,9 @@ impl<'a> AuthorizeService<'a> {
         current_user: CurrentUser,
         module: &str,
         route: &str,
-        allow_unbound: bool,
+        _allow_unbound: bool,
     ) -> Result<bool, AppError> {
-        // 缓存键中包含路由版本和用户版本 便于低成本整体失效。
-        // 路由绑定和功能有效性仍需在缓存命中前确认，避免功能被软删除后旧的 true 缓存继续放行。
-        let cache_key = self
-            .build_route_authorize_cache_key(current_user.user_id, module, route, allow_unbound)
-            .await?;
-
+        // 与源服务一致，授权判断读取当前数据库状态，不缓存授权结果。
         let route_record = function_route::Entity::find()
             .filter(function_route::Column::Module.eq(module))
             .filter(function_route::Column::Route.eq(route))
@@ -1189,24 +750,6 @@ impl<'a> AuthorizeService<'a> {
             // 路由存在且已绑定功能 需要校验权限
             Some(route) if route.function_id.is_some() => {
                 let function_id = route.function_id.unwrap();
-
-                let function_is_active = function::Entity::find_by_id(function_id)
-                    .not_deleted(function::Column::DeleteTime)
-                    .one(self.context.app.db)
-                    .await
-                    .map_err(|error| AppError::internal(format!("功能信息查询失败: {error}")))?
-                    .is_some();
-
-                if !function_is_active {
-                    self.try_cache_bool(&cache_key, false).await;
-                    return Ok(false);
-                }
-
-                if let Some(cache) = self.context.cache {
-                    if let Some(cached_value) = cache.get_string(&cache_key).await? {
-                        return parse_cached_bool(&cached_value);
-                    }
-                }
 
                 // 已绑定功能时 同时检查用户直授和角色继承的权限
                 let role_ids = user_role::Entity::find()
@@ -1242,8 +785,6 @@ impl<'a> AuthorizeService<'a> {
             None => true,
         };
 
-        self.try_cache_bool(&cache_key, result).await;
-
         Ok(result)
     }
 
@@ -1253,21 +794,6 @@ impl<'a> AuthorizeService<'a> {
         current_user: CurrentUser,
         sign: Option<&str>,
     ) -> Result<HashMap<String, String>, AppError> {
-        // 功能列表与用户和筛选条件强相关 因此单独构建缓存键
-        let cache_key = self
-            .build_function_list_cache_key(current_user.user_id, sign)
-            .await?;
-
-        if let Some(cache) = self.context.cache {
-            if let Some(cached_value) = cache.get_string(&cache_key).await? {
-                let cached_result = serde_json::from_str::<HashMap<String, String>>(&cached_value)
-                    .map_err(|error| {
-                        AppError::internal(format!("反序列化功能列表缓存失败: {error}"))
-                    })?;
-                return Ok(cached_result);
-            }
-        }
-
         let role_ids = user_role::Entity::find()
             .filter(user_role::Column::UserId.eq(current_user.user_id))
             .not_deleted(user_role::Column::DeleteTime)
@@ -1292,7 +818,7 @@ impl<'a> AuthorizeService<'a> {
             .filter(repository::function::Column::DeleteTime.is_null())
             .filter(authorize_condition);
 
-        if let Some(sign) = sign.map(str::trim).filter(|item| !item.is_empty()) {
+        if let Some(sign) = sign {
             query = query.filter(repository::function::Column::Sign.eq(sign));
         }
 
@@ -1310,8 +836,6 @@ impl<'a> AuthorizeService<'a> {
 
             result.entry(function.sign).or_insert(function.name);
         }
-
-        self.try_cache_function_list(&cache_key, &result).await?;
 
         Ok(result)
     }
@@ -1426,11 +950,9 @@ impl<'a> AuthorizeService<'a> {
         let mut active = route_model.into_active_model();
         active.function_id = Set(request.function_id);
         let updated_model = active
-            .update(self.context.app.db)
+            .update_versioned(self.context.app.db)
             .await
             .map_err(|error| AppError::internal(format!("路由权限绑定更新失败: {error}")))?;
-
-        invalidate_route_authorize_cache(self.context.cache).await;
 
         // 记录路由权限绑定关系变更
         write_data_update_log(
@@ -1460,40 +982,6 @@ impl<'a> AuthorizeService<'a> {
             .map_err(|error| AppError::internal(error.to_string()))
     }
 
-    /// 构建路由权限缓存键
-    async fn build_route_authorize_cache_key(
-        &self,
-        user_id: i64,
-        module: &str,
-        route: &str,
-        allow_unbound: bool,
-    ) -> Result<String, AppError> {
-        let route_version = get_route_authorize_version(self.context.cache).await?;
-        let user_version = get_user_authorize_version(self.context.cache, user_id).await?;
-
-        Ok(format!(
-            "authorize:route:{route_version}:{user_version}:{user_id}:{module}:{route}:{allow_unbound}"
-        ))
-    }
-
-    /// 构建功能列表缓存键
-    async fn build_function_list_cache_key(
-        &self,
-        user_id: i64,
-        sign: Option<&str>,
-    ) -> Result<String, AppError> {
-        let user_version = get_user_authorize_version(self.context.cache, user_id).await?;
-        let normalized_sign = sign
-            .map(str::trim)
-            .filter(|item| !item.is_empty())
-            .map(Cow::from)
-            .unwrap_or_else(|| Cow::from("*"));
-
-        Ok(format!(
-            "authorize:function_list:{user_version}:{user_id}:{normalized_sign}"
-        ))
-    }
-
     /// 校验手机号验证码
     async fn verify_phone_code(&self, phone: &str, verify_code: &str) -> Result<(), AppError> {
         let Some(cache) = self.context.cache else {
@@ -1504,212 +992,36 @@ impl<'a> AuthorizeService<'a> {
         let cached_code = cache.get_string(&code_key).await?;
 
         match cached_code.as_deref() {
-            Some(code) if code == verify_code => {
-                cache.remove(&code_key).await?;
-                Ok(())
-            }
+            Some(code) if !code.is_empty() && code == verify_code => Ok(()),
             _ => Err(AppError::bad_request("短信验证码错误")),
         }
     }
-
-    /// 使指定用户的历史 Token 失效
-    async fn invalidate_user_tokens(&self, user_id: i64) -> Result<(), AppError> {
-        let token_list = user_token::Entity::find()
-            .filter(user_token::Column::UserId.eq(user_id))
-            .not_deleted(user_token::Column::DeleteTime)
-            .all(self.context.app.db)
-            .await
-            .map_err(|error| AppError::internal(format!("用户 Token 查询失败: {error}")))?;
-
-        for token in token_list {
-            let token_id = token.id;
-            let mut token_active = token.into_active_model();
-            token_active.delete_time = Set(Some(Utc::now().into()));
-            token_active
-                .update(self.context.app.db)
-                .await
-                .map_err(|error| AppError::internal(format!("用户 Token 失效失败: {error}")))?;
-
-            try_cache_token_validity(self.context.cache, user_id, token_id, false).await;
-        }
-
-        Ok(())
-    }
-
-    /// 尝试写入布尔缓存
-    async fn try_cache_bool(&self, key: &str, value: bool) {
-        if let Some(cache) = self.context.cache {
-            let _ = cache
-                .set_string_with_options(
-                    key,
-                    if value { "1" } else { "0" },
-                    CacheEntryOptions::relative(std::time::Duration::from_secs(300)),
-                )
-                .await;
-        }
-    }
-
-    /// 尝试写入功能列表缓存
-    async fn try_cache_function_list(
-        &self,
-        key: &str,
-        value: &HashMap<String, String>,
-    ) -> Result<(), AppError> {
-        if let Some(cache) = self.context.cache {
-            let payload = serde_json::to_string(value)
-                .map_err(|error| AppError::internal(format!("序列化功能列表缓存失败: {error}")))?;
-            let _ = cache
-                .set_string_with_options(
-                    key,
-                    &payload,
-                    CacheEntryOptions::relative(std::time::Duration::from_secs(300)),
-                )
-                .await;
-        }
-
-        Ok(())
-    }
 }
 
-/// 使指定用户的授权缓存失效
-pub async fn invalidate_user_authorize_cache(
-    cache: Option<&dyn application_interface::cache::DistributedCache>,
-    user_id: i64,
-) {
-    let Some(cache) = cache else {
-        return;
-    };
-
-    let version = get_user_authorize_version(Some(cache), user_id)
+/// 只在密码或修改者变化时保存，沿用源仓储的变更跟踪语义。
+async fn save_user_password<C: ConnectionTrait + TransactionTrait>(
+    db: &C,
+    user_model: user::Model,
+    actor_user_id: i64,
+    password: &str,
+) -> Result<(), AppError> {
+    let password = hash_password_pbkdf2_sha256(password, &user_model.id.to_string());
+    if user_model.password == password && user_model.update_user_id == Some(actor_user_id) {
+        return Ok(());
+    }
+    let mut active = user_model.into_active_model();
+    active.password = Set(password);
+    active.update_user_id = Set(Some(actor_user_id));
+    active
+        .update_versioned(db)
         .await
-        .unwrap_or(1)
-        + 1;
-    let _ = cache
-        .set_string_with_options(
-            &format!("authorize:user:version:{user_id}"),
-            &version.to_string(),
-            CacheEntryOptions::new(),
-        )
-        .await;
-
-    set_user_authorize_version_local(user_id, version);
-}
-
-/// 使路由权限缓存失效
-pub async fn invalidate_route_authorize_cache(
-    cache: Option<&dyn application_interface::cache::DistributedCache>,
-) {
-    let Some(cache) = cache else {
-        return;
-    };
-
-    let version = get_route_authorize_version(Some(cache)).await.unwrap_or(1) + 1;
-    let _ = cache
-        .set_string_with_options(
-            AUTHORIZE_ROUTE_VERSION_KEY,
-            &version.to_string(),
-            CacheEntryOptions::new(),
-        )
-        .await;
-
-    set_route_authorize_version_local(version);
-}
-
-/// 获取路由权限缓存版本
-async fn get_route_authorize_version(
-    cache: Option<&dyn application_interface::cache::DistributedCache>,
-) -> Result<u64, AppError> {
-    if let Some(version) = try_get_route_authorize_version_local() {
-        return Ok(version);
-    }
-
-    let Some(cache) = cache else {
-        return Ok(1);
-    };
-
-    let version = cache
-        .get_string(AUTHORIZE_ROUTE_VERSION_KEY)
-        .await?
-        .as_deref()
-        .unwrap_or("1")
-        .parse::<u64>()
-        .map_err(|error| AppError::internal(format!("解析路由权限缓存版本失败: {error}")))?;
-
-    set_route_authorize_version_local(version);
-
-    Ok(version)
-}
-
-/// 获取用户授权缓存版本
-async fn get_user_authorize_version(
-    cache: Option<&dyn application_interface::cache::DistributedCache>,
-    user_id: i64,
-) -> Result<u64, AppError> {
-    if let Some(version) = try_get_user_authorize_version_local(user_id) {
-        return Ok(version);
-    }
-
-    let Some(cache) = cache else {
-        return Ok(1);
-    };
-
-    let version = cache
-        .get_string(&format!("authorize:user:version:{user_id}"))
-        .await?
-        .as_deref()
-        .unwrap_or("1")
-        .parse::<u64>()
-        .map_err(|error| AppError::internal(format!("解析用户授权缓存版本失败: {error}")))?;
-
-    set_user_authorize_version_local(user_id, version);
-
-    Ok(version)
-}
-
-/// 解析布尔缓存值
-fn parse_cached_bool(value: &str) -> Result<bool, AppError> {
-    match value {
-        "1" => Ok(true),
-        "0" => Ok(false),
-        _ => Err(AppError::internal("布尔缓存值格式无效")),
-    }
-}
-
-/// 构建 Token 有效性缓存键
-pub fn build_token_valid_cache_key(user_id: i64, token_id: i64) -> String {
-    format!("authorize:token_valid:{user_id}:{token_id}")
-}
-
-/// 尝试写入 Token 有效性缓存
-pub async fn try_cache_token_validity(
-    cache: Option<&dyn application_interface::cache::DistributedCache>,
-    user_id: i64,
-    token_id: i64,
-    is_valid: bool,
-) {
-    let Some(cache) = cache else {
-        return;
-    };
-
-    let _ = cache
-        .set_string_with_options(
-            &build_token_valid_cache_key(user_id, token_id),
-            if is_valid { "1" } else { "0" },
-            CacheEntryOptions::relative(std::time::Duration::from_secs(
-                TOKEN_VALID_CACHE_TTL_SECONDS,
-            )),
-        )
-        .await;
+        .map_err(|error| AppError::internal(format!("密码更新失败: {error}")))?;
+    Ok(())
 }
 
 /// 构建手机号验证码缓存键
 fn build_phone_verify_code_key(phone: &str) -> String {
-    format!("VerifyPhone_{}", phone.trim())
-}
-
-/// 构建图形验证码缓存键
-fn build_graphic_verify_code_key(sign: Uuid) -> String {
-    format!("VerifyCode{sign}")
+    format!("VerifyPhone_{phone}")
 }
 
 /// 递归加载功能树

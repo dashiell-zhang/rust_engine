@@ -1,0 +1,118 @@
+[
+  {
+    "kind": "Sql",
+    "value": "DROP INDEX \"IX_AppSetting_Module_GroupId_NotDeleted\""
+  },
+  {
+    "kind": "Sql",
+    "value": "DROP INDEX \"IX_AppSetting_Module_Key_NotDeleted\""
+  },
+  {
+    "kind": "Sql",
+    "value": "DROP INDEX \"IX_Article_CategoryId_NotDeleted\""
+  },
+  {
+    "kind": "Sql",
+    "value": "DROP INDEX \"IX_Article_IsDisplay_NotDeleted\""
+  },
+  {
+    "kind": "Sql",
+    "value": "DROP INDEX \"IX_Category_ParentId_NotDeleted\""
+  },
+  {
+    "kind": "Sql",
+    "value": "DROP INDEX \"IX_DataUpdateLog_CreateTime_NotDeleted\""
+  },
+  {
+    "kind": "Sql",
+    "value": "DROP INDEX \"IX_Function_ParentId_NotDeleted\""
+  },
+  {
+    "kind": "Sql",
+    "value": "DROP INDEX \"IX_LlmApp_IsEnable_NotDeleted\""
+  },
+  {
+    "kind": "Sql",
+    "value": "DROP INDEX \"IX_LlmApp_LlmModelId_NotDeleted\""
+  },
+  {
+    "kind": "Sql",
+    "value": "DROP INDEX \"IX_LlmApp_Name_NotDeleted\""
+  },
+  {
+    "kind": "Sql",
+    "value": "DROP INDEX \"IX_LlmConversation_CreateTime_NotDeleted\""
+  },
+  {
+    "kind": "Sql",
+    "value": "DROP INDEX \"IX_LlmConversation_CreateUserId_NotDeleted\""
+  },
+  {
+    "kind": "Sql",
+    "value": "DROP INDEX \"IX_LlmConversation_LlmAppId_NotDeleted\""
+  },
+  {
+    "kind": "Sql",
+    "value": "DROP INDEX \"IX_LlmModel_IsEnable_NotDeleted\""
+  },
+  {
+    "kind": "Sql",
+    "value": "DROP INDEX \"IX_Order_CreateUserId_NotDeleted\""
+  },
+  {
+    "kind": "Sql",
+    "value": "DROP INDEX \"IX_OrderDetail_OrderId_NotDeleted\""
+  },
+  {
+    "kind": "Sql",
+    "value": "DROP INDEX \"IX_OrderDetail_ProductId_NotDeleted\""
+  },
+  {
+    "kind": "Sql",
+    "value": "DROP INDEX \"IX_QueueTask_LeaseExpireTime_NotDeleted\""
+  },
+  {
+    "kind": "Sql",
+    "value": "DROP INDEX \"IX_QueueTask_Name_NotDeleted\""
+  },
+  {
+    "kind": "Sql",
+    "value": "DROP INDEX \"IX_QueueTask_Status_PlanTime_NotDeleted\""
+  },
+  {
+    "kind": "Sql",
+    "value": "DROP INDEX \"IX_QueueTask_SuccessTime_NotDeleted\""
+  },
+  {
+    "kind": "Sql",
+    "value": "DROP INDEX \"IX_RegionArea_CityId_NotDeleted\""
+  },
+  {
+    "kind": "Sql",
+    "value": "DROP INDEX \"IX_RegionCity_ProvinceId_NotDeleted\""
+  },
+  {
+    "kind": "Sql",
+    "value": "DROP INDEX \"IX_RegionTown_AreaId_NotDeleted\""
+  },
+  {
+    "kind": "Sql",
+    "value": "DROP INDEX \"IX_StoredFile_Path_NotDeleted\""
+  },
+  {
+    "kind": "Sql",
+    "value": "DROP INDEX \"IX_StoredFile_Table_TableId_NotDeleted\""
+  },
+  {
+    "kind": "Sql",
+    "value": "DROP INDEX \"IX_TaskSetting_Category_Name_NotDeleted\""
+  },
+  {
+    "kind": "Sql",
+    "value": "DROP INDEX \"IX_UserRole_UserId_RoleId_NotDeleted\""
+  },
+  {
+    "kind": "Sql",
+    "value": "DROP INDEX \"IX_UserToken_UserId_NotDeleted\""
+  }
+]

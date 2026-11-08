@@ -1,0 +1,458 @@
+[
+  {
+    "kind": "Sql",
+    "value": "DROP INDEX \"IX_AppSetting_CreateTime\""
+  },
+  {
+    "kind": "Sql",
+    "value": "DROP INDEX \"IX_AppSetting_DeleteTime\""
+  },
+  {
+    "kind": "Sql",
+    "value": "DROP INDEX \"IX_AppSetting_Module\""
+  },
+  {
+    "kind": "Sql",
+    "value": "DROP INDEX \"IX_Article_CategoryId\""
+  },
+  {
+    "kind": "Sql",
+    "value": "DROP INDEX \"IX_Article_CreateTime\""
+  },
+  {
+    "kind": "Sql",
+    "value": "DROP INDEX \"IX_Article_CreateUserId\""
+  },
+  {
+    "kind": "Sql",
+    "value": "DROP INDEX \"IX_Article_DeleteTime\""
+  },
+  {
+    "kind": "Sql",
+    "value": "DROP INDEX \"IX_Article_DeleteUserId\""
+  },
+  {
+    "kind": "Sql",
+    "value": "DROP INDEX \"IX_Article_Title\""
+  },
+  {
+    "kind": "Sql",
+    "value": "DROP INDEX \"IX_Category_CreateTime\""
+  },
+  {
+    "kind": "Sql",
+    "value": "DROP INDEX \"IX_Category_CreateUserId\""
+  },
+  {
+    "kind": "Sql",
+    "value": "DROP INDEX \"IX_Category_DeleteTime\""
+  },
+  {
+    "kind": "Sql",
+    "value": "DROP INDEX \"IX_Category_DeleteUserId\""
+  },
+  {
+    "kind": "Sql",
+    "value": "DROP INDEX \"IX_Category_Name\""
+  },
+  {
+    "kind": "Sql",
+    "value": "DROP INDEX \"IX_Category_ParentId\""
+  },
+  {
+    "kind": "Sql",
+    "value": "DROP INDEX \"IX_DataUpdateLog_ActionUserId\""
+  },
+  {
+    "kind": "Sql",
+    "value": "DROP INDEX \"IX_DataUpdateLog_CreateTime\""
+  },
+  {
+    "kind": "Sql",
+    "value": "DROP INDEX \"IX_DataUpdateLog_DeleteTime\""
+  },
+  {
+    "kind": "Sql",
+    "value": "DROP INDEX \"IX_File_CreateTime\""
+  },
+  {
+    "kind": "Sql",
+    "value": "DROP INDEX \"IX_File_CreateUserId\""
+  },
+  {
+    "kind": "Sql",
+    "value": "DROP INDEX \"IX_File_DeleteTime\""
+  },
+  {
+    "kind": "Sql",
+    "value": "DROP INDEX \"IX_File_DeleteUserId\""
+  },
+  {
+    "kind": "Sql",
+    "value": "DROP INDEX \"IX_File_Sign\""
+  },
+  {
+    "kind": "Sql",
+    "value": "DROP INDEX \"IX_File_Table\""
+  },
+  {
+    "kind": "Sql",
+    "value": "DROP INDEX \"IX_File_TableId\""
+  },
+  {
+    "kind": "Sql",
+    "value": "DROP INDEX \"IX_Function_CreateTime\""
+  },
+  {
+    "kind": "Sql",
+    "value": "DROP INDEX \"IX_Function_DeleteTime\""
+  },
+  {
+    "kind": "Sql",
+    "value": "DROP INDEX \"IX_Function_ParentId\""
+  },
+  {
+    "kind": "Sql",
+    "value": "DROP INDEX \"IX_FunctionAuthorize_CreateTime\""
+  },
+  {
+    "kind": "Sql",
+    "value": "DROP INDEX \"IX_FunctionAuthorize_CreateUserId\""
+  },
+  {
+    "kind": "Sql",
+    "value": "DROP INDEX \"IX_FunctionAuthorize_DeleteTime\""
+  },
+  {
+    "kind": "Sql",
+    "value": "DROP INDEX \"IX_FunctionAuthorize_DeleteUserId\""
+  },
+  {
+    "kind": "Sql",
+    "value": "DROP INDEX \"IX_FunctionAuthorize_UpdateTime\""
+  },
+  {
+    "kind": "Sql",
+    "value": "DROP INDEX \"IX_FunctionAuthorize_UpdateUserId\""
+  },
+  {
+    "kind": "Sql",
+    "value": "DROP INDEX \"IX_FunctionRoute_CreateTime\""
+  },
+  {
+    "kind": "Sql",
+    "value": "DROP INDEX \"IX_FunctionRoute_DeleteTime\""
+  },
+  {
+    "kind": "Sql",
+    "value": "DROP INDEX \"IX_Link_CreateTime\""
+  },
+  {
+    "kind": "Sql",
+    "value": "DROP INDEX \"IX_Link_CreateUserId\""
+  },
+  {
+    "kind": "Sql",
+    "value": "DROP INDEX \"IX_Link_DeleteTime\""
+  },
+  {
+    "kind": "Sql",
+    "value": "DROP INDEX \"IX_Link_DeleteUserId\""
+  },
+  {
+    "kind": "Sql",
+    "value": "DROP INDEX \"IX_Link_Sort\""
+  },
+  {
+    "kind": "Sql",
+    "value": "DROP INDEX \"IX_LlmApp_CreateTime\""
+  },
+  {
+    "kind": "Sql",
+    "value": "DROP INDEX \"IX_LlmApp_CreateUserId\""
+  },
+  {
+    "kind": "Sql",
+    "value": "DROP INDEX \"IX_LlmApp_DeleteTime\""
+  },
+  {
+    "kind": "Sql",
+    "value": "DROP INDEX \"IX_LlmApp_DeleteUserId\""
+  },
+  {
+    "kind": "Sql",
+    "value": "DROP INDEX \"IX_LlmApp_IsEnable\""
+  },
+  {
+    "kind": "Sql",
+    "value": "DROP INDEX \"IX_LlmApp_LlmModelId\""
+  },
+  {
+    "kind": "Sql",
+    "value": "DROP INDEX \"IX_LlmApp_UpdateTime\""
+  },
+  {
+    "kind": "Sql",
+    "value": "DROP INDEX \"IX_LlmApp_UpdateUserId\""
+  },
+  {
+    "kind": "Sql",
+    "value": "DROP INDEX \"IX_LlmConversation_CreateTime\""
+  },
+  {
+    "kind": "Sql",
+    "value": "DROP INDEX \"IX_LlmConversation_CreateUserId\""
+  },
+  {
+    "kind": "Sql",
+    "value": "DROP INDEX \"IX_LlmConversation_DeleteTime\""
+  },
+  {
+    "kind": "Sql",
+    "value": "DROP INDEX \"IX_LlmConversation_LlmAppId\""
+  },
+  {
+    "kind": "Sql",
+    "value": "DROP INDEX \"IX_LlmModel_CreateTime\""
+  },
+  {
+    "kind": "Sql",
+    "value": "DROP INDEX \"IX_LlmModel_CreateUserId\""
+  },
+  {
+    "kind": "Sql",
+    "value": "DROP INDEX \"IX_LlmModel_DeleteTime\""
+  },
+  {
+    "kind": "Sql",
+    "value": "DROP INDEX \"IX_LlmModel_DeleteUserId\""
+  },
+  {
+    "kind": "Sql",
+    "value": "DROP INDEX \"IX_LlmModel_IsEnable\""
+  },
+  {
+    "kind": "Sql",
+    "value": "DROP INDEX \"IX_LlmModel_UpdateTime\""
+  },
+  {
+    "kind": "Sql",
+    "value": "DROP INDEX \"IX_LlmModel_UpdateUserId\""
+  },
+  {
+    "kind": "Sql",
+    "value": "DROP INDEX \"IX_Order_CreateTime\""
+  },
+  {
+    "kind": "Sql",
+    "value": "DROP INDEX \"IX_Order_CreateUserId\""
+  },
+  {
+    "kind": "Sql",
+    "value": "DROP INDEX \"IX_Order_DeleteTime\""
+  },
+  {
+    "kind": "Sql",
+    "value": "DROP INDEX \"IX_Order_DeleteUserId\""
+  },
+  {
+    "kind": "Sql",
+    "value": "DROP INDEX \"IX_Order_UpdateTime\""
+  },
+  {
+    "kind": "Sql",
+    "value": "DROP INDEX \"IX_Order_UpdateUserId\""
+  },
+  {
+    "kind": "Sql",
+    "value": "DROP INDEX \"IX_OrderDetail_CreateTime\""
+  },
+  {
+    "kind": "Sql",
+    "value": "DROP INDEX \"IX_OrderDetail_DeleteTime\""
+  },
+  {
+    "kind": "Sql",
+    "value": "DROP INDEX \"IX_OrderDetail_OrderId\""
+  },
+  {
+    "kind": "Sql",
+    "value": "DROP INDEX \"IX_OrderDetail_ProductId\""
+  },
+  {
+    "kind": "Sql",
+    "value": "DROP INDEX \"IX_Product_CreateTime\""
+  },
+  {
+    "kind": "Sql",
+    "value": "DROP INDEX \"IX_Product_CreateUserId\""
+  },
+  {
+    "kind": "Sql",
+    "value": "DROP INDEX \"IX_Product_DeleteTime\""
+  },
+  {
+    "kind": "Sql",
+    "value": "DROP INDEX \"IX_Product_DeleteUserId\""
+  },
+  {
+    "kind": "Sql",
+    "value": "DROP INDEX \"IX_Product_UpdateTime\""
+  },
+  {
+    "kind": "Sql",
+    "value": "DROP INDEX \"IX_Product_UpdateUserId\""
+  },
+  {
+    "kind": "Sql",
+    "value": "DROP INDEX \"IX_QueueTask_CreateTime\""
+  },
+  {
+    "kind": "Sql",
+    "value": "DROP INDEX \"IX_QueueTask_DeleteTime\""
+  },
+  {
+    "kind": "Sql",
+    "value": "DROP INDEX \"IX_RegionArea_Area\""
+  },
+  {
+    "kind": "Sql",
+    "value": "DROP INDEX \"IX_RegionArea_CityId\""
+  },
+  {
+    "kind": "Sql",
+    "value": "DROP INDEX \"IX_RegionArea_CreateTime\""
+  },
+  {
+    "kind": "Sql",
+    "value": "DROP INDEX \"IX_RegionArea_DeleteTime\""
+  },
+  {
+    "kind": "Sql",
+    "value": "DROP INDEX \"IX_RegionCity_City\""
+  },
+  {
+    "kind": "Sql",
+    "value": "DROP INDEX \"IX_RegionCity_CreateTime\""
+  },
+  {
+    "kind": "Sql",
+    "value": "DROP INDEX \"IX_RegionCity_DeleteTime\""
+  },
+  {
+    "kind": "Sql",
+    "value": "DROP INDEX \"IX_RegionCity_ProvinceId\""
+  },
+  {
+    "kind": "Sql",
+    "value": "DROP INDEX \"IX_RegionProvince_CreateTime\""
+  },
+  {
+    "kind": "Sql",
+    "value": "DROP INDEX \"IX_RegionProvince_DeleteTime\""
+  },
+  {
+    "kind": "Sql",
+    "value": "DROP INDEX \"IX_RegionProvince_Province\""
+  },
+  {
+    "kind": "Sql",
+    "value": "DROP INDEX \"IX_RegionTown_AreaId\""
+  },
+  {
+    "kind": "Sql",
+    "value": "DROP INDEX \"IX_RegionTown_CreateTime\""
+  },
+  {
+    "kind": "Sql",
+    "value": "DROP INDEX \"IX_RegionTown_DeleteTime\""
+  },
+  {
+    "kind": "Sql",
+    "value": "DROP INDEX \"IX_RegionTown_Town\""
+  },
+  {
+    "kind": "Sql",
+    "value": "DROP INDEX \"IX_Role_CreateTime\""
+  },
+  {
+    "kind": "Sql",
+    "value": "DROP INDEX \"IX_Role_DeleteTime\""
+  },
+  {
+    "kind": "Sql",
+    "value": "DROP INDEX \"IX_TaskSetting_CreateTime\""
+  },
+  {
+    "kind": "Sql",
+    "value": "DROP INDEX \"IX_TaskSetting_DeleteTime\""
+  },
+  {
+    "kind": "Sql",
+    "value": "DROP INDEX \"IX_TaskSetting_UpdateTime\""
+  },
+  {
+    "kind": "Sql",
+    "value": "DROP INDEX \"IX_UserInfo_CreateTime\""
+  },
+  {
+    "kind": "Sql",
+    "value": "DROP INDEX \"IX_UserInfo_DeleteTime\""
+  },
+  {
+    "kind": "Sql",
+    "value": "DROP INDEX \"IX_UserInfo_RegionAreaId\""
+  },
+  {
+    "kind": "Sql",
+    "value": "DROP INDEX \"IX_UserInfo_UpdateTime\""
+  },
+  {
+    "kind": "Sql",
+    "value": "DROP INDEX \"IX_UserInfo_UpdateUserId\""
+  },
+  {
+    "kind": "Sql",
+    "value": "DROP INDEX \"IX_UserRole_CreateTime\""
+  },
+  {
+    "kind": "Sql",
+    "value": "DROP INDEX \"IX_UserRole_CreateUserId\""
+  },
+  {
+    "kind": "Sql",
+    "value": "DROP INDEX \"IX_UserRole_DeleteTime\""
+  },
+  {
+    "kind": "Sql",
+    "value": "DROP INDEX \"IX_UserRole_DeleteUserId\""
+  },
+  {
+    "kind": "Sql",
+    "value": "DROP INDEX \"IX_UserRole_RoleId\""
+  },
+  {
+    "kind": "Sql",
+    "value": "DROP INDEX \"IX_UserRole_UpdateTime\""
+  },
+  {
+    "kind": "Sql",
+    "value": "DROP INDEX \"IX_UserRole_UpdateUserId\""
+  },
+  {
+    "kind": "Sql",
+    "value": "DROP INDEX \"IX_UserRole_UserId\""
+  },
+  {
+    "kind": "Sql",
+    "value": "DROP INDEX \"IX_UserToken_CreateTime\""
+  },
+  {
+    "kind": "Sql",
+    "value": "DROP INDEX \"IX_UserToken_DeleteTime\""
+  },
+  {
+    "kind": "Sql",
+    "value": "DROP INDEX \"IX_UserToken_UserId\""
+  }
+]

@@ -1,0 +1,18 @@
+[
+  {
+    "kind": "Sql",
+    "value": "CREATE INDEX \"IX_EventBusMessage_CreateTime\" ON \"EventBusMessage\" (\"CreateTime\")"
+  },
+  {
+    "kind": "Sql",
+    "value": "CREATE INDEX \"IX_EventBusMessage_DeleteTime\" ON \"EventBusMessage\" (\"DeleteTime\")"
+  },
+  {
+    "kind": "Sql",
+    "value": "CREATE INDEX \"IX_EventBusStream_CreateTime\" ON \"EventBusStream\" (\"CreateTime\")"
+  },
+  {
+    "kind": "Sql",
+    "value": "CREATE INDEX \"IX_EventBusStream_DeleteTime\" ON \"EventBusStream\" (\"DeleteTime\")"
+  }
+]

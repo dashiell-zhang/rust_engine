@@ -69,10 +69,15 @@ where
     {
         self.budget
             .check_traversal::<S::Error>(self.traversal_depth)?;
-        self.budget
-            .safety_policy
-            .validate::<T>()
-            .map_err(S::Error::custom)?;
+        let Some(_snapshot_guard) = self.budget.enter_snapshot(self.value) else {
+            return serializer.serialize_none();
+        };
+        if !self.budget.is_snapshot() {
+            self.budget
+                .safety_policy
+                .validate::<T>()
+                .map_err(S::Error::custom)?;
+        }
         self.value.serialize(CanonicalJsonSerializer::new(
             serializer,
             self.budget,
@@ -160,7 +165,11 @@ where
         }
 
         self.serializer
-            .serialize_f32(if value == 0.0 { 0.0 } else { value })
+            .serialize_f32(if value == 0.0 && !self.budget.is_snapshot() {
+                0.0
+            } else {
+                value
+            })
     }
 
     /// 序列化有限 f64 并统一正负零
@@ -172,7 +181,11 @@ where
         }
 
         self.serializer
-            .serialize_f64(if value == 0.0 { 0.0 } else { value })
+            .serialize_f64(if value == 0.0 && !self.budget.is_snapshot() {
+                0.0
+            } else {
+                value
+            })
     }
 
     /// 序列化字符

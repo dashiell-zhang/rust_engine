@@ -4,9 +4,9 @@ use crate::{
     openapi::link::LinkApiDoc,
     state::AppState,
 };
-use axum::Router;
 use std::sync::Arc;
 use utoipa::{OpenApi, openapi::OpenApi as OpenApiDocument};
+use webapi_core::routes::WebApiRoutes as Router;
 
 use super::{WebApiFeature, WebApiRoutePermission};
 
@@ -26,7 +26,7 @@ impl WebApiFeature for LinkFeature {
             .route(
                 "/Site/GetLinkList",
                 protect_method_router(
-                    axum::routing::get(get_link_list),
+                    webapi_core::routes::get(get_link_list),
                     app_state.clone(),
                     permission_module.clone(),
                     "/Site/GetLinkList",
@@ -36,7 +36,7 @@ impl WebApiFeature for LinkFeature {
             .route(
                 "/Site/GetLink",
                 protect_method_router(
-                    axum::routing::get(get_link),
+                    webapi_core::routes::get(get_link),
                     app_state.clone(),
                     permission_module.clone(),
                     "/Site/GetLink",
@@ -46,7 +46,7 @@ impl WebApiFeature for LinkFeature {
             .route(
                 "/Site/CreateLink",
                 protect_method_router(
-                    axum::routing::post(create_link),
+                    webapi_core::routes::post(create_link).json_body("createLink"),
                     app_state.clone(),
                     permission_module.clone(),
                     "/Site/CreateLink",
@@ -56,7 +56,7 @@ impl WebApiFeature for LinkFeature {
             .route(
                 "/Site/UpdateLink",
                 protect_method_router(
-                    axum::routing::post(update_link),
+                    webapi_core::routes::post(update_link).json_body("updateLink"),
                     app_state.clone(),
                     permission_module.clone(),
                     "/Site/UpdateLink",
@@ -66,7 +66,7 @@ impl WebApiFeature for LinkFeature {
             .route(
                 "/Site/DeleteLink",
                 protect_method_router(
-                    axum::routing::delete(delete_link),
+                    webapi_core::routes::delete(delete_link),
                     app_state,
                     permission_module,
                     "/Site/DeleteLink",
@@ -89,7 +89,7 @@ impl WebApiFeature for LinkFeature {
             },
             WebApiRoutePermission {
                 route: "/Site/GetLink",
-                remark: "获取单个友情链接",
+                remark: "获取友情链接",
             },
             WebApiRoutePermission {
                 route: "/Site/CreateLink",

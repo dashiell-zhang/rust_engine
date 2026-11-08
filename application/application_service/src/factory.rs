@@ -39,6 +39,11 @@ pub trait AppSettingContextProvider: AppContextProvider {
     fn app_setting_context(&self) -> AppSettingContext<'_>;
 }
 
+/// 日志查询入口提供器，与业务数据库上下文分离。
+pub trait LogQueryProvider {
+    fn log_query(&self) -> &logger_database::query::LogQueryService;
+}
+
 /// 应用服务工厂
 pub struct ApplicationServiceFactory<'a, TState> {
     /// 宿主状态引用
@@ -59,7 +64,6 @@ generate_service_factory! {
     AppContextProvider => (self.state.app_context()) {
         user: crate::user::service::UserService<'a>,
         task_center: crate::task_center::service::TaskCenterService<'a>,
-        log_manage: crate::log::service::LogManageService<'a>,
         article: crate::article::service::ArticleService<'a>,
         link: crate::link::service::LinkService<'a>,
         site: crate::site::service::SiteService<'a>,
@@ -67,6 +71,11 @@ generate_service_factory! {
         order: crate::order::service::OrderService<'a>,
         region: crate::region::service::RegionService<'a>,
         permission_route: crate::permission_route::service::PermissionRouteService<'a>
+    }
+
+    LogQueryProvider => (self.state.log_query()) {
+        log_manage: crate::log::service::LogManageService<'a>,
+        task_logs: crate::task_center::log_service::TaskExecutionLogService<'a>
     }
 
     AppSettingContextProvider => (self.state.app_setting_context()) {
@@ -83,6 +92,7 @@ generate_service_factory! {
 
     MessageContextProvider => (self.state.message_context()) {
         message: crate::message::service::MessageService<'a>
+            => dyn application_interface::services::message::MessageService + 'a
     }
 
     RoleContextProvider => (self.state.role_context()) {

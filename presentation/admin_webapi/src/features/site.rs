@@ -4,9 +4,9 @@ use crate::{
     openapi::site::SiteApiDoc,
     state::AppState,
 };
-use axum::Router;
 use std::sync::Arc;
 use utoipa::{OpenApi, openapi::OpenApi as OpenApiDocument};
+use webapi_core::routes::WebApiRoutes as Router;
 
 use super::{WebApiFeature, WebApiRoutePermission};
 
@@ -27,7 +27,7 @@ impl WebApiFeature for SiteFeature {
             .route(
                 "/Site/GetServerInfo",
                 protect_method_router(
-                    axum::routing::get(get_server_info),
+                    webapi_core::routes::get(get_server_info),
                     app_state.clone(),
                     permission_module.clone(),
                     "/Site/GetServerInfo",
@@ -37,7 +37,7 @@ impl WebApiFeature for SiteFeature {
             .route(
                 "/Site/GetSite",
                 protect_method_router(
-                    axum::routing::get(get_site),
+                    webapi_core::routes::get(get_site),
                     app_state.clone(),
                     permission_module.clone(),
                     "/Site/GetSite",
@@ -47,7 +47,7 @@ impl WebApiFeature for SiteFeature {
             .route(
                 "/Site/EditSite",
                 protect_method_router(
-                    axum::routing::post(update_site),
+                    webapi_core::routes::post(update_site).json_body("editSite"),
                     app_state,
                     permission_module,
                     "/Site/EditSite",

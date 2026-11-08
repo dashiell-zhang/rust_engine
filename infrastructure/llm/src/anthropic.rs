@@ -1,7 +1,8 @@
+use crate::payload::Payload;
 use async_trait::async_trait;
 use futures_util::{StreamExt, stream::BoxStream};
-use serde::Deserialize;
-use serde_json::{Map, Value, json};
+use serde_json::{Value, json};
+use source_generator_core::ProtocolModel;
 
 use crate::{
     LLM_REQUEST_TIMEOUT, LlmClient, LlmError, LlmModelConfig,
@@ -74,17 +75,13 @@ impl LlmClient for AnthropicMessagesClient {
             .header("x-api-key", &self.config.api_key)
             .header("anthropic-version", ANTHROPIC_VERSION)
             .json(&body)
+            .header(reqwest::header::CONTENT_TYPE, crate::JSON_CONTENT_TYPE)
             .send()
             .await?;
 
-        if !response.status().is_success() {
-            let status = response.status().as_u16();
-            let message = response.text().await.unwrap_or_default();
-            return Err(LlmError::ApiError { status, message });
-        }
-
-        let wire: AnthropicMessageResponseDto = response.json().await?;
-        Ok(map_response(wire, &request.model))
+        let wire: AnthropicMessageResponseDto =
+            crate::http_response::read_json(response, "Anthropic response is empty.").await?;
+        map_response(wire, &request.model)
     }
 
     /// 对话（流式）
@@ -96,130 +93,100 @@ impl LlmClient for AnthropicMessagesClient {
             self.validate(&request)?;
             let body = build_payload(&request, true)?;
 
-            let response = self
+            let response = crate::streaming::send(self
                 .http_client
                 .post(self.config.endpoint.trim())
-                .timeout(LLM_REQUEST_TIMEOUT)
                 .header("x-api-key", &self.config.api_key)
                 .header("anthropic-version", ANTHROPIC_VERSION)
                 .json(&body)
-                .send()
-                .await?;
+                .header(reqwest::header::CONTENT_TYPE, crate::JSON_CONTENT_TYPE)
+            ).await?;
 
-            if !response.status().is_success() {
-                let status = response.status().as_u16();
-                let message = response.text().await.unwrap_or_default();
-                Err(LlmError::ApiError { status, message })?;
-                return;
-            }
+            crate::http_response::ensure_success(&response)?;
 
-            let mut stream = response.bytes_stream();
-            let mut buffer = String::new();
+            let mut lines = crate::streaming::lines(response);
             let mut message_id: Option<String> = None;
             let mut model = request.model.clone();
             let mut input_tokens: Option<i32> = None;
-            let mut completion_emitted = false;
 
-            while let Some(chunk) = stream.next().await {
-                let chunk = chunk.map_err(|e| LlmError::Http(e.to_string()))?;
-                buffer.push_str(&String::from_utf8_lossy(&chunk));
+            while let Some(line) = lines.next().await {
+                let line = line?;
+                let Some(data) = line.strip_prefix("data:") else { continue };
+                let data = data.trim();
+                if data.is_empty() {
+                    continue;
+                }
 
-                while let Some(pos) = buffer.find('\n') {
-                    let line = buffer[..pos].trim_end_matches('\r').to_string();
-                    buffer = buffer[pos + 1..].to_string();
+                let wire: Option<AnthropicStreamEventDto> = crate::wire::from_slice(data.as_bytes())
+                    .map_err(|_| LlmError::StreamParse("Anthropic stream returned invalid JSON.".into()))?;
+                let wire = wire.ok_or_else(|| LlmError::StreamParse("Anthropic stream returned an empty JSON payload.".into()))?;
 
-                    let Some(data) = line.strip_prefix("data:") else { continue };
-                    let data = data.trim();
-                    if data.is_empty() {
-                        continue;
+                match wire.event_type.as_deref().unwrap_or_default() {
+                    "message_start" => {
+                        if let Some(message) = wire.message {
+                            message_id = message.id;
+                            model = message.model.unwrap_or_else(|| model.clone());
+                            input_tokens = message.usage.and_then(|usage| usage.input_tokens);
+                        }
                     }
-
-                    let wire: AnthropicStreamEventDto = serde_json::from_str(data)
-                        .map_err(|e| LlmError::StreamParse(format!("无法解析 Anthropic SSE chunk: {e}, 原始数据: {data}")))?;
-
-                    match wire.event_type.as_str() {
-                        "message_start" => {
-                            if let Some(message) = wire.message {
-                                message_id = message.id;
-                                model = message.model.unwrap_or_else(|| model.clone());
-                                input_tokens = message.usage.and_then(|usage| usage.input_tokens);
-                            }
-                        }
-                        "content_block_delta" => {
-                            if let Some(delta) = wire.delta
-                                && delta.delta_type.as_deref() == Some("text_delta")
-                                && let Some(text) = delta.text
-                                && !text.is_empty()
-                            {
-                                yield ChatStreamChunk {
-                                    id: message_id.clone(),
-                                    model: model.clone(),
-                                    choices: vec![ChatStreamChoiceDelta {
-                                        index: 0,
-                                        delta: ChatStreamDelta {
-                                            role: Some(ChatRole::Assistant),
-                                            content: Some(text),
-                                        },
-                                        finish_reason: None,
-                                    }],
-                                    usage: None,
-                                };
-                            }
-                        }
-                        "message_delta" => {
-                            let output_tokens = wire.usage.and_then(|usage| usage.output_tokens);
-                            let finish_reason = wire.delta.and_then(|delta| delta.stop_reason);
-                            completion_emitted |= finish_reason.is_some();
-                            let usage = if input_tokens.is_none() && output_tokens.is_none() {
-                                None
-                            } else {
-                                Some(Usage {
-                                    prompt_tokens: input_tokens,
-                                    completion_tokens: output_tokens,
-                                    total_tokens: add_tokens(input_tokens, output_tokens),
-                                })
-                            };
+                    "content_block_delta" => {
+                        if let Some(delta) = wire.delta
+                            && delta.delta_type.as_deref() == Some("text_delta")
+                            && let Some(text) = delta.text
+                            && !text.is_empty()
+                        {
                             yield ChatStreamChunk {
                                 id: message_id.clone(),
                                 model: model.clone(),
                                 choices: vec![ChatStreamChoiceDelta {
                                     index: 0,
                                     delta: ChatStreamDelta {
-                                        role: None,
-                                        content: None,
+                                        role: Some(ChatRole::Assistant),
+                                        content: Some(text),
                                     },
-                                    finish_reason,
+                                    finish_reason: None,
                                 }],
-                                usage,
+                                usage: None,
                             };
                         }
-                        "message_stop" => {
-                            if !completion_emitted {
-                                yield ChatStreamChunk {
-                                    id: message_id.clone(),
-                                    model: model.clone(),
-                                    choices: vec![ChatStreamChoiceDelta {
-                                        index: 0,
-                                        delta: ChatStreamDelta {
-                                            role: None,
-                                            content: None,
-                                        },
-                                        finish_reason: Some("message_stop".to_string()),
-                                    }],
-                                    usage: None,
-                                };
-                            }
-                            return;
-                        }
-                        "error" => {
-                            let message = wire
-                                .error
-                                .and_then(|error| error.message)
-                                .unwrap_or_else(|| "Anthropic stream returned an error".to_string());
-                            Err(LlmError::InvalidRequest(message))?;
-                        }
-                        _ => {}
                     }
+                    "message_delta" => {
+                        let output_tokens = wire.usage.and_then(|usage| usage.output_tokens);
+                        let finish_reason = wire.delta.and_then(|delta| delta.stop_reason);
+                        let usage = if input_tokens.is_none() && output_tokens.is_none() {
+                            None
+                        } else {
+                            Some(Usage {
+                                prompt_tokens: input_tokens,
+                                completion_tokens: output_tokens,
+                                total_tokens: add_tokens(input_tokens, output_tokens),
+                            })
+                        };
+                        yield ChatStreamChunk {
+                            id: message_id.clone(),
+                            model: model.clone(),
+                            choices: vec![ChatStreamChoiceDelta {
+                                index: 0,
+                                delta: ChatStreamDelta {
+                                    role: None,
+                                    content: None,
+                                },
+                                finish_reason,
+                            }],
+                            usage,
+                        };
+                    }
+                    "message_stop" => { return; }
+                    "error" => {
+                        let error = wire.error;
+                        let mut message = error.as_ref().and_then(|error| error.message.clone())
+                            .unwrap_or_else(|| "Anthropic stream returned an error.".to_string());
+                        if let Some(kind) = error.and_then(|error| error.error_type).filter(|kind| !kind.trim().is_empty()) {
+                            message.push_str(&format!(" ({kind})"));
+                        }
+                        Err(LlmError::InvalidRequest(message))?;
+                    }
+                    _ => {}
                 }
             }
         })
@@ -227,8 +194,8 @@ impl LlmClient for AnthropicMessagesClient {
 }
 
 /// 构造 Anthropic Messages 请求体
-fn build_payload(request: &ChatRequest, stream: bool) -> Result<Map<String, Value>, LlmError> {
-    let mut payload = Map::new();
+fn build_payload(request: &ChatRequest, stream: bool) -> Result<Payload, LlmError> {
+    let mut payload = Payload::new();
     payload.insert("model".to_string(), Value::String(request.model.clone()));
     payload.insert("messages".to_string(), build_messages(&request.messages));
     payload.insert("stream".to_string(), Value::Bool(stream));
@@ -238,18 +205,8 @@ fn build_payload(request: &ChatRequest, stream: bool) -> Result<Map<String, Valu
         payload.insert("system".to_string(), Value::String(system_prompt));
     }
 
-    if let Some(temperature) = request.temperature
-        && let Some(value) = serde_json::Number::from_f64(temperature)
-    {
-        payload.insert("temperature".to_string(), Value::Number(value));
-    }
-
-    if let Some(max_tokens) = request.max_tokens {
-        payload.insert("max_tokens".to_string(), Value::Number(max_tokens.into()));
-    }
-
     if let Some(extra_body) = &request.extra_body {
-        merge_extra_body(&mut payload, extra_body)?;
+        payload.merge_extra(extra_body)?;
     }
 
     if !payload.contains_key("max_tokens") {
@@ -260,28 +217,6 @@ fn build_payload(request: &ChatRequest, stream: bool) -> Result<Map<String, Valu
     }
 
     Ok(payload)
-}
-
-/// 合并额外请求参数
-fn merge_extra_body(
-    payload: &mut Map<String, Value>,
-    extra_body: &Map<String, Value>,
-) -> Result<(), LlmError> {
-    for (key, value) in extra_body {
-        if key.trim().is_empty() {
-            continue;
-        }
-
-        if payload.contains_key(key) {
-            return Err(LlmError::InvalidRequest(format!(
-                "ExtraBody 与基础请求字段冲突: {key}"
-            )));
-        }
-
-        payload.insert(key.clone(), value.clone());
-    }
-
-    Ok(())
 }
 
 /// 构造 Anthropic 系统提示词
@@ -324,60 +259,64 @@ fn role_to_string(role: &ChatRole) -> &'static str {
 }
 
 /// 映射非流式响应
-fn map_response(dto: AnthropicMessageResponseDto, fallback_model: &str) -> ChatResponse {
+fn map_response(
+    dto: AnthropicMessageResponseDto,
+    fallback_model: &str,
+) -> Result<ChatResponse, LlmError> {
     let usage = dto.usage.map(|usage| Usage {
         prompt_tokens: usage.input_tokens,
         completion_tokens: usage.output_tokens,
         total_tokens: add_tokens(usage.input_tokens, usage.output_tokens),
     });
 
-    ChatResponse {
+    Ok(ChatResponse {
         id: dto.id,
         model: dto.model.unwrap_or_else(|| fallback_model.to_string()),
         choices: vec![ChatChoice {
             index: 0,
             message: ChatMessage {
                 role: ChatRole::Assistant,
-                content: extract_text(&dto.content),
+                content: extract_text(&dto.content)?,
             },
             finish_reason: dto.stop_reason,
         }],
         usage,
-    }
+    })
 }
 
 /// 提取 Anthropic 输出文本
-fn extract_text(content: &Option<Vec<AnthropicContentDto>>) -> String {
+fn extract_text(content: &Option<Vec<Option<AnthropicContentDto>>>) -> Result<String, LlmError> {
     let mut output = String::new();
     for item in content.as_deref().unwrap_or_default() {
+        let item = crate::wire::require_object(item.as_ref())?;
         if item.content_type.as_deref() == Some("text") {
             output.push_str(item.text.as_deref().unwrap_or_default());
         }
     }
-    output
+    Ok(output)
 }
 
 /// 合计 token
 fn add_tokens(left: Option<i32>, right: Option<i32>) -> Option<i32> {
     match (left, right) {
-        (Some(left), Some(right)) => Some(left + right),
+        (Some(left), Some(right)) => Some(left.wrapping_add(right)),
         _ => None,
     }
 }
 
 /// Anthropic 非流式响应
-#[derive(Deserialize)]
+#[derive(ProtocolModel)]
 struct AnthropicMessageResponseDto {
     id: Option<String>,
     model: Option<String>,
-    content: Option<Vec<AnthropicContentDto>>,
+    content: Option<Vec<Option<AnthropicContentDto>>>,
     #[serde(rename = "stop_reason")]
     stop_reason: Option<String>,
     usage: Option<AnthropicUsageDto>,
 }
 
 /// Anthropic 输出内容
-#[derive(Deserialize)]
+#[derive(ProtocolModel)]
 struct AnthropicContentDto {
     #[serde(rename = "type")]
     content_type: Option<String>,
@@ -385,10 +324,10 @@ struct AnthropicContentDto {
 }
 
 /// Anthropic 流式事件
-#[derive(Deserialize)]
+#[derive(ProtocolModel)]
 struct AnthropicStreamEventDto {
     #[serde(rename = "type")]
-    event_type: String,
+    event_type: Option<String>,
     message: Option<AnthropicMessageResponseDto>,
     delta: Option<AnthropicDeltaDto>,
     usage: Option<AnthropicUsageDto>,
@@ -396,7 +335,7 @@ struct AnthropicStreamEventDto {
 }
 
 /// Anthropic 流式增量
-#[derive(Deserialize)]
+#[derive(ProtocolModel)]
 struct AnthropicDeltaDto {
     #[serde(rename = "type")]
     delta_type: Option<String>,
@@ -406,7 +345,7 @@ struct AnthropicDeltaDto {
 }
 
 /// Anthropic 用量统计
-#[derive(Deserialize)]
+#[derive(ProtocolModel)]
 struct AnthropicUsageDto {
     #[serde(rename = "input_tokens")]
     input_tokens: Option<i32>,
@@ -415,7 +354,9 @@ struct AnthropicUsageDto {
 }
 
 /// Anthropic 错误详情
-#[derive(Deserialize)]
+#[derive(ProtocolModel)]
 struct AnthropicErrorDto {
+    #[serde(rename = "type")]
+    error_type: Option<String>,
     message: Option<String>,
 }

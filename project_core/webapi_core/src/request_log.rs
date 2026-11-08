@@ -5,7 +5,13 @@ use axum::{extract::Request, middleware::Next, response::Response};
 /// 请求日志中间件
 pub async fn request_log_middleware(request: Request, next: Next) -> Response {
     let method = request.method().to_string();
-    let uri = request.uri().to_string();
+    let uri = request
+        .extensions()
+        .get::<crate::request_context::RequestContext>()
+        .map_or_else(
+            || request.uri().to_string(),
+            |context| context.url(request.uri()),
+        );
     let start_time = Instant::now();
 
     let response = next.run(request).await;

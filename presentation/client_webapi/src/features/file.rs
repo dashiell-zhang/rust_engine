@@ -1,7 +1,8 @@
-use axum::{Router, extract::DefaultBodyLimit};
+use axum::extract::DefaultBodyLimit;
 use std::sync::Arc;
 use utoipa::{OpenApi, openapi::OpenApi as OpenApiDocument};
 use webapi_core::builder::protect_method_router;
+use webapi_core::routes::WebApiRoutes as Router;
 
 use crate::{
     handlers::file::{
@@ -24,24 +25,29 @@ impl WebApiFeature for FileFeature {
         app_state: Arc<AppState>,
     ) -> Router<Arc<AppState>> {
         let permission_module = app_state.settings.permission_module.clone();
-        let max_upload_bytes = app_state.settings.file.max_upload_bytes;
 
         router
             .route(
                 "/File/UploadFile",
                 protect_method_router(
-                    axum::routing::post(upload_file),
+                    webapi_core::routes::post(upload_file),
                     app_state.clone(),
                     permission_module.clone(),
                     "/File/UploadFile",
                     false,
                 )
-                .layer(DefaultBodyLimit::max(max_upload_bytes)),
+                .map(|route| {
+                    route
+                        .layer(DefaultBodyLimit::disable())
+                        .route_layer(axum::middleware::from_fn(
+                            webapi_core::uploaded_file::require_multipart,
+                        ))
+                }),
             )
             .route(
                 "/File/RemoteUploadFile",
                 protect_method_router(
-                    axum::routing::post(remote_upload_file),
+                    webapi_core::routes::post(remote_upload_file).json_body("uploadFile"),
                     app_state.clone(),
                     permission_module.clone(),
                     "/File/RemoteUploadFile",
@@ -51,19 +57,19 @@ impl WebApiFeature for FileFeature {
             .route(
                 "/File/GetFileUrl",
                 protect_method_router(
-                    axum::routing::get(get_file_url),
+                    webapi_core::routes::get(get_file_url),
                     app_state.clone(),
                     permission_module.clone(),
                     "/File/GetFileUrl",
                     false,
                 ),
             )
-            .route("/File/GetImage", axum::routing::get(get_image))
-            .route("/File/GetFile", axum::routing::get(get_file))
+            .route("/File/GetImage", webapi_core::routes::get(get_image))
+            .route("/File/GetFile", webapi_core::routes::get(get_file))
             .route(
                 "/File/DeleteFile",
                 protect_method_router(
-                    axum::routing::delete(delete_file),
+                    webapi_core::routes::delete(delete_file),
                     app_state,
                     permission_module,
                     "/File/DeleteFile",
@@ -82,19 +88,19 @@ impl WebApiFeature for FileFeature {
         vec![
             WebApiRoutePermission {
                 route: "/File/UploadFile",
-                remark: "上传文件",
+                remark: "单文件上传接口",
             },
             WebApiRoutePermission {
                 route: "/File/RemoteUploadFile",
-                remark: "远程上传文件",
+                remark: "远程单文件上传接口",
             },
             WebApiRoutePermission {
                 route: "/File/GetFileUrl",
-                remark: "获取文件访问地址",
+                remark: "通过文件ID获取文件静态访问路径",
             },
             WebApiRoutePermission {
                 route: "/File/DeleteFile",
-                remark: "删除文件",
+                remark: "通过文件ID删除文件方法",
             },
         ]
     }

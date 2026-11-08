@@ -6,6 +6,9 @@ pub mod authorize;
 /// 基础工具文档
 pub mod base;
 
+/// 服务与 LLM 演示文档。
+pub mod demo;
+
 /// 文件文档
 pub mod file;
 

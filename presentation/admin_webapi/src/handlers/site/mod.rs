@@ -7,6 +7,7 @@ use axum::{
 use std::sync::Arc;
 use webapi_core::extract::Json;
 use webapi_core::{auth::UserContext, error::AppError};
+use webapi_support::WebApiApplicationExt;
 
 use crate::state::AppState;
 
@@ -135,7 +136,7 @@ pub async fn get_site(
     _user_ctx: UserContext,
 ) -> Result<Response, AppError> {
     // Handler 仅负责协议转换 业务逻辑委托给应用服务
-    let service = app_state.site_webapi();
+    let service = app_state.services().site_webapi();
 
     match service.get_site().await {
         Ok(result) => Ok((StatusCode::OK, Json(result)).into_response()),
@@ -162,7 +163,7 @@ pub async fn update_site(
     Json(dto): Json<EditSiteDto>,
 ) -> Result<Response, AppError> {
     // 当前用户信息用于写入更新审计字段
-    let service = app_state.site_webapi();
+    let service = app_state.services().site_webapi();
     let current_user = user_ctx.current_user();
 
     match service.update_site(dto, &current_user).await {

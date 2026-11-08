@@ -1,0 +1,20 @@
+[package]
+name = "repository_core"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+cancellation = { path = "../cancellation" }
+uuid = { version = "1.29.0", features = ["v4"] }
+source_generator_core = { path = "../../source_generator/source_generator_core" }
+async-trait = "0.1.92"
+chrono = "0.4.45"
+sha2 = "0.11.1"
+regex = "1.13.1"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+identifier_generator = { path = "../identifier_generator" }
+distributed_lock = { path = "../distributed_lock" }
+tokio = { version = "1.54.1", features = ["rt", "time", "macros"] }
+tracing = "0.1.44"
+sea-orm = { version = "2.0.4", features = ["sqlx-postgres", "runtime-tokio-rustls"] }

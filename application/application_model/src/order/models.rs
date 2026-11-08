@@ -5,17 +5,20 @@ use utoipa::{IntoParams, ToSchema};
 
 /// 订单分页请求参数
 #[derive(Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
 #[serde(rename_all = "camelCase")]
+#[derive(common::json_helper::input::QueryModel)]
 pub struct OrderPageRequest {
     /// 页码
-    #[param(minimum = 1)]
+    #[param(default = default_page)]
     #[serde(default = "default_page")]
-    pub page: u64,
+    pub page: i32,
 
     /// 每页条数
-    #[param(minimum = 1, maximum = 100)]
+    #[param(minimum = 1, maximum = 100, default = default_page_size)]
     #[serde(default = "default_page_size", rename = "pageSize")]
-    pub page_size: u64,
+    #[query(validate = "crate::shared::models::validate_page_size_query")]
+    pub page_size: i32,
 
     /// 订单号关键词
     pub keyword: Option<String>,
@@ -28,17 +31,18 @@ pub struct OrderPageRequest {
 }
 
 impl crate::shared::models::PageRequest for OrderPageRequest {
-    fn page(&self) -> u64 {
+    fn page(&self) -> i32 {
         self.page
     }
 
-    fn page_size(&self) -> u64 {
+    fn page_size(&self) -> i32 {
         self.page_size
     }
 }
 
 /// 订单标识参数
 #[derive(Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
 #[serde(rename_all = "camelCase")]
 pub struct OrderIdQuery {
     /// 订单 ID
@@ -48,6 +52,7 @@ pub struct OrderIdQuery {
 
 /// 删除订单参数
 #[derive(Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
 #[serde(rename_all = "camelCase")]
 pub struct DeleteOrderQuery {
     /// 订单 ID

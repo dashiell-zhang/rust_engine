@@ -6,6 +6,6 @@ edition = "2024"
 [dependencies]
 distributed_cache = { path = "../distributed_cache" }
 
-async-trait = "0.1"
-dashmap = "6"
+async-trait = "0.1.92"
+dashmap = "6.2.1"
 

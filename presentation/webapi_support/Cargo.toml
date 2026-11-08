@@ -1,0 +1,12 @@
+[package]
+name = "webapi_support"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+application_model = { path = "../../application/application_model" }
+webapi_core = { path = "../../project_core/webapi_core" }
+application_interface = { path = "../../application/application_interface" }
+application_service = { path = "../../application/application_service" }
+source_generator_runtime = { path = "../../source_generator/source_generator_runtime" }
+async-trait = "0.1.92"

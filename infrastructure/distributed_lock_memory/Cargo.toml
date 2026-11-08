@@ -6,6 +6,6 @@ edition = "2024"
 [dependencies]
 distributed_lock = { path = "../distributed_lock" }
 
-async-trait = "0.1"
-dashmap = "6"
-tokio = { version = "1", features = ["full"] }
+async-trait = "0.1.92"
+dashmap = "6.2.1"
+tokio = { version = "1.54.1", features = ["full"] }

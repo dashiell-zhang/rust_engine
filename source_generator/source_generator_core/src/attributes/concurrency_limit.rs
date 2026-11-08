@@ -106,10 +106,13 @@ impl Parse for ConcurrencyLimitArgs {
                         ));
                     }
                     has_semaphore = true;
-                    semaphore = Some(parse_u32_literal(
-                        &require_name_value(meta, "semaphore")?.value,
-                        "semaphore",
-                    )?);
+                    semaphore = Some(
+                        u32::try_from(parse_limit_value(
+                            &require_name_value(meta, "semaphore")?.value,
+                            "semaphore",
+                        )?)
+                        .map_err(|_| syn::Error::new_spanned(meta, "semaphore 超出 u32 范围"))?,
+                    );
                 }
                 "expiry_seconds" => {
                     if has_expiry_seconds {
@@ -119,7 +122,7 @@ impl Parse for ConcurrencyLimitArgs {
                         ));
                     }
                     has_expiry_seconds = true;
-                    expiry_seconds = Some(parse_u64_literal(
+                    expiry_seconds = Some(parse_limit_value(
                         &require_name_value(meta, "expiry_seconds")?.value,
                         "expiry_seconds",
                     )?);
@@ -301,7 +304,7 @@ pub(crate) fn expand_concurrency_limit(
                 ::core::result::Result::Ok(key) => ::core::option::Option::Some(key),
                 ::core::result::Result::Err(error) => {
                     return ::core::result::Result::Err(
-                        ::std::format!("并发限制参数键生成失败: {error}").into()
+                        #runtime::LockError::InternalError(::std::format!("并发限制参数键生成失败: {error}")).into()
                     );
                 }
             };
@@ -321,7 +324,7 @@ pub(crate) fn expand_concurrency_limit(
             {
                 ::core::option::Option::Some(guard) => guard,
                 ::core::option::Option::None => {
-                    return ::core::result::Result::Err("请勿频繁操作".to_string().into());
+                    return ::core::result::Result::Err(#runtime::LockError::InternalError("请勿频繁操作".to_string()).into());
                 }
             }
         } else {
@@ -338,14 +341,12 @@ pub(crate) fn expand_concurrency_limit(
             #default_use_parameter_assertion
             let __lock_semaphore: u32 = #semaphore;
 
-            if __lock_semaphore == 0 {
-                return ::core::result::Result::Err(
-                    "并发限制 semaphore 必须大于 0".to_string().into()
-                );
-            }
+            let __lock_semaphore = __lock_semaphore.max(1);
 
             let __lock_expiry_seconds: u64 = #expiry_seconds;
-            let __lock_expiry = ::std::time::Duration::from_secs(__lock_expiry_seconds);
+            let __lock_expiry = ::std::time::Duration::from_secs(if __lock_expiry_seconds == 0 {
+                #runtime::DEFAULT_METHOD_LOCK_LEASE_SECONDS
+            } else { __lock_expiry_seconds });
             let __lock_method_key = #method_key;
             #arguments_key_behavior
             let __lock_key = #runtime::concurrency_limit_key(
@@ -356,14 +357,30 @@ pub(crate) fn expand_concurrency_limit(
             let __lock_service = #runtime::distributed_lock_ref(__lock_source);
             #acquire_lock
 
-            let __result = (async #body).await;
-            ::std::mem::drop(__lock_guard);
-            __result
+            #runtime::run_with_renewed_lock(
+                __lock_service,
+                __lock_guard,
+                __lock_expiry,
+                &__lock_method_key,
+                async #body,
+            ).await
 
         }
     };
 
     Ok(expanded.into())
+}
+
+/// 非正租约和并发数沿用源默认值，仍只接受固定整数字面量。
+fn parse_limit_value(value: &Expr, name: &str) -> syn::Result<u64> {
+    if let Expr::Unary(unary) = value
+        && matches!(unary.op, syn::UnOp::Neg(_))
+    {
+        parse_u64_literal(&unary.expr, name)?;
+        Ok(0)
+    } else {
+        parse_u64_literal(value, name)
+    }
 }
 
 /// 生成显式参数键表达式或默认参数引用元组

@@ -1,0 +1,10 @@
+[
+  {
+    "kind": "Sql",
+    "value": "CREATE INDEX \"IX_Log_CreateTime\" ON \"Log\" (\"CreateTime\")"
+  },
+  {
+    "kind": "Sql",
+    "value": "CREATE INDEX \"IX_Log_DeleteTime\" ON \"Log\" (\"DeleteTime\")"
+  }
+]

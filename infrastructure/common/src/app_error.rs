@@ -14,6 +14,9 @@ pub enum AppErrorKind {
 
     /// 服务器内部错误
     Internal,
+
+    /// 调用方取消，不能作为普通失败吞掉。
+    Cancelled,
 }
 
 /// 统一业务异常
@@ -64,6 +67,14 @@ impl AppError {
         }
     }
 
+    /// 创建调用取消错误。
+    pub fn cancelled() -> Self {
+        Self {
+            kind: AppErrorKind::Cancelled,
+            message: "操作已取消".into(),
+        }
+    }
+
     /// 获取错误分类
     pub fn kind(&self) -> &AppErrorKind {
         &self.kind
@@ -83,6 +94,18 @@ impl Display for AppError {
 }
 
 impl std::error::Error for AppError {}
+
+impl cancellation::CancellationError for AppError {
+    fn is_cancelled(&self) -> bool {
+        matches!(self.kind, AppErrorKind::Cancelled)
+    }
+}
+
+impl From<cancellation::OperationCancelled> for AppError {
+    fn from(_: cancellation::OperationCancelled) -> Self {
+        Self::cancelled()
+    }
+}
 
 impl From<distributed_cache::CacheError> for AppError {
     /// 将缓存异常转换为应用层内部错误

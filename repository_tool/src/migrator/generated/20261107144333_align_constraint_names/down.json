@@ -1,0 +1,330 @@
+[
+  {
+    "kind": "Sql",
+    "value": "ALTER TABLE \"Article\" RENAME CONSTRAINT \"FK_Article_Category_CategoryId\" TO \"fk-Article-CategoryId\""
+  },
+  {
+    "kind": "Sql",
+    "value": "ALTER TABLE \"Article\" RENAME CONSTRAINT \"FK_Article_User_CreateUserId\" TO \"fk-Article-CreateUserId\""
+  },
+  {
+    "kind": "Sql",
+    "value": "ALTER TABLE \"Article\" RENAME CONSTRAINT \"FK_Article_User_DeleteUserId\" TO \"fk-Article-DeleteUserId\""
+  },
+  {
+    "kind": "Sql",
+    "value": "ALTER TABLE \"Category\" RENAME CONSTRAINT \"FK_Category_Category_ParentId\" TO \"fk-Category-ParentId\""
+  },
+  {
+    "kind": "Sql",
+    "value": "ALTER TABLE \"Category\" RENAME CONSTRAINT \"FK_Category_User_CreateUserId\" TO \"fk-Category-CreateUserId\""
+  },
+  {
+    "kind": "Sql",
+    "value": "ALTER TABLE \"Category\" RENAME CONSTRAINT \"FK_Category_User_DeleteUserId\" TO \"fk-Category-DeleteUserId\""
+  },
+  {
+    "kind": "Sql",
+    "value": "ALTER TABLE \"DataUpdateLog\" RENAME CONSTRAINT \"FK_DataUpdateLog_User_ActionUserId\" TO \"fk-DataUpdateLog-ActionUserId\""
+  },
+  {
+    "kind": "Sql",
+    "value": "ALTER TABLE \"Function\" RENAME CONSTRAINT \"FK_Function_Function_ParentId\" TO \"fk-Function-ParentId\""
+  },
+  {
+    "kind": "Sql",
+    "value": "ALTER TABLE \"FunctionAuthorize\" RENAME CONSTRAINT \"FK_FunctionAuthorize_Function_FunctionId\" TO \"fk-FunctionAuthorize-FunctionId\""
+  },
+  {
+    "kind": "Sql",
+    "value": "ALTER TABLE \"FunctionAuthorize\" RENAME CONSTRAINT \"FK_FunctionAuthorize_Role_RoleId\" TO \"fk-FunctionAuthorize-RoleId\""
+  },
+  {
+    "kind": "Sql",
+    "value": "ALTER TABLE \"FunctionAuthorize\" RENAME CONSTRAINT \"FK_FunctionAuthorize_User_CreateUserId\" TO \"fk-FunctionAuthorize-CreateUserId\""
+  },
+  {
+    "kind": "Sql",
+    "value": "ALTER TABLE \"FunctionAuthorize\" RENAME CONSTRAINT \"FK_FunctionAuthorize_User_DeleteUserId\" TO \"fk-FunctionAuthorize-DeleteUserId\""
+  },
+  {
+    "kind": "Sql",
+    "value": "ALTER TABLE \"FunctionAuthorize\" RENAME CONSTRAINT \"FK_FunctionAuthorize_User_UpdateUserId\" TO \"fk-FunctionAuthorize-UpdateUserId\""
+  },
+  {
+    "kind": "Sql",
+    "value": "ALTER TABLE \"FunctionAuthorize\" RENAME CONSTRAINT \"FK_FunctionAuthorize_User_UserId\" TO \"fk-FunctionAuthorize-UserId\""
+  },
+  {
+    "kind": "Sql",
+    "value": "ALTER TABLE \"FunctionRoute\" RENAME CONSTRAINT \"FK_FunctionRoute_Function_FunctionId\" TO \"fk-FunctionRoute-FunctionId\""
+  },
+  {
+    "kind": "Sql",
+    "value": "ALTER TABLE \"Link\" RENAME CONSTRAINT \"FK_Link_User_CreateUserId\" TO \"fk-Link-CreateUserId\""
+  },
+  {
+    "kind": "Sql",
+    "value": "ALTER TABLE \"Link\" RENAME CONSTRAINT \"FK_Link_User_DeleteUserId\" TO \"fk-Link-DeleteUserId\""
+  },
+  {
+    "kind": "Sql",
+    "value": "ALTER TABLE \"LlmApp\" RENAME CONSTRAINT \"FK_LlmApp_LlmModel_LlmModelId\" TO \"fk-LlmApp-LlmModelId\""
+  },
+  {
+    "kind": "Sql",
+    "value": "ALTER TABLE \"LlmApp\" RENAME CONSTRAINT \"FK_LlmApp_User_CreateUserId\" TO \"fk-LlmApp-CreateUserId\""
+  },
+  {
+    "kind": "Sql",
+    "value": "ALTER TABLE \"LlmApp\" RENAME CONSTRAINT \"FK_LlmApp_User_DeleteUserId\" TO \"fk-LlmApp-DeleteUserId\""
+  },
+  {
+    "kind": "Sql",
+    "value": "ALTER TABLE \"LlmApp\" RENAME CONSTRAINT \"FK_LlmApp_User_UpdateUserId\" TO \"fk-LlmApp-UpdateUserId\""
+  },
+  {
+    "kind": "Sql",
+    "value": "ALTER TABLE \"LlmConversation\" RENAME CONSTRAINT \"FK_LlmConversation_LlmApp_LlmAppId\" TO \"fk-LlmConversation-LlmAppId\""
+  },
+  {
+    "kind": "Sql",
+    "value": "ALTER TABLE \"LlmConversation\" RENAME CONSTRAINT \"FK_LlmConversation_User_CreateUserId\" TO \"fk-LlmConversation-CreateUserId\""
+  },
+  {
+    "kind": "Sql",
+    "value": "ALTER TABLE \"LlmConversation\" RENAME CONSTRAINT \"FK_LlmConversation_User_DeleteUserId\" TO \"fk-LlmConversation-DeleteUserId\""
+  },
+  {
+    "kind": "Sql",
+    "value": "ALTER TABLE \"LlmModel\" RENAME CONSTRAINT \"FK_LlmModel_User_CreateUserId\" TO \"fk-LlmModel-CreateUserId\""
+  },
+  {
+    "kind": "Sql",
+    "value": "ALTER TABLE \"LlmModel\" RENAME CONSTRAINT \"FK_LlmModel_User_DeleteUserId\" TO \"fk-LlmModel-DeleteUserId\""
+  },
+  {
+    "kind": "Sql",
+    "value": "ALTER TABLE \"LlmModel\" RENAME CONSTRAINT \"FK_LlmModel_User_UpdateUserId\" TO \"fk-LlmModel-UpdateUserId\""
+  },
+  {
+    "kind": "Sql",
+    "value": "ALTER TABLE \"Order\" RENAME CONSTRAINT \"FK_Order_User_CreateUserId\" TO \"fk-Order-CreateUserId\""
+  },
+  {
+    "kind": "Sql",
+    "value": "ALTER TABLE \"Order\" RENAME CONSTRAINT \"FK_Order_User_DeleteUserId\" TO \"fk-Order-DeleteUserId\""
+  },
+  {
+    "kind": "Sql",
+    "value": "ALTER TABLE \"Order\" RENAME CONSTRAINT \"FK_Order_User_UpdateUserId\" TO \"fk-Order-UpdateUserId\""
+  },
+  {
+    "kind": "Sql",
+    "value": "ALTER TABLE \"OrderDetail\" RENAME CONSTRAINT \"FK_OrderDetail_Order_OrderId\" TO \"fk-OrderDetail-OrderId\""
+  },
+  {
+    "kind": "Sql",
+    "value": "ALTER TABLE \"OrderDetail\" RENAME CONSTRAINT \"FK_OrderDetail_Product_ProductId\" TO \"fk-OrderDetail-ProductId\""
+  },
+  {
+    "kind": "Sql",
+    "value": "ALTER TABLE \"Product\" RENAME CONSTRAINT \"FK_Product_User_CreateUserId\" TO \"fk-Product-CreateUserId\""
+  },
+  {
+    "kind": "Sql",
+    "value": "ALTER TABLE \"Product\" RENAME CONSTRAINT \"FK_Product_User_DeleteUserId\" TO \"fk-Product-DeleteUserId\""
+  },
+  {
+    "kind": "Sql",
+    "value": "ALTER TABLE \"Product\" RENAME CONSTRAINT \"FK_Product_User_UpdateUserId\" TO \"fk-Product-UpdateUserId\""
+  },
+  {
+    "kind": "Sql",
+    "value": "ALTER TABLE \"QueueTask\" RENAME CONSTRAINT \"FK_QueueTask_QueueTask_ParentTaskId\" TO \"fk-QueueTask-ParentTaskId\""
+  },
+  {
+    "kind": "Sql",
+    "value": "ALTER TABLE \"RegionArea\" RENAME CONSTRAINT \"FK_RegionArea_RegionCity_CityId\" TO \"fk-RegionArea-CityId\""
+  },
+  {
+    "kind": "Sql",
+    "value": "ALTER TABLE \"RegionCity\" RENAME CONSTRAINT \"FK_RegionCity_RegionProvince_ProvinceId\" TO \"fk-RegionCity-ProvinceId\""
+  },
+  {
+    "kind": "Sql",
+    "value": "ALTER TABLE \"RegionTown\" RENAME CONSTRAINT \"FK_RegionTown_RegionArea_AreaId\" TO \"fk-RegionTown-AreaId\""
+  },
+  {
+    "kind": "Sql",
+    "value": "ALTER TABLE \"StoredFile\" RENAME CONSTRAINT \"FK_StoredFile_User_CreateUserId\" TO \"fk-StoredFile-CreateUserId\""
+  },
+  {
+    "kind": "Sql",
+    "value": "ALTER TABLE \"StoredFile\" RENAME CONSTRAINT \"FK_StoredFile_User_DeleteUserId\" TO \"fk-StoredFile-DeleteUserId\""
+  },
+  {
+    "kind": "Sql",
+    "value": "ALTER INDEX \"IX_TaskSetting_Category_Name\" RENAME TO \"UX_TaskSetting_Category_Name_ActiveDefinition\""
+  },
+  {
+    "kind": "Sql",
+    "value": "ALTER TABLE \"User\" RENAME CONSTRAINT \"FK_User_User_CreateUserId\" TO \"fk-User-CreateUserId\""
+  },
+  {
+    "kind": "Sql",
+    "value": "ALTER TABLE \"User\" RENAME CONSTRAINT \"FK_User_User_DeleteUserId\" TO \"fk-User-DeleteUserId\""
+  },
+  {
+    "kind": "Sql",
+    "value": "ALTER TABLE \"User\" RENAME CONSTRAINT \"FK_User_User_UpdateUserId\" TO \"fk-User-UpdateUserId\""
+  },
+  {
+    "kind": "Sql",
+    "value": "ALTER TABLE \"UserBindExternal\" RENAME CONSTRAINT \"FK_UserBindExternal_User_UserId\" TO \"fk-UserBindExternal-UserId\""
+  },
+  {
+    "kind": "Sql",
+    "value": "ALTER TABLE \"UserInfo\" RENAME CONSTRAINT \"FK_UserInfo_RegionArea_RegionAreaId\" TO \"fk-UserInfo-RegionAreaId\""
+  },
+  {
+    "kind": "Sql",
+    "value": "ALTER TABLE \"UserInfo\" RENAME CONSTRAINT \"FK_UserInfo_User_UpdateUserId\" TO \"fk-UserInfo-UpdateUserId\""
+  },
+  {
+    "kind": "Sql",
+    "value": "ALTER TABLE \"UserInfo\" RENAME CONSTRAINT \"FK_UserInfo_User_UserId\" TO \"fk-UserInfo-UserId\""
+  },
+  {
+    "kind": "Sql",
+    "value": "ALTER TABLE \"UserRole\" RENAME CONSTRAINT \"FK_UserRole_Role_RoleId\" TO \"fk-UserRole-RoleId\""
+  },
+  {
+    "kind": "Sql",
+    "value": "ALTER TABLE \"UserRole\" RENAME CONSTRAINT \"FK_UserRole_User_CreateUserId\" TO \"fk-UserRole-CreateUserId\""
+  },
+  {
+    "kind": "Sql",
+    "value": "ALTER TABLE \"UserRole\" RENAME CONSTRAINT \"FK_UserRole_User_DeleteUserId\" TO \"fk-UserRole-DeleteUserId\""
+  },
+  {
+    "kind": "Sql",
+    "value": "ALTER TABLE \"UserRole\" RENAME CONSTRAINT \"FK_UserRole_User_UpdateUserId\" TO \"fk-UserRole-UpdateUserId\""
+  },
+  {
+    "kind": "Sql",
+    "value": "ALTER TABLE \"UserRole\" RENAME CONSTRAINT \"FK_UserRole_User_UserId\" TO \"fk-UserRole-UserId\""
+  },
+  {
+    "kind": "Sql",
+    "value": "ALTER TABLE \"UserToken\" RENAME CONSTRAINT \"FK_UserToken_User_UserId\" TO \"fk-UserToken-UserId\""
+  },
+  {
+    "kind": "Sql",
+    "value": "ALTER TABLE \"AppSetting\" RENAME CONSTRAINT \"PK_AppSetting\" TO \"AppSetting_pkey\""
+  },
+  {
+    "kind": "Sql",
+    "value": "ALTER TABLE \"Article\" RENAME CONSTRAINT \"PK_Article\" TO \"Article_pkey\""
+  },
+  {
+    "kind": "Sql",
+    "value": "ALTER TABLE \"Category\" RENAME CONSTRAINT \"PK_Category\" TO \"Category_pkey\""
+  },
+  {
+    "kind": "Sql",
+    "value": "ALTER TABLE \"DataUpdateLog\" RENAME CONSTRAINT \"PK_DataUpdateLog\" TO \"DataUpdateLog_pkey\""
+  },
+  {
+    "kind": "Sql",
+    "value": "ALTER TABLE \"Function\" RENAME CONSTRAINT \"PK_Function\" TO \"Function_pkey\""
+  },
+  {
+    "kind": "Sql",
+    "value": "ALTER TABLE \"FunctionAuthorize\" RENAME CONSTRAINT \"PK_FunctionAuthorize\" TO \"FunctionAuthorize_pkey\""
+  },
+  {
+    "kind": "Sql",
+    "value": "ALTER TABLE \"FunctionRoute\" RENAME CONSTRAINT \"PK_FunctionRoute\" TO \"FunctionRoute_pkey\""
+  },
+  {
+    "kind": "Sql",
+    "value": "ALTER TABLE \"Link\" RENAME CONSTRAINT \"PK_Link\" TO \"Link_pkey\""
+  },
+  {
+    "kind": "Sql",
+    "value": "ALTER TABLE \"LlmApp\" RENAME CONSTRAINT \"PK_LlmApp\" TO \"LlmApp_pkey\""
+  },
+  {
+    "kind": "Sql",
+    "value": "ALTER TABLE \"LlmConversation\" RENAME CONSTRAINT \"PK_LlmConversation\" TO \"LlmConversation_pkey\""
+  },
+  {
+    "kind": "Sql",
+    "value": "ALTER TABLE \"LlmModel\" RENAME CONSTRAINT \"PK_LlmModel\" TO \"LlmModel_pkey\""
+  },
+  {
+    "kind": "Sql",
+    "value": "ALTER TABLE \"Order\" RENAME CONSTRAINT \"PK_Order\" TO \"Order_pkey\""
+  },
+  {
+    "kind": "Sql",
+    "value": "ALTER TABLE \"OrderDetail\" RENAME CONSTRAINT \"PK_OrderDetail\" TO \"OrderDetail_pkey\""
+  },
+  {
+    "kind": "Sql",
+    "value": "ALTER TABLE \"Product\" RENAME CONSTRAINT \"PK_Product\" TO \"Product_pkey\""
+  },
+  {
+    "kind": "Sql",
+    "value": "ALTER TABLE \"QueueTask\" RENAME CONSTRAINT \"PK_QueueTask\" TO \"QueueTask_pkey\""
+  },
+  {
+    "kind": "Sql",
+    "value": "ALTER TABLE \"RegionArea\" RENAME CONSTRAINT \"PK_RegionArea\" TO \"RegionArea_pkey\""
+  },
+  {
+    "kind": "Sql",
+    "value": "ALTER TABLE \"RegionCity\" RENAME CONSTRAINT \"PK_RegionCity\" TO \"RegionCity_pkey\""
+  },
+  {
+    "kind": "Sql",
+    "value": "ALTER TABLE \"RegionProvince\" RENAME CONSTRAINT \"PK_RegionProvince\" TO \"RegionProvince_pkey\""
+  },
+  {
+    "kind": "Sql",
+    "value": "ALTER TABLE \"RegionTown\" RENAME CONSTRAINT \"PK_RegionTown\" TO \"RegionTown_pkey\""
+  },
+  {
+    "kind": "Sql",
+    "value": "ALTER TABLE \"Role\" RENAME CONSTRAINT \"PK_Role\" TO \"Role_pkey\""
+  },
+  {
+    "kind": "Sql",
+    "value": "ALTER TABLE \"StoredFile\" RENAME CONSTRAINT \"PK_StoredFile\" TO \"StoredFile_pkey\""
+  },
+  {
+    "kind": "Sql",
+    "value": "ALTER TABLE \"TaskSetting\" RENAME CONSTRAINT \"PK_TaskSetting\" TO \"TaskSetting_pkey\""
+  },
+  {
+    "kind": "Sql",
+    "value": "ALTER TABLE \"User\" RENAME CONSTRAINT \"PK_User\" TO \"User_pkey\""
+  },
+  {
+    "kind": "Sql",
+    "value": "ALTER TABLE \"UserBindExternal\" RENAME CONSTRAINT \"PK_UserBindExternal\" TO \"UserBindExternal_pkey\""
+  },
+  {
+    "kind": "Sql",
+    "value": "ALTER TABLE \"UserInfo\" RENAME CONSTRAINT \"PK_UserInfo\" TO \"UserInfo_pkey\""
+  },
+  {
+    "kind": "Sql",
+    "value": "ALTER TABLE \"UserRole\" RENAME CONSTRAINT \"PK_UserRole\" TO \"UserRole_pkey\""
+  },
+  {
+    "kind": "Sql",
+    "value": "ALTER TABLE \"UserToken\" RENAME CONSTRAINT \"PK_UserToken\" TO \"UserToken_pkey\""
+  }
+]

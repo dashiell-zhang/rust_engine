@@ -1,11 +1,13 @@
+/// 任务调用和返回值适配
+pub mod task_handler;
+
+mod debug_menu;
+
 /// 任务宿主轮询能力
 pub mod runner;
 
 /// 任务注册表
 pub mod registry;
-
-/// TaskService 应用服务适配
-pub mod app_services;
 
 /// TaskService 宿主构建器
 pub mod builder;
@@ -49,19 +51,24 @@ pub type BuildTaskServiceCache = for<'a> fn(
 >;
 
 /// TaskService 短信发送器构建方法
-pub type BuildTaskServiceSmsSender = fn(&Settings) -> Result<Arc<dyn AppSmsSender>, String>;
+pub type BuildTaskServiceSmsSender = fn(
+    &Settings,
+    Arc<application_interface::http_client::HttpClientFactory>,
+) -> Result<Arc<dyn AppSmsSender>, String>;
 
 /// TaskService 邮件发送器构建方法
 pub type BuildTaskServiceEmailSender = fn(&Settings) -> Result<Arc<dyn AppEmailSender>, String>;
 
 /// TaskService 文件存储构建方法
-pub type BuildTaskServiceFileStorage =
-    fn(&Settings) -> Result<Option<Arc<dyn AppFileStorage>>, String>;
+pub type BuildTaskServiceFileStorage = fn(
+    &Settings,
+    Arc<application_interface::http_client::HttpClientFactory>,
+) -> Result<Option<Arc<dyn AppFileStorage>>, String>;
 
 /// TaskService 日志构建上下文
 pub struct TaskServiceLoggerBuilderContext {
-    /// 数据库连接池
-    pub db_pool: Arc<DatabaseConnection>,
+    /// 独立日志写连接池；本地文件组件为空
+    pub log_db_pool: Option<Arc<DatabaseConnection>>,
 
     /// 标识生成器
     pub identifier_generator: IdentifierGenerator,
@@ -69,4 +76,11 @@ pub struct TaskServiceLoggerBuilderContext {
 
 /// TaskService 日志运行时构建方法
 pub type BuildTaskServiceLoggerRuntime =
-    fn(&Settings, &TaskServiceLoggerBuilderContext) -> Result<LoggerRuntime, String>;
+    for<'a> fn(
+        &'a Settings,
+        &'a TaskServiceLoggerBuilderContext,
+    ) -> Pin<Box<dyn Future<Output = Result<LoggerRuntime, String>> + Send + 'a>>;
+
+/// 事件后端由运行入口选择。
+pub type BuildTaskServiceEventTransport =
+    fn(&Settings, &IdentifierGenerator) -> Result<Arc<dyn event_bus::EventTransport>, String>;

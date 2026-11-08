@@ -1,8 +1,9 @@
 use application_model::llm::models::{
-    EditLlmAppDto, EditLlmModelDto, LlmAppIdQuery, LlmAppPageListDto, LlmAppPageRequest,
-    LlmConversationPageListDto, LlmConversationPageRequest, LlmModelIdQuery, LlmModelPageListDto,
+    EditLlmAppDto, EditLlmModelDto, LlmAppDto, LlmAppIdQuery, LlmAppPageRequest,
+    LlmConversationDto, LlmConversationPageRequest, LlmModelDto, LlmModelIdQuery,
     LlmModelPageRequest, LlmModelSelectDto, TestLlmAppRequest, TestLlmAppResult,
 };
+use application_model::shared::models::PageListDto;
 use axum::{
     extract::State,
     http::StatusCode,
@@ -21,7 +22,7 @@ use crate::state::AppState;
     path = "/LlmModel/GetLlmModelList",
     params(LlmModelPageRequest),
     responses(
-        (status = 200, description = "查询成功", body = LlmModelPageListDto),
+        (status = 200, description = "查询成功", body = PageListDto<LlmModelDto>),
         (status = 400, description = "请求参数无效"),
         (status = 401, description = "未授权"),
         (status = 500, description = "服务器内部错误"),
@@ -92,7 +93,7 @@ pub async fn create_llm_model(
     let current_user = user_ctx.current_user();
 
     match service.create_llm_model(dto, &current_user).await {
-        Ok(id) => Ok((StatusCode::OK, id).into_response()),
+        Ok(id) => Ok((StatusCode::OK, Json(id)).into_response()),
         Err(error) => Err(error.into()),
     }
 }
@@ -163,7 +164,7 @@ pub async fn delete_llm_model(
     path = "/Operations/GetLlmAppList",
     params(LlmAppPageRequest),
     responses(
-        (status = 200, description = "查询成功", body = LlmAppPageListDto),
+        (status = 200, description = "查询成功", body = PageListDto<LlmAppDto>),
         (status = 400, description = "请求参数无效"),
         (status = 401, description = "未授权"),
         (status = 500, description = "服务器内部错误"),
@@ -209,7 +210,7 @@ pub async fn create_llm_app(
     let current_user = user_ctx.current_user();
 
     match service.create_llm_app(dto, &current_user).await {
-        Ok(llm_app_id) => Ok((StatusCode::OK, llm_app_id).into_response()),
+        Ok(llm_app_id) => Ok((StatusCode::OK, Json(llm_app_id)).into_response()),
         Err(error) => Err(error.into()),
     }
 }
@@ -296,13 +297,17 @@ pub async fn delete_llm_app(
 )]
 pub async fn test_llm_app(
     State(app_state): State<Arc<AppState>>,
-    _user_ctx: UserContext,
+    user_ctx: UserContext,
+    cancellation: webapi_core::request_cancellation::RequestCancellation,
     Json(request): Json<TestLlmAppRequest>,
 ) -> Result<Response, AppError> {
     let adapter = AdminLlmApplicationAdapter::new(app_state.as_ref());
     let service = adapter.llm_app();
 
-    match service.test_llm_app(request).await {
+    match service
+        .test_llm_app_with_cancellation(user_ctx.current_user().user_id, request, cancellation.0)
+        .await
+    {
         Ok(result) => Ok((StatusCode::OK, Json(result)).into_response()),
         Err(error) => Err(error.into()),
     }
@@ -314,7 +319,7 @@ pub async fn test_llm_app(
     path = "/Operations/GetLlmConversationList",
     params(LlmConversationPageRequest),
     responses(
-        (status = 200, description = "查询成功", body = LlmConversationPageListDto),
+        (status = 200, description = "查询成功", body = PageListDto<LlmConversationDto>),
         (status = 400, description = "请求参数无效"),
         (status = 401, description = "未授权"),
         (status = 500, description = "服务器内部错误"),

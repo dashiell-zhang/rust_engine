@@ -1,0 +1,29 @@
+name: rust-engine-dev
+
+services:
+  dev:
+    build:
+      context: .
+      dockerfile: presentation/admin_webapi/Dockerfile
+      target: dev
+    init: true
+    working_dir: /workspace
+    command: ["sleep", "infinity"]
+    environment:
+      APP_ENVIRONMENT: Development
+      CARGO_TARGET_DIR: /cargo-target
+      # 控制首次编译的内存占用，可通过宿主环境变量调整。
+      CARGO_BUILD_JOBS: ${CARGO_BUILD_JOBS:-4}
+    volumes:
+      - .:/workspace
+      - cargo-registry:/usr/local/cargo/registry
+      - cargo-git:/usr/local/cargo/git
+      - cargo-target:/cargo-target
+    ports:
+      - "127.0.0.1:3000:3000"
+      - "127.0.0.1:3001:3001"
+
+volumes:
+  cargo-registry:
+  cargo-git:
+  cargo-target:

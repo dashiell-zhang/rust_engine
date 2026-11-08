@@ -1,0 +1,30 @@
+[
+  {
+    "kind": "Sql",
+    "value": "ALTER TABLE \"QueueTask\" DROP CONSTRAINT \"fk-QueueTask-ParentTaskId\""
+  },
+  {
+    "kind": "Sql",
+    "value": "DROP INDEX \"IX_QueueTask_ParentTaskId\""
+  },
+  {
+    "kind": "Sql",
+    "value": "ALTER TABLE \"Order\" ALTER COLUMN \"Price\" TYPE decimal(38, 2)"
+  },
+  {
+    "kind": "Sql",
+    "value": "ALTER TABLE \"Order\" ALTER COLUMN \"PayPrice\" TYPE decimal(38, 2)"
+  },
+  {
+    "kind": "Sql",
+    "value": "ALTER TABLE \"Product\" ALTER COLUMN \"Price\" TYPE decimal(38, 2)"
+  },
+  {
+    "kind": "Sql",
+    "value": "ALTER TABLE \"QueueTask\" ALTER COLUMN \"Status\" SET DEFAULT 0"
+  },
+  {
+    "kind": "Sql",
+    "value": "ALTER TABLE \"StoredFile\" ALTER COLUMN \"Sort\" SET DEFAULT 0"
+  }
+]

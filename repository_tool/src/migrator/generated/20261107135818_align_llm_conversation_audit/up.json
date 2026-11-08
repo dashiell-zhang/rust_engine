@@ -1,0 +1,14 @@
+[
+  {
+    "kind": "Sql",
+    "value": "ALTER TABLE \"LlmConversation\" ADD COLUMN \"DeleteUserId\" bigint"
+  },
+  {
+    "kind": "Sql",
+    "value": "CREATE INDEX \"IX_LlmConversation_DeleteUserId\" ON \"LlmConversation\" (\"DeleteUserId\")"
+  },
+  {
+    "kind": "Sql",
+    "value": "ALTER TABLE \"LlmConversation\" ADD CONSTRAINT \"fk-LlmConversation-DeleteUserId\" FOREIGN KEY (\"DeleteUserId\") REFERENCES \"User\" (\"Id\") ON DELETE RESTRICT ON UPDATE NO ACTION"
+  }
+]

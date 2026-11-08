@@ -1,28 +1,32 @@
+use repository_core::versioned::insert_many_versioned;
+pub mod diagnostics;
+mod file_format;
+pub mod query;
+pub mod schema;
+pub mod spool;
+mod writer;
+use file_format::DatabaseFileLogLine;
+
 use std::{
     collections::BTreeSet,
-    fs::{self as std_fs, File as StdFile},
-    io::{BufWriter, Write},
+    fs as std_fs,
     path::{Path, PathBuf},
-    sync::{
-        Arc,
-        mpsc::{Receiver, RecvTimeoutError},
-    },
-    thread,
-    time::Duration as StdDuration,
+    sync::Arc,
 };
 
 use chrono::{DateTime, Utc};
 use common::identifier_generator::IdentifierGenerator;
-use logger::{
-    FLUSH_INTERVAL_SECONDS, LogCommand, LoggerRuntime, LoggerSettings, MAX_BATCH_SIZE, PendingLog,
-    get_log_base_path, init_logger_subscriber,
-};
-use repository::log;
+use logger::{LoggerRuntime, LoggerSettings, init_logger_subscriber_with_sink};
+
+use repository_core::partition::{PartitionMaintenance, PartitionedModel};
+/// 数据库日志实体，由日志组件独立维护。
+pub mod log;
+use diagnostics::Operation;
 use sea_orm::{
-    ActiveModelTrait, ActiveValue::Set, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter,
-    QuerySelect,
+    ActiveValue::Set, ColumnTrait, DatabaseConnection, EntityTrait, ExprTrait, QueryFilter,
+    QuerySelect, TransactionTrait, sea_query::Expr,
 };
-use serde::{Deserialize, Serialize};
+use spool::SpoolFileKind;
 use tokio::{
     fs::{self, File},
     io::{AsyncBufReadExt, BufReader},
@@ -33,277 +37,216 @@ const LOG_FILE_SCAN_LIMIT: usize = 50;
 const SAVE_INTERVAL_SECONDS: u64 = 5;
 const TMP_RECOVER_AGE_SECONDS: i64 = 300;
 
-/// 数据库日志文件中单行的结构
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct DatabaseFileLogLine {
-    /// 日志主键
-    id: i64,
-
-    /// 项目标识
-    project: String,
-
-    /// 机器名称
-    machine_name: String,
-
-    /// 日志级别
-    level: String,
-
-    /// 日志分类
-    category: String,
-
-    /// 日志内容
-    content: String,
-
-    /// 日志创建时间
-    create_time: DateTime<Utc>,
-}
-
 /// 初始化数据库日志组件
 ///
-/// 设置 tracing 全局 subscriber，启动数据库写盘线程、入库任务与清理任务
-/// 返回 `LoggerRuntime` 守卫，drop 时自动刷盘并停止后台任务
-pub fn init_database_logger(
+/// 设置全局 subscriber，启动写盘、入库与清理任务。
+/// 正常退出应调用运行时的 shutdown 排空日志；Drop 取消后台操作。
+pub async fn init_database_logger(
     settings: &LoggerSettings,
     db_pool: Arc<DatabaseConnection>,
     identifier_generator: IdentifierGenerator,
-) -> Result<LoggerRuntime, tracing::subscriber::SetGlobalDefaultError> {
-    let (sender, receiver) = init_logger_subscriber(settings)?;
-
-    let base_path = get_log_base_path();
-    if let Err(error) = std_fs::create_dir_all(&base_path) {
-        eprintln!("创建数据库日志目录失败: {error}");
+    connection: &str,
+    maintenance_lock: Arc<dyn distributed_lock::DistributedLock>,
+) -> Result<LoggerRuntime, String> {
+    settings.validate_log_filter(logger::LoggerProvider::Database)?;
+    if settings.project.trim().is_empty() || settings.database_identity.trim().is_empty() {
+        return Err("日志项目和存储标识不可以为空".to_string());
     }
-
-    let writer_identifier_generator = identifier_generator.clone();
-    let writer_handle = thread::Builder::new()
-        .name("database-log-writer".to_string())
-        .spawn(move || run_database_log_writer(receiver, writer_identifier_generator))
-        .expect("数据库日志写盘线程启动失败");
-
-    let save_handle = tokio::spawn(run_log_save_task(Arc::clone(&db_pool)));
+    if settings.save_days != -1 && settings.save_days <= 0 {
+        return Err("日志保留天数必须为正数或 -1".to_string());
+    }
+    settings.database_buffer.validate()?;
+    let maintenance = PartitionMaintenance::new(
+        Arc::clone(&db_pool),
+        maintenance_lock,
+        settings.database_identity.clone(),
+        vec![log::Model::partition_definition()],
+    )?
+    .start()
+    .await;
+    let base_path =
+        spool::spool_directory(connection, &settings.database_identity, &settings.project)?;
+    std_fs::create_dir_all(&base_path)
+        .map_err(|error| format!("创建数据库日志目录失败: {error}"))?;
+    let diagnostics = diagnostics::Diagnostics::new();
+    let writer = writer::DatabaseLogWriter::start(
+        settings.database_buffer.clone(),
+        identifier_generator,
+        base_path.clone(),
+        diagnostics.clone(),
+    );
+    let filter_handle = init_logger_subscriber_with_sink(
+        settings,
+        writer.clone(),
+        logger::LoggerProvider::Database,
+    )?;
+    diagnostics.publish();
+    let save_handle = tokio::spawn(run_log_save_task(
+        Arc::clone(&db_pool),
+        base_path,
+        diagnostics.clone(),
+    ));
     let clear_handle = tokio::spawn(run_database_log_clear_task(
         Arc::clone(&db_pool),
         settings.save_days,
+        settings.project.clone(),
+        diagnostics,
     ));
-
-    Ok(LoggerRuntime::new(
-        sender,
-        writer_handle,
-        Some(save_handle),
-        Some(clear_handle),
-    ))
-}
-
-/// 数据库日志写盘线程
-fn run_database_log_writer(
-    receiver: Receiver<LogCommand>,
-    identifier_generator: IdentifierGenerator,
-) {
-    let base_path = get_log_base_path();
-    let mut buffer = Vec::with_capacity(MAX_BATCH_SIZE);
-    let flush_interval = StdDuration::from_secs(FLUSH_INTERVAL_SECONDS);
-    let runtime = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .expect("数据库日志运行时创建失败");
-
-    loop {
-        match receiver.recv_timeout(flush_interval) {
-            Ok(LogCommand::Write(pending_log)) => {
-                if let Some(file_log) =
-                    build_database_file_log_line(&runtime, &identifier_generator, pending_log)
-                {
-                    buffer.push(file_log);
-
-                    if buffer.len() >= MAX_BATCH_SIZE {
-                        flush_database_logs(&base_path, &mut buffer);
-                    }
-                }
-            }
-            Ok(LogCommand::Shutdown) => break,
-            Err(RecvTimeoutError::Timeout) => {
-                flush_database_logs(&base_path, &mut buffer);
-            }
-            Err(RecvTimeoutError::Disconnected) => break,
-        }
-    }
-
-    while let Ok(LogCommand::Write(pending_log)) = receiver.try_recv() {
-        if let Some(file_log) =
-            build_database_file_log_line(&runtime, &identifier_generator, pending_log)
-        {
-            if buffer.len() < MAX_BATCH_SIZE {
-                buffer.push(file_log);
-            } else {
-                flush_database_logs(&base_path, &mut buffer);
-                buffer.push(file_log);
-            }
-        }
-    }
-
-    flush_database_logs(&base_path, &mut buffer);
+    LoggerRuntime::new_async(writer, Some(save_handle), Some(clear_handle))
+        .with_filter_handle(filter_handle)
+        .with_background_guard(maintenance)
+        .with_filter_reload(settings)
 }
 
 /// 数据库日志入库任务
-async fn run_log_save_task(db_pool: Arc<DatabaseConnection>) {
+async fn run_log_save_task(
+    db_pool: Arc<DatabaseConnection>,
+    base_path: PathBuf,
+    diagnostics: Arc<diagnostics::Diagnostics>,
+) {
+    let mut next_maintenance = time::Instant::now();
     loop {
-        let base_path = get_log_base_path();
-
-        if let Err(error) = recover_tmp_files(&base_path).await {
-            eprintln!("恢复数据库临时日志文件失败: {error}");
+        if time::Instant::now() >= next_maintenance {
+            if let Err(error) = recover_tmp_files(&base_path, &diagnostics).await {
+                diagnostics.failure(Operation::Recovery, error);
+            }
+            if let Err(error) = refresh_spool(&base_path, &diagnostics).await {
+                diagnostics.failure(Operation::Database, error);
+            }
+            next_maintenance = time::Instant::now() + Duration::from_secs(30);
         }
-
-        if let Err(error) = save_logs_to_database(&db_pool, &base_path).await {
-            eprintln!("数据库日志入库失败: {error}");
+        match save_logs_to_database(&db_pool, &base_path, &diagnostics).await {
+            Ok(processed) if processed > 0 => continue,
+            Ok(_) => {}
+            Err(error) => diagnostics.failure(Operation::Database, error),
         }
-
         time::sleep(Duration::from_secs(SAVE_INTERVAL_SECONDS)).await;
     }
 }
 
 /// 数据库日志清理任务
-async fn run_database_log_clear_task(db_pool: Arc<DatabaseConnection>, save_days: i64) {
+async fn run_database_log_clear_task(
+    db_pool: Arc<DatabaseConnection>,
+    save_days: i64,
+    project: String,
+    diagnostics: Arc<diagnostics::Diagnostics>,
+) {
     if save_days == -1 {
         return;
     }
 
+    // 源 Npgsql 将 DateTimeOffset.MinValue 编码为 -infinity，不能用有限的公元 1 年替代。
+    const MINIMUM: DateTime<Utc> =
+        DateTime::from_timestamp(-62_135_596_800, 0).expect("0001-01-01 UTC");
     loop {
-        let delete_time = Utc::now() - chrono::Duration::days(save_days);
+        let delete_time = chrono::Duration::try_days(save_days)
+            .and_then(|duration| Utc::now().checked_sub_signed(duration))
+            .filter(|cutoff| *cutoff > MINIMUM)
+            .map_or_else(|| Expr::cust("'-infinity'::timestamptz"), Expr::value);
 
         if let Err(error) = log::Entity::delete_many()
-            .filter(log::Column::CreateTime.lte(delete_time))
+            .filter(log::Column::Project.eq(&project))
+            .filter(log::Column::DeleteTime.is_null())
+            .filter(Expr::col(log::Column::CreateTime).lte(delete_time))
             .exec(&*db_pool)
             .await
         {
-            eprintln!("清理数据库日志失败: {error}");
+            diagnostics.failure(Operation::Cleanup, error);
         }
 
         time::sleep(Duration::from_secs(60 * 60 * 24)).await;
     }
 }
 
-/// 批量写入数据库日志文件
-fn flush_database_logs(base_path: &Path, buffer: &mut Vec<DatabaseFileLogLine>) {
-    if buffer.is_empty() {
-        return;
-    }
-
-    let file_name = format!(
-        "batch-{}-{}.log",
-        Utc::now().format("%Y%m%d%H%M%S%3f"),
-        uuid_like_suffix()
-    );
-    let temp_path = base_path.join(format!("{file_name}.tmp"));
-    let final_path = base_path.join(file_name);
-
-    let flush_result = (|| -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let file = StdFile::create(&temp_path)?;
-        let mut writer = BufWriter::new(file);
-
-        for line in buffer.iter() {
-            writer.write_all(serde_json::to_string(line)?.as_bytes())?;
-            writer.write_all(b"\n")?;
-        }
-
-        writer.flush()?;
-        drop(writer);
-
-        std_fs::rename(&temp_path, &final_path)?;
-        Ok(())
-    })();
-
-    if let Err(error) = flush_result {
-        eprintln!("落盘数据库日志文件失败: {error}");
-        let _ = std_fs::remove_file(&temp_path);
-        buffer.clear();
-        return;
-    }
-
-    buffer.clear();
-}
-
 /// 扫描数据库日志文件并写入数据库
 async fn save_logs_to_database(
     db_pool: &DatabaseConnection,
     base_path: &Path,
-) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    if !fs::try_exists(base_path).await? {
-        return Ok(());
-    }
-
-    let mut file_paths = Vec::new();
+    diagnostics: &diagnostics::Diagnostics,
+) -> Result<usize, Box<dyn std::error::Error + Send + Sync>> {
     let mut entries = fs::read_dir(base_path).await?;
-
+    let mut processed = 0;
     while let Some(entry) = entries.next_entry().await? {
-        let path = entry.path();
-
-        if !is_database_batch_log_file(&path) {
+        let log_path = entry.path();
+        if spool::file_kind(&log_path) != Some(SpoolFileKind::Batch)
+            || !entry.file_type().await?.is_file()
+        {
             continue;
         }
-
-        file_paths.push(path);
-    }
-
-    file_paths.sort();
-
-    for log_path in file_paths.into_iter().take(LOG_FILE_SCAN_LIMIT) {
-        let logs = read_database_log_lines(&log_path).await?;
-
+        let (logs, corrupted) = read_database_log_lines(&log_path).await?;
         if !logs.is_empty() {
             insert_log_lines(db_pool, logs).await?;
         }
-
-        fs::remove_file(&log_path).await?;
+        if corrupted {
+            spool::publish_file(&log_path, &log_path.with_extension("log.rejected")).await?;
+            diagnostics.failure(Operation::Quarantine, "日志文件包含损坏行");
+        } else {
+            fs::remove_file(&log_path).await?;
+        }
+        processed += 1;
+        if processed >= LOG_FILE_SCAN_LIMIT {
+            break;
+        }
     }
-
-    Ok(())
+    Ok(processed)
 }
 
 /// 读取单个数据库日志文件
 async fn read_database_log_lines(
     path: &Path,
-) -> Result<Vec<DatabaseFileLogLine>, Box<dyn std::error::Error + Send + Sync>> {
+) -> Result<(Vec<DatabaseFileLogLine>, bool), Box<dyn std::error::Error + Send + Sync>> {
     let file = File::open(path).await?;
-    let reader = BufReader::new(file);
-    let mut lines = reader.lines();
+    let mut reader = BufReader::with_capacity(65536, file);
+    let mut line = Vec::with_capacity(4096);
     let mut logs = Vec::new();
-
-    while let Some(line) = lines.next_line().await? {
-        if line.trim().is_empty() {
-            continue;
+    let mut corrupted = false;
+    let mut first_line = true;
+    loop {
+        let buffer = reader.fill_buf().await?;
+        if buffer.is_empty() {
+            if !line.is_empty() {
+                parse_log_line(&line, first_line, &mut logs, &mut corrupted);
+            }
+            break;
         }
-
-        if let Ok(log_line) = serde_json::from_str::<DatabaseFileLogLine>(&line) {
-            logs.push(log_line);
+        // CR、LF 均为分隔符；CRLF 多出的一条空行被忽略，也支持跨缓冲边界。
+        let end = buffer.iter().position(|byte| matches!(byte, b'\r' | b'\n'));
+        let count = end.unwrap_or(buffer.len());
+        line.extend_from_slice(&buffer[..count]);
+        let consumed = count + usize::from(end.is_some());
+        reader.consume(consumed);
+        if end.is_some() {
+            parse_log_line(&line, first_line, &mut logs, &mut corrupted);
+            first_line = false;
+            if line.capacity() > 65536 {
+                line = Vec::with_capacity(4096);
+            } else {
+                line.clear();
+            }
         }
     }
-
-    Ok(logs)
+    Ok((logs, corrupted))
 }
 
-/// 组装数据库日志结构
-fn build_database_file_log_line(
-    runtime: &tokio::runtime::Runtime,
-    identifier_generator: &IdentifierGenerator,
-    pending_log: PendingLog,
-) -> Option<DatabaseFileLogLine> {
-    let id = match runtime.block_on(identifier_generator.get_id()) {
-        Ok(value) => value,
-        Err(error) => {
-            eprintln!("数据库日志生成 ID 失败: {error}");
-            return None;
-        }
+fn parse_log_line(
+    bytes: &[u8],
+    first: bool,
+    logs: &mut Vec<DatabaseFileLogLine>,
+    corrupted: &mut bool,
+) {
+    let bytes = if first {
+        bytes.strip_prefix(&[0xef, 0xbb, 0xbf]).unwrap_or(bytes)
+    } else {
+        bytes
     };
-
-    Some(DatabaseFileLogLine {
-        id,
-        project: pending_log.project,
-        machine_name: pending_log.machine_name,
-        level: pending_log.level,
-        category: pending_log.category,
-        content: pending_log.content,
-        create_time: pending_log.create_time,
-    })
+    let text = String::from_utf8_lossy(bytes);
+    if text.trim().is_empty() {
+        return;
+    }
+    match serde_json::from_str::<DatabaseFileLogLine>(&text) {
+        Ok(log) if log.id > 0 => logs.push(log),
+        _ => *corrupted = true,
+    }
 }
 
 /// 批量插入数据库日志
@@ -317,22 +260,25 @@ async fn insert_log_lines(
         return Ok(());
     }
 
-    let existing_ids: BTreeSet<i64> = log::Entity::find()
+    let transaction = db_pool.begin().await?;
+    let mut existing_ids: BTreeSet<i64> = log::Entity::find()
         .select_only()
         .column(log::Column::Id)
         .filter(log::Column::Id.is_in(ids))
         .into_tuple::<i64>()
-        .all(db_pool)
+        .all(&transaction)
         .await?
         .into_iter()
         .collect();
 
+    let mut pending = Vec::new();
     for item in logs {
-        if existing_ids.contains(&item.id) {
+        if !existing_ids.insert(item.id) {
             continue;
         }
 
         let active_model = log::ActiveModel {
+            row_version: Default::default(),
             id: Set(item.id),
             project: Set(item.project),
             machine_name: Set(item.machine_name),
@@ -340,63 +286,101 @@ async fn insert_log_lines(
             category: Set(item.category),
             content: Set(item.content),
             create_time: Set(item.create_time.into()),
-            delete_time: Set(None),
+            delete_time: Set(item.delete_time.map(Into::into)),
         };
 
-        active_model.insert(db_pool).await?;
+        pending.push(active_model);
     }
-
+    insert_many_versioned(pending, &transaction).await?;
+    transaction.commit().await?;
     Ok(())
 }
 
-/// 恢复异常中断残留的数据库临时日志文件
+/// 恢复超过五分钟且没有写入者持有的临时文件，不覆盖同名批次。
 async fn recover_tmp_files(
     base_path: &Path,
+    diagnostics: &diagnostics::Diagnostics,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    if !fs::try_exists(base_path).await? {
-        return Ok(());
-    }
-
     let mut entries = fs::read_dir(base_path).await?;
-
     while let Some(entry) = entries.next_entry().await? {
         let path = entry.path();
-        let path_text = path.to_string_lossy();
-
-        if !path_text.ends_with(".log.tmp") || !path_text.contains("batch-") {
+        if spool::file_kind(&path) != Some(SpoolFileKind::Temporary)
+            || !entry.file_type().await?.is_file()
+        {
             continue;
         }
-
-        let metadata = fs::metadata(&path).await?;
-        let modified_time: DateTime<Utc> = metadata.modified()?.into();
-        let age_seconds = (Utc::now() - modified_time).num_seconds();
-
-        if age_seconds < TMP_RECOVER_AGE_SECONDS {
-            continue;
-        }
-
-        let final_path = PathBuf::from(path_text.trim_end_matches(".tmp"));
-
-        if fs::try_exists(&final_path).await? {
-            let _ = fs::remove_file(&path).await;
-        } else {
-            let _ = fs::rename(&path, &final_path).await;
+        if let Err(error) = recover_tmp_file(path).await
+            && error.kind() != std::io::ErrorKind::NotFound
+        {
+            diagnostics.failure(Operation::Recovery, error);
         }
     }
-
     Ok(())
 }
 
-/// 判断是否为数据库批量日志文件
-fn is_database_batch_log_file(path: &Path) -> bool {
-    let Some(file_name) = path.file_name().and_then(|value| value.to_str()) else {
-        return false;
+async fn recover_tmp_file(path: PathBuf) -> std::io::Result<()> {
+    let lock_path = path.clone();
+    let locked = tokio::task::spawn_blocking(move || -> std::io::Result<Option<std::fs::File>> {
+        let file = std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(lock_path)?;
+        if file.metadata()?.modified()?.elapsed().unwrap_or_default()
+            < Duration::from_secs(TMP_RECOVER_AGE_SECONDS as u64)
+        {
+            return Ok(None);
+        }
+        file.try_lock().map_err(std::io::Error::other)?;
+        Ok(Some(file))
+    })
+    .await??;
+    let Some(_lock) = locked else {
+        return Ok(());
     };
-
-    file_name.starts_with("batch-") && file_name.ends_with(".log")
+    let final_path = path.with_extension("");
+    match spool::publish_file(&path, &final_path).await {
+        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+            let recovered = path.with_file_name(format!(
+                "batch-recovered-{}.log",
+                uuid::Uuid::new_v4().simple()
+            ));
+            spool::publish_file(&path, &recovered).await
+        }
+        result => result,
+    }
 }
 
-/// 生成临时文件后缀
-fn uuid_like_suffix() -> String {
-    format!("{:x}", Utc::now().timestamp_nanos_opt().unwrap_or_default())
+async fn refresh_spool(
+    base_path: &Path,
+    diagnostics: &diagnostics::Diagnostics,
+) -> std::io::Result<()> {
+    use std::sync::atomic::Ordering;
+    let mut entries = fs::read_dir(base_path).await?;
+    let (mut files, mut bytes, mut rejected) = (0u64, 0u64, 0u64);
+    while let Some(entry) = entries.next_entry().await? {
+        let Some(kind) = spool::file_kind(&entry.path()) else {
+            continue;
+        };
+        if !entry.file_type().await?.is_file() {
+            continue;
+        }
+        if kind == SpoolFileKind::Rejected {
+            rejected += 1;
+            continue;
+        }
+        match entry.metadata().await {
+            Ok(metadata) => {
+                files += 1;
+                bytes = bytes.saturating_add(metadata.len());
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error),
+        }
+    }
+    diagnostics.spool_files.store(files, Ordering::Relaxed);
+    diagnostics.spool_bytes.store(bytes, Ordering::Relaxed);
+    diagnostics
+        .rejected_files
+        .store(rejected, Ordering::Relaxed);
+    Ok(())
 }

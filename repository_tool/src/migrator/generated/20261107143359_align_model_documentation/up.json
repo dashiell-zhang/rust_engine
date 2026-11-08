@@ -1,0 +1,1126 @@
+[
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON TABLE \"AppSetting\" IS E'应用配置实体'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"AppSetting\".\"Id\" IS E'配置主键'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"AppSetting\".\"Module\" IS E'配置模块'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"AppSetting\".\"GroupId\" IS E'配置分组 ID'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"AppSetting\".\"Key\" IS E'配置键'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"AppSetting\".\"Value\" IS E'配置值'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"AppSetting\".\"CreateTime\" IS E'创建时间'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"AppSetting\".\"DeleteTime\" IS E'删除时间'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON TABLE \"Article\" IS E'文章实体'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"Article\".\"Id\" IS E'文章主键'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"Article\".\"CategoryId\" IS E'分类 ID'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"Article\".\"Title\" IS E'标题'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"Article\".\"Content\" IS E'正文内容'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"Article\".\"IsRecommend\" IS E'是否推荐'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"Article\".\"IsDisplay\" IS E'是否显示'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"Article\".\"Sort\" IS E'排序值'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"Article\".\"ClickCount\" IS E'点击次数'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"Article\".\"Digest\" IS E'摘要'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"Article\".\"CreateTime\" IS E'创建时间'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"Article\".\"DeleteTime\" IS E'删除时间'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"Article\".\"CreateUserId\" IS E'创建人用户 ID'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"Article\".\"DeleteUserId\" IS E'删除人用户 ID'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON TABLE \"Category\" IS E'文章分类实体'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"Category\".\"Id\" IS E'分类主键'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"Category\".\"Name\" IS E'分类名称'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"Category\".\"Sort\" IS E'排序值'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"Category\".\"ParentId\" IS E'父级分类 ID'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"Category\".\"Remark\" IS E'分类备注'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"Category\".\"CreateTime\" IS E'创建时间'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"Category\".\"DeleteTime\" IS E'删除时间'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"Category\".\"CreateUserId\" IS E'创建人用户 ID'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"Category\".\"DeleteUserId\" IS E'删除人用户 ID'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON TABLE \"DataUpdateLog\" IS E'数据变更日志实体'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"DataUpdateLog\".\"Id\" IS E'日志主键'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"DataUpdateLog\".\"Table\" IS E'业务表名'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"DataUpdateLog\".\"TableId\" IS E'业务主键'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"DataUpdateLog\".\"Content\" IS E'变更内容'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"DataUpdateLog\".\"ActionUserId\" IS E'操作人用户 ID'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"DataUpdateLog\".\"IpAddress\" IS E'IP 地址'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"DataUpdateLog\".\"DeviceMark\" IS E'设备标识'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"DataUpdateLog\".\"CreateTime\" IS E'创建时间'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"DataUpdateLog\".\"DeleteTime\" IS E'删除时间'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON TABLE \"Function\" IS E'功能节点实体'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"Function\".\"Id\" IS E'功能主键'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"Function\".\"Name\" IS E'功能名称'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"Function\".\"Sign\" IS E'功能标识'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"Function\".\"Remark\" IS E'功能备注'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"Function\".\"ParentId\" IS E'父节点 ID'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"Function\".\"Type\" IS E'节点类型'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"Function\".\"CreateTime\" IS E'创建时间'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"Function\".\"DeleteTime\" IS E'删除时间'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON TABLE \"FunctionAuthorize\" IS E'功能授权实体'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"FunctionAuthorize\".\"Id\" IS E'授权主键'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"FunctionAuthorize\".\"FunctionId\" IS E'功能 ID'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"FunctionAuthorize\".\"RoleId\" IS E'角色 ID'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"FunctionAuthorize\".\"UserId\" IS E'用户 ID'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"FunctionAuthorize\".\"CreateTime\" IS E'创建时间'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"FunctionAuthorize\".\"DeleteTime\" IS E'删除时间'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"FunctionAuthorize\".\"UpdateTime\" IS E'更新时间'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"FunctionAuthorize\".\"CreateUserId\" IS E'创建人用户 ID'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"FunctionAuthorize\".\"UpdateUserId\" IS E'更新人用户 ID'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"FunctionAuthorize\".\"DeleteUserId\" IS E'删除人用户 ID'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON TABLE \"FunctionRoute\" IS E'功能路由绑定实体'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"FunctionRoute\".\"Id\" IS E'路由绑定主键'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"FunctionRoute\".\"FunctionId\" IS E'功能 ID'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"FunctionRoute\".\"Module\" IS E'模块名称'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"FunctionRoute\".\"Route\" IS E'路由地址'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"FunctionRoute\".\"Remark\" IS E'路由备注'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"FunctionRoute\".\"CreateTime\" IS E'创建时间'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"FunctionRoute\".\"DeleteTime\" IS E'删除时间'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON TABLE \"Link\" IS E'友情链接实体'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"Link\".\"Id\" IS E'友链主键'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"Link\".\"Name\" IS E'名称'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"Link\".\"Url\" IS E'链接地址'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"Link\".\"Sort\" IS E'排序值'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"Link\".\"Remark\" IS E'备注'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"Link\".\"CreateTime\" IS E'创建时间'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"Link\".\"DeleteTime\" IS E'删除时间'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"Link\".\"CreateUserId\" IS E'创建人用户 ID'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"Link\".\"DeleteUserId\" IS E'删除人用户 ID'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON TABLE \"LlmApp\" IS E'LLM 应用配置实体\n\n存储 LLM 应用业务配置'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"LlmApp\".\"Id\" IS E'主键 ID'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"LlmApp\".\"Code\" IS E'应用标记'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"LlmApp\".\"Name\" IS E'应用名称'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"LlmApp\".\"LlmModelId\" IS E'关联的 LLM 模型 ID'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"LlmApp\".\"SystemPromptTemplate\" IS E'System 提示词模板'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"LlmApp\".\"PromptTemplate\" IS E'User 提示词模板'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"LlmApp\".\"ExtraBodyJson\" IS E'额外请求参数 JSON 字符串'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"LlmApp\".\"IsEnable\" IS E'是否启用'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"LlmApp\".\"Remark\" IS E'备注'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"LlmApp\".\"CreateTime\" IS E'创建时间'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"LlmApp\".\"DeleteTime\" IS E'软删除时间'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"LlmApp\".\"UpdateTime\" IS E'更新时间'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"LlmApp\".\"CreateUserId\" IS E'创建人 ID'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"LlmApp\".\"UpdateUserId\" IS E'更新人 ID'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"LlmApp\".\"DeleteUserId\" IS E'删除人 ID'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON TABLE \"LlmConversation\" IS E'LLM 会话记录实体\n\n记录每次 LLM 调用的系统提示词、用户输入与模型输出'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"LlmConversation\".\"Id\" IS E'主键 ID'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"LlmConversation\".\"LlmAppId\" IS E'关联的 LLM 应用配置 ID'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"LlmConversation\".\"SystemContent\" IS E'系统提示词内容'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"LlmConversation\".\"UserContent\" IS E'用户消息内容'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"LlmConversation\".\"AssistantContent\" IS E'助手回复内容'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"LlmConversation\".\"CreateUserId\" IS E'创建人用户 ID'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"LlmConversation\".\"DeleteUserId\" IS E'删除人用户 ID，与源 CD_User 基类一致。'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"LlmConversation\".\"CreateTime\" IS E'创建时间'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"LlmConversation\".\"DeleteTime\" IS E'软删除时间'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON TABLE \"LlmModel\" IS E'LLM 模型配置实体\n\n存储模型连接信息与协议类型'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"LlmModel\".\"Id\" IS E'主键 ID'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"LlmModel\".\"Name\" IS E'模型显示名称'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"LlmModel\".\"ModelId\" IS E'模型标识'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"LlmModel\".\"Endpoint\" IS E'API 端点地址'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"LlmModel\".\"ApiKey\" IS E'接口密钥'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"LlmModel\".\"ProtocolType\" IS E'协议类型（0=Chat, 1=Responses, 2=Anthropic）'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"LlmModel\".\"IsEnable\" IS E'是否启用'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"LlmModel\".\"Remark\" IS E'备注'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"LlmModel\".\"CreateTime\" IS E'创建时间'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"LlmModel\".\"DeleteTime\" IS E'软删除时间'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"LlmModel\".\"UpdateTime\" IS E'更新时间'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"LlmModel\".\"CreateUserId\" IS E'创建人 ID'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"LlmModel\".\"UpdateUserId\" IS E'更新人 ID'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"LlmModel\".\"DeleteUserId\" IS E'删除人 ID'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON TABLE \"Order\" IS E'订单实体'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"Order\".\"Id\" IS E'订单主键'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"Order\".\"OrderNo\" IS E'订单号'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"Order\".\"Type\" IS E'订单类型'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"Order\".\"Price\" IS E'订单金额'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"Order\".\"SerialNo\" IS E'外部流水号'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"Order\".\"State\" IS E'订单状态'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"Order\".\"PayType\" IS E'支付方式'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"Order\".\"PayState\" IS E'是否已支付'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"Order\".\"PayTime\" IS E'支付时间'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"Order\".\"PayPrice\" IS E'实付金额'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"Order\".\"CreateTime\" IS E'创建时间'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"Order\".\"DeleteTime\" IS E'删除时间'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"Order\".\"UpdateTime\" IS E'更新时间'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"Order\".\"CreateUserId\" IS E'创建人用户 ID'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"Order\".\"UpdateUserId\" IS E'更新人用户 ID'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"Order\".\"DeleteUserId\" IS E'删除人用户 ID'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON TABLE \"OrderDetail\" IS E'订单明细实体'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"OrderDetail\".\"Id\" IS E'明细主键'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"OrderDetail\".\"OrderId\" IS E'订单 ID'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"OrderDetail\".\"ProductId\" IS E'商品 ID'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"OrderDetail\".\"Number\" IS E'购买数量'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"OrderDetail\".\"CreateTime\" IS E'创建时间'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"OrderDetail\".\"DeleteTime\" IS E'删除时间'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON TABLE \"Product\" IS E'商品实体'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"Product\".\"Id\" IS E'商品主键'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"Product\".\"SKU\" IS E'商品 SKU'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"Product\".\"Name\" IS E'商品名称'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"Product\".\"Price\" IS E'商品价格'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"Product\".\"Detail\" IS E'商品详情'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"Product\".\"CreateTime\" IS E'创建时间'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"Product\".\"DeleteTime\" IS E'删除时间'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"Product\".\"UpdateTime\" IS E'更新时间'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"Product\".\"CreateUserId\" IS E'创建人用户 ID'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"Product\".\"UpdateUserId\" IS E'更新人用户 ID'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"Product\".\"DeleteUserId\" IS E'删除人用户 ID'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON TABLE \"QueueTask\" IS E'队列任务实体'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"QueueTask\".\"Id\" IS E'队列任务主键'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"QueueTask\".\"Name\" IS E'任务名称'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"QueueTask\".\"Parameter\" IS E'任务参数'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"QueueTask\".\"Status\" IS E'执行状态'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"QueueTask\".\"Count\" IS E'已开始执行的次数，首次执行也计数。'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"QueueTask\".\"FirstTime\" IS E'首次执行时间'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"QueueTask\".\"LastTime\" IS E'最近执行时间'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"QueueTask\".\"SuccessTime\" IS E'成功完成时间'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"QueueTask\".\"CreateTime\" IS E'创建时间'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"QueueTask\".\"DeleteTime\" IS E'删除时间'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"QueueTask\".\"PlanTime\" IS E'计划执行时间'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"QueueTask\".\"WorkerId\" IS E'当前执行实例标识'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"QueueTask\".\"LeaseExpireTime\" IS E'执行租约过期时间'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"QueueTask\".\"CallbackName\" IS E'回调任务名称'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"QueueTask\".\"CallbackParameter\" IS E'回调任务参数'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"QueueTask\".\"ChildSuccessTime\" IS E'子任务全部成功时间'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"QueueTask\".\"ParentTaskId\" IS E'父任务 ID'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON TABLE \"RegionArea\" IS E'区县字典实体'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"RegionArea\".\"Id\" IS E'区县主键'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"RegionArea\".\"Area\" IS E'区县名称'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"RegionArea\".\"CityId\" IS E'城市 ID'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"RegionArea\".\"CreateTime\" IS E'创建时间'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"RegionArea\".\"DeleteTime\" IS E'删除时间'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON TABLE \"RegionCity\" IS E'城市字典实体'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"RegionCity\".\"Id\" IS E'城市主键'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"RegionCity\".\"City\" IS E'城市名称'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"RegionCity\".\"ProvinceId\" IS E'省份 ID'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"RegionCity\".\"CreateTime\" IS E'创建时间'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"RegionCity\".\"DeleteTime\" IS E'删除时间'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON TABLE \"RegionProvince\" IS E'省份字典实体'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"RegionProvince\".\"Id\" IS E'省份主键'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"RegionProvince\".\"Province\" IS E'省份名称'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"RegionProvince\".\"CreateTime\" IS E'创建时间'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"RegionProvince\".\"DeleteTime\" IS E'删除时间'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON TABLE \"RegionTown\" IS E'乡镇字典实体'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"RegionTown\".\"Id\" IS E'乡镇主键'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"RegionTown\".\"Town\" IS E'乡镇名称'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"RegionTown\".\"AreaId\" IS E'区县 ID'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"RegionTown\".\"CreateTime\" IS E'创建时间'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"RegionTown\".\"DeleteTime\" IS E'删除时间'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON TABLE \"Role\" IS E'角色实体'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"Role\".\"Id\" IS E'角色主键'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"Role\".\"Name\" IS E'角色名称'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"Role\".\"Remark\" IS E'角色备注'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"Role\".\"CreateTime\" IS E'创建时间'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"Role\".\"DeleteTime\" IS E'删除时间'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"Role\".\"Code\" IS E'角色编码'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON TABLE \"StoredFile\" IS E'文件记录实体'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"StoredFile\".\"Id\" IS E'文件主键'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"StoredFile\".\"Name\" IS E'文件名称'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"StoredFile\".\"Path\" IS E'文件相对路径'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"StoredFile\".\"Table\" IS E'所属业务表名'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"StoredFile\".\"TableId\" IS E'所属业务主键'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"StoredFile\".\"Sign\" IS E'文件标记'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"StoredFile\".\"Sort\" IS E'排序值'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"StoredFile\".\"CreateTime\" IS E'创建时间'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"StoredFile\".\"DeleteTime\" IS E'删除时间'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"StoredFile\".\"CreateUserId\" IS E'创建人用户 ID'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"StoredFile\".\"DeleteUserId\" IS E'删除人用户 ID'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"StoredFile\".\"Length\" IS E'文件长度'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"StoredFile\".\"IsPublicRead\" IS E'是否允许公开读取'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON TABLE \"TaskSetting\" IS E'定时任务配置实体'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"TaskSetting\".\"Id\" IS E'任务配置主键'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"TaskSetting\".\"Name\" IS E'任务名称'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"TaskSetting\".\"Category\" IS E'任务分类'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"TaskSetting\".\"Semaphore\" IS E'并发信号量'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"TaskSetting\".\"Cron\" IS E'Cron 表达式'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"TaskSetting\".\"Remark\" IS E'备注'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"TaskSetting\".\"CreateTime\" IS E'创建时间'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"TaskSetting\".\"DeleteTime\" IS E'删除时间'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"TaskSetting\".\"UpdateTime\" IS E'更新时间'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"TaskSetting\".\"CreateUserId\" IS E'创建人用户 ID'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"TaskSetting\".\"UpdateUserId\" IS E'更新人用户 ID'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"TaskSetting\".\"DeleteUserId\" IS E'删除人用户 ID'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"TaskSetting\".\"IsEnable\" IS E'是否启用'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"TaskSetting\".\"Parameter\" IS E'任务参数'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON TABLE \"User\" IS E'用户实体'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"User\".\"Id\" IS E'用户主键'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"User\".\"UserName\" IS E'用户名'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"User\".\"Name\" IS E'用户姓名；数据库比较遵循 citext，保留保存时的原始大小写。'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"User\".\"Phone\" IS E'手机号'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"User\".\"Email\" IS E'邮箱'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"User\".\"Password\" IS E'密码散列值'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"User\".\"CreateTime\" IS E'创建时间'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"User\".\"DeleteTime\" IS E'删除时间'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"User\".\"UpdateTime\" IS E'更新时间'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"User\".\"CreateUserId\" IS E'创建人用户 ID'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"User\".\"UpdateUserId\" IS E'更新人用户 ID'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"User\".\"DeleteUserId\" IS E'删除人用户 ID'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON TABLE \"UserBindExternal\" IS E'用户外部账号绑定实体'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"UserBindExternal\".\"Id\" IS E'绑定主键'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"UserBindExternal\".\"UserId\" IS E'用户 ID'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"UserBindExternal\".\"AppName\" IS E'外部应用名称'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"UserBindExternal\".\"AppId\" IS E'外部应用 ID'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"UserBindExternal\".\"OpenId\" IS E'外部账号 OpenId'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"UserBindExternal\".\"CreateTime\" IS E'创建时间'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"UserBindExternal\".\"DeleteTime\" IS E'删除时间'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON TABLE \"UserInfo\" IS E'用户资料实体'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"UserInfo\".\"Id\" IS E'用户资料主键'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"UserInfo\".\"UserId\" IS E'用户 ID'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"UserInfo\".\"RegionAreaId\" IS E'区县 ID'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"UserInfo\".\"Address\" IS E'地址'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"UserInfo\".\"Sex\" IS E'性别'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"UserInfo\".\"UpdateUserId\" IS E'更新人用户 ID'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"UserInfo\".\"CreateTime\" IS E'创建时间'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"UserInfo\".\"DeleteTime\" IS E'删除时间'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"UserInfo\".\"UpdateTime\" IS E'更新时间'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON TABLE \"UserRole\" IS E'用户角色关系实体'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"UserRole\".\"Id\" IS E'关系主键'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"UserRole\".\"RoleId\" IS E'角色 ID'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"UserRole\".\"UserId\" IS E'用户 ID'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"UserRole\".\"CreateTime\" IS E'创建时间'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"UserRole\".\"DeleteTime\" IS E'删除时间'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"UserRole\".\"UpdateTime\" IS E'更新时间'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"UserRole\".\"CreateUserId\" IS E'创建人用户 ID'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"UserRole\".\"UpdateUserId\" IS E'更新人用户 ID'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"UserRole\".\"DeleteUserId\" IS E'删除人用户 ID'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON TABLE \"UserToken\" IS E'用户 Token 实体'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"UserToken\".\"Id\" IS E'Token 主键'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"UserToken\".\"UserId\" IS E'用户 ID'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"UserToken\".\"LastId\" IS E'最后访问标识'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"UserToken\".\"CreateTime\" IS E'创建时间'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"UserToken\".\"DeleteTime\" IS E'删除时间'"
+  }
+]

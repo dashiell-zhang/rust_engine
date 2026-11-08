@@ -2,17 +2,11 @@
 
 pub use extensions::SoftDeleteEntityExt;
 
-/// 数据库健康检查工具
-pub mod database_health;
+/// 业务写模型在 public 中的独立迁移历史表。
+pub const MIGRATION_HISTORY_TABLE: &str = "__EFMigrationsHistory_Business";
 
 /// 仓储查询扩展
 pub mod extensions;
-
-/// SQL 命令策略工具
-pub mod sql_command;
-
-/// 数据库只读连接
-pub mod read_database;
 
 /// 应用配置实体
 pub mod app_setting;
@@ -50,9 +44,6 @@ pub mod llm_model;
 /// LLM 对话记录实体
 pub mod llm_conversation;
 
-/// 日志实体
-pub mod log;
-
 /// 订单实体
 pub mod order;
 
@@ -61,9 +52,6 @@ pub mod order_detail;
 
 /// 商品实体
 pub mod product;
-
-/// 队列任务实体
-pub mod queue_task;
 
 /// 区县字典实体
 pub mod region_area;
@@ -80,9 +68,6 @@ pub mod region_town;
 /// 角色实体
 pub mod role;
 
-/// 任务配置实体
-pub mod task_setting;
-
 /// 用户实体
 pub mod user;
 
@@ -97,3 +82,35 @@ pub mod user_role;
 
 /// 用户 Token 实体
 pub mod user_token;
+
+// 当前模型没有 JSON 索引声明，但仍参与工具拥有的旧索引差异检查。
+repository_core::impl_json_index_model!(
+    app_setting::Entity,
+    article::Entity,
+    category::Entity,
+    data_update_log::Entity,
+    file::Entity,
+    function::Entity,
+    function_authorize::Entity,
+    function_route::Entity,
+    link::Entity,
+    llm_app::Entity,
+    llm_model::Entity,
+    llm_conversation::Entity,
+    order::Entity,
+    order_detail::Entity,
+    product::Entity,
+    region_area::Entity,
+    region_city::Entity,
+    region_province::Entity,
+    region_town::Entity,
+    role::Entity,
+    user::Entity,
+    user_bind_external::Entity,
+    user_info::Entity,
+    user_role::Entity,
+    user_token::Entity,
+);
+
+/// 当前模型迁移元数据。
+pub mod schema;

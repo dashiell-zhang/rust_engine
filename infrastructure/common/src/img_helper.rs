@@ -1,136 +1,296 @@
-use font8x8::{
-    BASIC_FONTS, BLOCK_FONTS, BOX_FONTS, GREEK_FONTS, HIRAGANA_FONTS, LATIN_FONTS, MISC_FONTS,
-    SGA_FONTS, UnicodeFonts,
+mod qr_mask;
+
+use qr_mask::{QrMatrix, select_mask};
+use qrcode::{EcLevel, Version, bits::Bits, types::QrError};
+use skia_safe::{
+    AlphaType, BlendMode, Codec, Color, ColorType, Data, EncodedImageFormat, Font, FontMgr,
+    FontStyle, Image, ImageInfo, Paint, Pixmap, Rect, SamplingOptions, canvas::SrcRectConstraint,
+    codec, images, surfaces,
 };
-use image::{
-    DynamicImage, ImageBuffer, ImageFormat, Luma, Rgba, RgbaImage,
-    imageops::{FilterType, crop_imm},
-};
-use qrcode::QrCode;
-use std::io::Cursor;
+use std::borrow::Cow;
 use std::path::Path;
 
 /// 生成二维码
 pub fn get_qr_code(text: &str) -> Result<Vec<u8>, image::ImageError> {
-    let code = QrCode::new(text.as_bytes())
+    let code = encode_qr_code(text)
         .map_err(|error| image::ImageError::IoError(std::io::Error::other(error.to_string())))?;
-    let image: ImageBuffer<Luma<u8>, Vec<u8>> =
-        code.render::<Luma<u8>>().min_dimensions(500, 500).build();
-    let dynamic = DynamicImage::ImageLuma8(image);
-    encode_png(dynamic)
+    let info = ImageInfo::new_n32_premul((500, 500), None);
+    let mut surface = surfaces::raster(&info, None, None)
+        .ok_or_else(|| invalid_image_input("无法创建二维码画布"))?;
+    let canvas = surface.canvas();
+    canvas.clear(Color::WHITE);
+    let mut paint = Paint::default();
+    paint.set_color(Color::BLACK);
+    // 默认四模块留白；按源渲染器合并连续黑色模块，以单精度矩形坐标绘制。
+    let cell = 500.0 / (code.width() + 8) as f32;
+    for y in 0..code.width() {
+        let mut x = 0;
+        while x < code.width() {
+            if !code.is_dark(x, y) {
+                x += 1;
+                continue;
+            }
+            let start = x;
+            while x < code.width() && code.is_dark(x, y) {
+                x += 1;
+            }
+            let top = (y + 4) as f32 * cell;
+            canvas.draw_rect(
+                Rect::new(
+                    (start + 4) as f32 * cell,
+                    top,
+                    (x + 4) as f32 * cell,
+                    top + cell,
+                ),
+                &paint,
+            );
+        }
+    }
+    encode_skia_png(&surface.image_snapshot())
+}
+
+/// 源默认采用单一编码段，不使用库的混合段优化或 Shift-JIS 自动识别。
+fn encode_qr_code(text: &str) -> Result<QrMatrix, QrError> {
+    let numeric = !text.is_empty() && text.bytes().all(|value| value.is_ascii_digit());
+    let alphanumeric = !text.is_empty()
+        && text.bytes().all(|value| {
+            value.is_ascii_digit() || value.is_ascii_uppercase() || b" $%*+-./:".contains(&value)
+        });
+    let (data, eci): (Cow<'_, [u8]>, Option<u32>) = if text.is_ascii() {
+        (Cow::Borrowed(text.as_bytes()), None)
+    } else if text.chars().all(|value| u32::from(value) <= 255) {
+        (
+            Cow::Owned(text.chars().map(|value| value as u8).collect()),
+            Some(3),
+        )
+    } else {
+        (Cow::Borrowed(text.as_bytes()), Some(26))
+    };
+    // 标准二维码 L 级最多容纳 7089 个数字；其他模式容量更小。
+    if data.len() > 7089 {
+        return Err(QrError::DataTooLong);
+    }
+    for version in 1..=40 {
+        let mut bits = Bits::new(Version::Normal(version));
+        if let Some(eci) = eci {
+            bits.push_eci_designator(eci)?;
+        }
+        let encoded = if numeric {
+            bits.push_numeric_data(&data)
+        } else if alphanumeric {
+            bits.push_alphanumeric_data(&data)
+        } else {
+            // 空字符串也明确写入长度为零的 Byte 段。
+            bits.push_byte_data(&data)
+        };
+        match encoded.and_then(|()| bits.push_terminator(EcLevel::L)) {
+            Ok(()) => return select_mask(bits),
+            Err(QrError::DataTooLong) => continue,
+            Err(error) => return Err(error),
+        }
+    }
+    Err(QrError::DataTooLong)
 }
 
 /// 从图片截取部分区域
 pub fn screenshot(
     from_image_path: impl AsRef<Path>,
-    offset_x: u32,
-    offset_y: u32,
-    width: u32,
-    height: u32,
+    offset_x: i32,
+    offset_y: i32,
+    width: i32,
+    height: i32,
 ) -> Result<Vec<u8>, image::ImageError> {
-    let image = image::open(from_image_path)?;
-    if width == 0 || height == 0 {
-        return Err(invalid_image_input("截图宽高必须大于 0"));
+    let path = from_image_path.as_ref();
+    if !path.is_file() {
+        return Err(image::ImageError::IoError(std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            "图片文件不存在",
+        )));
     }
-
-    let Some(end_x) = offset_x.checked_add(width) else {
-        return Err(invalid_image_input("截图横向范围无效"));
-    };
-    let Some(end_y) = offset_y.checked_add(height) else {
-        return Err(invalid_image_input("截图纵向范围无效"));
-    };
-    if end_x > image.width() || end_y > image.height() {
-        return Err(invalid_image_input("截图范围超出图片尺寸"));
+    let image = decode_image(&std::fs::read(path)?)?;
+    if offset_x < 0 || offset_y < 0 {
+        return Err(invalid_image_input("裁剪偏移量不能小于0"));
     }
-
-    let cropped = crop_imm(&image, offset_x, offset_y, width, height).to_image();
-    encode_png(DynamicImage::ImageRgba8(cropped))
+    if width <= 0 || height <= 0 {
+        return Err(invalid_image_input("裁剪宽高必须大于0"));
+    }
+    let end_x = i64::from(offset_x) + i64::from(width);
+    let end_y = i64::from(offset_y) + i64::from(height);
+    if end_x > i64::from(image.width()) || end_y > i64::from(image.height()) {
+        return Err(invalid_image_input("裁剪区域超出源图片范围"));
+    }
+    let info = ImageInfo::new_n32_premul((width, height), None);
+    let mut surface = surfaces::raster(&info, None, None)
+        .ok_or_else(|| invalid_image_input("无法创建裁剪画布"))?;
+    let source = Rect::new(offset_x as f32, offset_y as f32, end_x as f32, end_y as f32);
+    let destination = Rect::from_wh(width as f32, height as f32);
+    surface.canvas().draw_image_rect_with_sampling_options(
+        &image,
+        Some((&source, SrcRectConstraint::Fast)),
+        destination,
+        SamplingOptions::default(),
+        &Paint::default(),
+    );
+    encode_skia_png(&surface.image_snapshot())
 }
 
 /// 获取图像验证码
 pub fn get_verify_code(text: &str) -> Result<Vec<u8>, image::ImageError> {
-    let characters = validate_verify_code_text(text)?;
-    let width = 128_u32.max(30 + characters.len() as u32 * 32);
-    let height = 45;
-    let mut image = RgbaImage::from_pixel(width, height, Rgba([255, 255, 255, 255]));
-    for _ in 0..((width * height) / 12) {
-        let x = rand::random_range(0..width);
-        let y = rand::random_range(0..height);
-        image.put_pixel(
-            x,
-            y,
-            Rgba([
-                rand::random::<u8>(),
-                rand::random::<u8>(),
-                rand::random::<u8>(),
-                255,
-            ]),
-        );
-    }
-
-    for (index, glyph) in characters.into_iter().enumerate() {
-        draw_glyph(
-            &mut image,
-            glyph,
-            15 + index as u32 * 32,
-            6,
-            Rgba([
-                rand::random::<u8>(),
-                rand::random::<u8>(),
-                rand::random::<u8>(),
-                255,
-            ]),
-        );
-    }
-
-    encode_png(DynamicImage::ImageRgba8(image))
-}
-
-/// 校验图片验证码文本并解析字形
-fn validate_verify_code_text(text: &str) -> Result<Vec<[u8; 8]>, image::ImageError> {
-    let characters = text.chars().collect::<Vec<_>>();
     if text.trim().is_empty() {
         return Err(invalid_image_input("验证码文本不能为空"));
     }
+    let characters = text.encode_utf16().collect::<Vec<_>>();
     if characters.len() > 8 {
-        return Err(invalid_image_input("验证码文本不能超过 8 个字符"));
+        return Err(invalid_image_input("验证码文本不能超过8个字符"));
+    }
+    let width = 128.max(30 + characters.len() as i32 * 32);
+    let height = 45;
+    let info = ImageInfo::new(
+        (width, height),
+        ColorType::BGRA8888,
+        AlphaType::Premul,
+        None,
+    );
+    let mut surface = surfaces::raster(&info, None, None)
+        .ok_or_else(|| invalid_image_input("无法创建验证码画布"))?;
+    let canvas = surface.canvas();
+    canvas.clear(Color::WHITE);
+    let mut paint = Paint::default();
+    // 源循环以整数索引与浮点上限比较，非整数上限也会执行最后一次。
+    for _ in 0..(f64::from(width * height) * 0.015).ceil() as usize {
+        paint.set_color(random_verify_color());
+        canvas.draw_line(
+            (
+                rand::random_range(0..width) as f32,
+                rand::random_range(0..height) as f32,
+            ),
+            (
+                rand::random_range(0..width) as f32,
+                rand::random_range(0..height) as f32,
+            ),
+            &paint,
+        );
     }
 
-    characters
-        .into_iter()
-        .map(|character| {
-            resolve_glyph(character)
-                .ok_or_else(|| invalid_image_input("验证码包含当前字体不支持的字符"))
-        })
-        .collect()
+    let mut font = FontMgr::new()
+        .legacy_make_typeface(None, FontStyle::normal())
+        .map(|typeface| Font::new(typeface, height as f32))
+        .unwrap_or_default();
+    font.set_size(height as f32);
+    let colors = [
+        0xffff0000, 0xff00ff00, 0xffff00ff, 0xffffff00, 0xffff4500, 0xffff1493, 0xff1e90ff,
+    ];
+    let mut x = 15.0;
+    let y = height as f32 * 0.86;
+    for character in characters {
+        paint.set_color(Color::new(colors[rand::random_range(0..colors.len())]));
+        // 源逐个 UTF-16 char 绘制；代理项不能独立测量，不将缺字静默当作成功。
+        let character = char::from_u32(u32::from(character))
+            .ok_or_else(|| invalid_image_input("验证码包含不能独立绘制的 UTF-16 字符"))?;
+        let mut utf8 = [0; 4];
+        let current = character.encode_utf8(&mut utf8);
+        let (advance, _) = font.measure_str(&*current, Some(&paint));
+        canvas.draw_str(&*current, (x, y), &font, &paint);
+        x += advance;
+    }
+
+    // SetPixel 是覆盖像素；不能用默认 SrcOver 把半透明噪点混合到已有文字上。
+    paint.set_blend_mode(BlendMode::Src);
+    for _ in 0..(f64::from(width * height) * 0.6).ceil() as usize {
+        let x = rand::random_range(0..width) as f32;
+        let y = rand::random_range(0..height) as f32;
+        paint.set_color(random_verify_color());
+        canvas.draw_rect(Rect::from_xywh(x, y, 1.0, 1.0), &paint);
+    }
+    encode_skia_png(&surface.image_snapshot())
 }
 
-/// 将图片字节按指定宽高缩放并保持原始格式
-pub fn resize_image(data: &[u8], width: u32, height: u32) -> Result<Vec<u8>, image::ImageError> {
-    // 未指定缩放尺寸时直接返回原始字节
+/// Random.Next(Int32.MaxValue) 的 ARGB 范围，保留半透明和透明噪点。
+fn random_verify_color() -> Color {
+    Color::new(rand::random_range(0..i32::MAX) as u32)
+}
+
+/// 按文件接口约定使用最近邻缩放为 PNG；任一目标边超过原图则返回原图标记。
+pub fn resize_image(
+    data: &[u8],
+    mut width: i32,
+    mut height: i32,
+) -> Result<Option<Vec<u8>>, image::ImageError> {
     if width == 0 && height == 0 {
-        return Ok(data.to_vec());
+        return Ok(None);
     }
-
-    let format = image::guess_format(data)?;
-    let image = image::load_from_memory(data)?;
-    let (target_width, target_height) = calculate_resize_dimensions(&image, width, height);
-
-    // 与 NetEngine 对齐：目标宽高都不小于原图时直接返回原图，避免无意义放大。
-    if target_width >= image.width() && target_height >= image.height() {
-        return Ok(data.to_vec());
+    let image = decode_image(data)?;
+    if width > image.width() || height > image.height() {
+        return Ok(None);
     }
-
-    // 尺寸已提前按等比规则算好，这里直接输出目标尺寸
-    let resized = image.resize_exact(target_width, target_height, FilterType::Lanczos3);
-    encode_image(resized, format)
+    // 两个条件按源接口顺序独立判断；第一步截断为零会影响第二步。
+    if width != 0 && height == 0 {
+        let ratio = width as f32 / image.width() as f32;
+        width = (image.width() as f32 * ratio) as i32;
+        height = (image.height() as f32 * ratio) as i32;
+    }
+    if width == 0 && height != 0 {
+        let ratio = height as f32 / image.height() as f32;
+        width = (image.width() as f32 * ratio) as i32;
+        height = (image.height() as f32 * ratio) as i32;
+    }
+    if width <= 0 || height <= 0 {
+        return Err(invalid_image_input("图片缩放尺寸必须大于 0"));
+    }
+    let info = ImageInfo::new_n32_premul((width, height), None);
+    let mut pixels = allocate_pixels(&info)?;
+    {
+        let source = image
+            .peek_pixels()
+            .ok_or_else(|| invalid_image_input("无法读取图片像素"))?;
+        let mut destination = Pixmap::new(&info, &mut pixels, info.min_row_bytes())
+            .ok_or_else(|| invalid_image_input("无法创建缩放像素缓冲"))?;
+        if !source.scale_pixels(&mut destination, SamplingOptions::default()) {
+            return Err(invalid_image_input("图片缩放失败"));
+        }
+    }
+    let resized =
+        images::raster_from_data(&info, Data::new_with_owner(pixels), info.min_row_bytes())
+            .ok_or_else(|| invalid_image_input("无法创建缩放图片"))?;
+    encode_skia_png(&resized).map(Some)
 }
 
-/// 编码为 PNG
-fn encode_png(image: DynamicImage) -> Result<Vec<u8>, image::ImageError> {
-    let mut bytes = Vec::new();
-    image.write_to(&mut Cursor::new(&mut bytes), ImageFormat::Png)?;
-    Ok(bytes)
+/// 与 SKBitmap.Decode 一样保留解码颜色信息，将非预乘透明度转为预乘；不自动应用 EXIF 旋转。
+fn decode_image(data: &[u8]) -> Result<Image, image::ImageError> {
+    let mut decoder = Codec::from_data(Data::new_copy(data))
+        .ok_or_else(|| invalid_image_input("图片文件无法解码"))?;
+    let mut info = decoder.info();
+    if info.alpha_type() == AlphaType::Unpremul {
+        info = info.with_alpha_type(AlphaType::Premul);
+    }
+    let mut pixels = allocate_pixels(&info)?;
+    let result = decoder.get_pixels_with_options(&info, &mut pixels, info.min_row_bytes(), None);
+    // 源实现保留不完整输入已解出的像素，不把所有非 Success 结果一律拒绝。
+    if !matches!(
+        result,
+        codec::Result::Success | codec::Result::IncompleteInput
+    ) {
+        return Err(invalid_image_input("图片文件无法解码"));
+    }
+    images::raster_from_data(&info, Data::new_with_owner(pixels), info.min_row_bytes())
+        .ok_or_else(|| invalid_image_input("无法创建解码图片"))
+}
+
+fn allocate_pixels(info: &ImageInfo) -> Result<Vec<u8>, image::ImageError> {
+    let size = info.compute_min_byte_size();
+    let mut pixels = Vec::new();
+    pixels
+        .try_reserve_exact(size)
+        .map_err(|_| invalid_image_input("无法分配图片像素缓冲"))?;
+    pixels.resize(size, 0);
+    Ok(pixels)
+}
+
+fn encode_skia_png(image: &Image) -> Result<Vec<u8>, image::ImageError> {
+    image
+        .encode(None, EncodedImageFormat::PNG, 100)
+        .map(|data| data.as_bytes().to_vec())
+        .ok_or_else(|| invalid_image_input("无法编码 PNG 图片"))
 }
 
 /// 构造图片输入错误
@@ -139,76 +299,4 @@ fn invalid_image_input(message: &str) -> image::ImageError {
         std::io::ErrorKind::InvalidInput,
         message,
     ))
-}
-
-/// 按目标框计算等比缩放后的尺寸
-fn calculate_resize_dimensions(image: &DynamicImage, width: u32, height: u32) -> (u32, u32) {
-    let original_width = image.width().max(1);
-    let original_height = image.height().max(1);
-
-    // 仅指定高度时按原始宽高比推导宽度
-    if width == 0 {
-        let ratio = height as f64 / original_height as f64;
-        let target_width = (original_width as f64 * ratio).round() as u32;
-        return (target_width.max(1), height.max(1));
-    }
-
-    // 仅指定宽度时按原始宽高比推导高度
-    if height == 0 {
-        let ratio = width as f64 / original_width as f64;
-        let target_height = (original_height as f64 * ratio).round() as u32;
-        return (width.max(1), target_height.max(1));
-    }
-
-    // 同时指定宽高时取较小缩放比例，确保结果完整落在目标框内
-    let width_ratio = width as f64 / original_width as f64;
-    let height_ratio = height as f64 / original_height as f64;
-    let ratio = width_ratio.min(height_ratio);
-
-    let target_width = (original_width as f64 * ratio).round() as u32;
-    let target_height = (original_height as f64 * ratio).round() as u32;
-
-    (target_width.max(1), target_height.max(1))
-}
-
-/// 按指定图像格式编码图片字节
-fn encode_image(image: DynamicImage, format: ImageFormat) -> Result<Vec<u8>, image::ImageError> {
-    let mut bytes = Vec::new();
-    image.write_to(&mut Cursor::new(&mut bytes), format)?;
-    Ok(bytes)
-}
-
-/// 查找验证码字符的 8x8 字形
-fn resolve_glyph(character: char) -> Option<[u8; 8]> {
-    BASIC_FONTS
-        .get(character)
-        .or_else(|| LATIN_FONTS.get(character))
-        .or_else(|| GREEK_FONTS.get(character))
-        .or_else(|| HIRAGANA_FONTS.get(character))
-        .or_else(|| BLOCK_FONTS.get(character))
-        .or_else(|| BOX_FONTS.get(character))
-        .or_else(|| MISC_FONTS.get(character))
-        .or_else(|| SGA_FONTS.get(character))
-}
-
-/// 绘制 8x8 位图字形
-fn draw_glyph(image: &mut RgbaImage, glyph: [u8; 8], x: u32, y: u32, color: Rgba<u8>) {
-    for (row, row_bits) in glyph.into_iter().enumerate() {
-        for column in 0..8 {
-            if row_bits & (1 << column) != 0 {
-                fill_rect(image, x + column * 3, y + row as u32 * 4, 3, 4, color);
-            }
-        }
-    }
-}
-
-/// 绘制纯色矩形
-fn fill_rect(image: &mut RgbaImage, x: u32, y: u32, width: u32, height: u32, color: Rgba<u8>) {
-    for current_x in x..x.saturating_add(width) {
-        for current_y in y..y.saturating_add(height) {
-            if current_x < image.width() && current_y < image.height() {
-                image.put_pixel(current_x, current_y, color);
-            }
-        }
-    }
 }

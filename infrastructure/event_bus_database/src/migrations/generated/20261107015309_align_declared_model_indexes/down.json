@@ -1,0 +1,18 @@
+[
+  {
+    "kind": "Sql",
+    "value": "DROP INDEX \"IX_EventBusMessage_CreateTime\""
+  },
+  {
+    "kind": "Sql",
+    "value": "DROP INDEX \"IX_EventBusMessage_DeleteTime\""
+  },
+  {
+    "kind": "Sql",
+    "value": "DROP INDEX \"IX_EventBusStream_CreateTime\""
+  },
+  {
+    "kind": "Sql",
+    "value": "DROP INDEX \"IX_EventBusStream_DeleteTime\""
+  }
+]

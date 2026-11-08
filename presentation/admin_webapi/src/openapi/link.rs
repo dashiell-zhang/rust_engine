@@ -1,4 +1,5 @@
-use application_model::link::models::{EditLinkDto, LinkDto, LinkPageListDto};
+use application_model::link::models::{EditLinkDto, LinkDto};
+use application_model::shared::models::PageListDto;
 use utoipa::OpenApi;
 
 use crate::handlers::link;
@@ -15,7 +16,7 @@ use crate::handlers::link;
     ),
     components(
         schemas(
-            LinkPageListDto,
+            PageListDto<LinkDto>,
             LinkDto,
             EditLinkDto,
         )

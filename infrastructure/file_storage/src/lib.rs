@@ -1,8 +1,8 @@
 use std::path::{Path, PathBuf};
-use std::time::Duration;
 
 use application_interface::storage::AppFileStorage;
 use async_trait::async_trait;
+use chrono::TimeDelta;
 use common::app_error::AppError;
 use tokio::fs;
 
@@ -100,9 +100,9 @@ impl AppFileStorage for LocalFileStorage {
     fn get_file_url(
         &self,
         _remote_path: &str,
-        _expiry: Duration,
+        _expiry: TimeDelta,
         _is_inline: bool,
-    ) -> Option<String> {
-        None
+    ) -> Result<Option<String>, AppError> {
+        Ok(None)
     }
 }

@@ -4,34 +4,38 @@ use utoipa::{IntoParams, ToSchema};
 
 /// 商品分页请求参数
 #[derive(Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
 #[serde(rename_all = "camelCase")]
+#[derive(common::json_helper::input::QueryModel)]
 pub struct ProductPageRequest {
     /// 页码
-    #[param(minimum = 1)]
+    #[param(default = default_page)]
     #[serde(default = "default_page")]
-    pub page: u64,
+    pub page: i32,
 
     /// 每页条数
-    #[param(minimum = 1, maximum = 100)]
+    #[param(minimum = 1, maximum = 100, default = default_page_size)]
     #[serde(default = "default_page_size", rename = "pageSize")]
-    pub page_size: u64,
+    #[query(validate = "crate::shared::models::validate_page_size_query")]
+    pub page_size: i32,
 
     /// 关键词，匹配商品名称或 SKU
     pub keyword: Option<String>,
 }
 
 impl crate::shared::models::PageRequest for ProductPageRequest {
-    fn page(&self) -> u64 {
+    fn page(&self) -> i32 {
         self.page
     }
 
-    fn page_size(&self) -> u64 {
+    fn page_size(&self) -> i32 {
         self.page_size
     }
 }
 
 /// 商品标识参数
 #[derive(Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
 #[serde(rename_all = "camelCase")]
 pub struct ProductIdQuery {
     /// 商品 ID
@@ -41,6 +45,7 @@ pub struct ProductIdQuery {
 
 /// 删除商品参数
 #[derive(Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
 #[serde(rename_all = "camelCase")]
 pub struct DeleteProductQuery {
     /// 商品 ID

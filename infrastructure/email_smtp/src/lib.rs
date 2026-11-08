@@ -3,7 +3,7 @@ use common::app_error::AppError;
 use email::{AppEmailSender, SendEmailAttachment, SendEmailRequest};
 use lettre::{
     AsyncSmtpTransport, AsyncTransport, Message, Tokio1Executor,
-    message::{Attachment, MultiPart, SinglePart, header::ContentType},
+    message::{Attachment, Mailbox, MultiPart, SinglePart, header::ContentType},
     transport::smtp::authentication::Credentials,
 };
 use serde::Deserialize;
@@ -91,50 +91,50 @@ impl SmtpEmailSender {
                 .body(request.body.clone())
         };
 
-        let mut multipart = MultiPart::mixed().singlepart(body_part);
+        let has_attachments = !request.attachments.is_empty();
+        let mut attachment_parts = Vec::with_capacity(request.attachments.len());
         for attachment in request.attachments {
-            let (name, bytes, mime_path) = match attachment {
+            let (name, bytes) = match attachment {
                 SendEmailAttachment::LocalFile { name, path } => {
                     let bytes = std::fs::read(&path).map_err(|error| {
                         AppError::internal(format!("读取附件文件失败 [{path}]: {error}"))
                     })?;
-                    (name, bytes, path)
+                    (name, bytes)
                 }
-                SendEmailAttachment::Memory { name, content } => {
-                    let mime_path = name.clone();
-                    (name, content, mime_path)
-                }
+                SendEmailAttachment::Memory { name, content } => (name, content),
             };
 
-            let content_type = mime_guess::from_path(&mime_path)
-                .first()
-                .map(|item| item.to_string())
-                .unwrap_or_else(|| "application/octet-stream".to_string());
-            let content_type = ContentType::parse(&content_type).unwrap_or(ContentType::TEXT_PLAIN);
-
-            multipart = multipart.singlepart(Attachment::new(name).body(bytes, content_type));
+            let content_type = ContentType::parse("application/octet-stream")
+                .map_err(|error| AppError::internal(format!("邮件附件类型无效: {error}")))?;
+            attachment_parts.push(Attachment::new(name).body(bytes, content_type));
         }
 
-        let from_display = request
-            .from_display_name
-            .as_deref()
-            .unwrap_or(self.settings.username.as_str());
-        let from_mailbox = format!("{from_display} <{}>", self.settings.username)
+        let from_address = self
+            .settings
+            .username
             .parse()
             .map_err(|_| AppError::internal("发件人地址格式无效"))?;
+        let from_mailbox = Mailbox::new(request.from_display_name, from_address);
 
         let mut message_builder = Message::builder().from(from_mailbox);
         for to_addr in &request.to_addresses {
             let mailbox = to_addr
                 .parse()
-                .map_err(|_| AppError::bad_request(format!("收件人地址格式无效: {to_addr}")))?;
+                .map_err(|_| AppError::internal("收件人地址格式无效"))?;
             message_builder = message_builder.to(mailbox);
         }
 
-        message_builder
-            .subject(request.subject)
-            .multipart(multipart)
-            .map_err(|error| AppError::internal(format!("邮件构造失败: {error}")))
+        let message_builder = message_builder.subject(request.subject);
+        let message = if has_attachments {
+            let mut multipart = MultiPart::mixed().singlepart(body_part);
+            for attachment in attachment_parts {
+                multipart = multipart.singlepart(attachment);
+            }
+            message_builder.multipart(multipart)
+        } else {
+            message_builder.singlepart(body_part)
+        };
+        message.map_err(|error| AppError::internal(format!("邮件构造失败: {error}")))
     }
 }
 

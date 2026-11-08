@@ -1,74 +1,66 @@
+use crate::routes::MethodRouter;
 use axum::{
     body::Body,
     extract::Request,
     http::{HeaderValue, StatusCode, header},
     middleware::Next,
     response::Response,
-    routing::MethodRouter,
 };
 use base64::{Engine as _, engine::general_purpose};
 use sha2::{Digest, Sha256};
-
-use crate::body_limit::{
-    DEFAULT_BUFFERED_BODY_LIMIT_BYTES, content_length_exceeds, has_content_length,
-};
 
 /// 为单个路由挂载 ETag 中间件
 pub fn etag_method_router<TState>(route: MethodRouter<TState>) -> MethodRouter<TState>
 where
     TState: Clone + Send + Sync + 'static,
 {
-    route.layer(axum::middleware::from_fn(etag_middleware))
+    route.map_action(|route| route.route_layer(axum::middleware::from_fn(etag_middleware)))
 }
 
-/// ETag 中间件
+/// ETag 仅处理 GET 的非空对象结果，不读取文件或流式响应。
 pub async fn etag_middleware(request: Request, next: Next) -> Response {
     if request.method() != axum::http::Method::GET {
         return next.run(request).await;
     }
-
-    let if_none_match = request.headers().get(header::IF_NONE_MATCH).cloned();
-    let response = next.run(request).await;
-
+    let incoming: Vec<_> = request
+        .headers()
+        .get_all(header::IF_NONE_MATCH)
+        .iter()
+        .cloned()
+        .collect();
+    let mut response = crate::object_response::ETAG_SERIALIZATION
+        .scope(true, next.run(request))
+        .await;
     if response.status() != StatusCode::OK {
         return response;
     }
-
-    if !has_content_length(response.headers())
-        || content_length_exceeds(response.headers(), DEFAULT_BUFFERED_BODY_LIMIT_BYTES)
-    {
+    let Some(object) = response
+        .extensions()
+        .get::<crate::object_response::ObjectResponse>()
+    else {
+        return response;
+    };
+    if object.is_null() {
         return response;
     }
-
-    let (parts, body) = response.into_parts();
-
-    let bytes = match axum::body::to_bytes(body, DEFAULT_BUFFERED_BODY_LIMIT_BYTES).await {
-        Ok(bytes) => bytes,
-        Err(_) => return Response::from_parts(parts, Body::empty()),
+    let Some(json) = &object.internal_json else {
+        return crate::error::internal_error_response("ETag 对象序列化失败");
     };
-
-    if bytes.is_empty() {
-        return Response::from_parts(parts, Body::empty());
-    }
-
-    let digest = Sha256::digest(&bytes);
-    let etag_value = format!("\"{}\"", general_purpose::STANDARD.encode(digest));
-
-    let etag_header = match HeaderValue::from_str(&etag_value) {
-        Ok(value) => value,
-        Err(_) => return Response::from_parts(parts, Body::from(bytes)),
+    let digest = Sha256::digest(json);
+    let value = format!("\"{}\"", general_purpose::STANDARD.encode(digest));
+    let Ok(etag) = HeaderValue::from_str(&value) else {
+        return response;
     };
-
-    if let Some(if_none_match) = if_none_match
-        && if_none_match == etag_header
-    {
-        return Response::builder()
-            .status(StatusCode::NOT_MODIFIED)
-            .body(Body::empty())
-            .unwrap();
+    if incoming.len() == 1 && incoming[0] == etag {
+        *response.status_mut() = StatusCode::NOT_MODIFIED;
+        *response.body_mut() = Body::empty();
+        response.headers_mut().remove(header::CONTENT_TYPE);
+        response.headers_mut().remove(header::CONTENT_LENGTH);
+        response
+            .extensions_mut()
+            .remove::<crate::object_response::ObjectResponse>();
+    } else {
+        response.headers_mut().insert(header::ETAG, etag);
     }
-
-    let mut response = Response::from_parts(parts, Body::from(bytes));
-    response.headers_mut().insert(header::ETAG, etag_header);
     response
 }

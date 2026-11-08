@@ -20,6 +20,7 @@ pub struct EcdsaKeyPairDto {
 
 /// JWT Claims 结构
 #[derive(Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
 pub struct JwtClaims {
     /// Token 标识
     pub token_id: String,
@@ -46,17 +47,23 @@ pub struct JwtClaims {
 /// 登录请求参数模型
 #[derive(Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
+#[derive(common::json_helper::input::JsonModel)]
+#[json(type_name = "Application.Model.Authorize.GetTokenDto")]
 pub struct GetTokenRequest {
     /// 用户名
+    #[json(required = "用户名不可以空")]
     pub user_name: String,
 
     /// 密码
+    #[json(required = "密码不可以为空")]
     pub password: String,
 }
 
 /// 短信登录请求参数模型
 #[derive(Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
+#[derive(common::json_helper::input::JsonModel)]
+#[json(type_name = "Application.Model.Authorize.GetTokenBySMSDto")]
 pub struct GetTokenBySmsRequest {
     /// 手机号
     pub phone: String,
@@ -68,6 +75,8 @@ pub struct GetTokenBySmsRequest {
 /// 发送短信验证码请求参数模型
 #[derive(Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
+#[derive(common::json_helper::input::JsonModel)]
+#[json(type_name = "Application.Model.Authorize.SendSMSVerifyCodeDto")]
 pub struct SendSmsVerifyCodeRequest {
     /// 手机号
     pub phone: String,
@@ -76,30 +85,40 @@ pub struct SendSmsVerifyCodeRequest {
 /// 短信修改密码请求参数模型
 #[derive(Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
+#[derive(common::json_helper::input::JsonModel)]
+#[json(type_name = "Application.Model.Authorize.UpdatePasswordBySMSDto")]
 pub struct UpdatePasswordBySmsRequest {
     /// 短信验证码
+    #[json(required = "短信验证码不可以为空")]
     pub sms_code: String,
 
     /// 新密码
+    #[json(required = "新密码不可以为空")]
     pub new_password: String,
 }
 
 /// 通过旧密码修改密码请求参数模型
 #[derive(Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
+#[derive(common::json_helper::input::JsonModel)]
+#[json(type_name = "Application.Model.Authorize.UpdatePasswordByOldPasswordDto")]
 pub struct UpdatePasswordByOldPasswordRequest {
     /// 旧密码
     #[serde(rename = "oldPassword")]
+    #[json(required = "旧的密码不可以为空")]
     pub old_password: String,
 
     /// 新密码
     #[serde(rename = "newPassword")]
+    #[json(required = "新的密码不可以为空")]
     pub new_password: String,
 }
 
 /// 微信小程序登录请求参数模型
 #[derive(Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
+#[derive(common::json_helper::input::JsonModel)]
+#[json(type_name = "Application.Model.Authorize.GetTokenByWeiXinAppDto")]
 pub struct GetTokenByWxMiniAppRequest {
     /// 微信小程序 AppId
     pub app_id: String,
@@ -111,6 +130,8 @@ pub struct GetTokenByWxMiniAppRequest {
 /// 微信公众号网页登录请求参数模型
 #[derive(Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
+#[derive(common::json_helper::input::JsonModel)]
+#[json(type_name = "Application.Model.Authorize.GetTokenByWeiXinAppDto")]
 pub struct GetTokenByWxAppRequest {
     /// 微信公众号应用标识
     #[serde(rename = "appId")]
@@ -152,25 +173,42 @@ pub struct GetWeiXinAppUserInfoDto {
     #[serde(rename = "headimgurl")]
     pub headimg_url: Option<String>,
 
-    /// 权限列表
+    /// 权限列表；源 string[] 可包含 null 元素，不能因此拒绝整份用户信息。
     #[serde(default, rename = "privilege")]
-    pub privilege: Vec<String>,
+    pub privilege: Option<Vec<Option<String>>>,
 
     /// 用户统一标识
     #[serde(rename = "unionid")]
     pub union_id: Option<String>,
 }
 
-/// 获取授权功能列表请求
+/// 管理端获取授权功能列表请求，sign 可以省略。
 #[derive(Deserialize, IntoParams, ToSchema)]
+#[into_params(parameter_in = Query)]
 #[serde(rename_all = "camelCase")]
+#[derive(common::json_helper::input::QueryModel)]
 pub struct GetFunctionListRequest {
     /// 功能标记
+    #[serde(
+        default,
+        deserialize_with = "common::json_helper::deserialize_optional_query_scalar"
+    )]
     pub sign: Option<String>,
+}
+
+/// 客户端获取授权功能列表请求，源接口的 sign 为必填字符串。
+#[derive(Deserialize, IntoParams, ToSchema)]
+#[into_params(parameter_in = Query)]
+#[serde(rename_all = "camelCase")]
+#[derive(common::json_helper::input::QueryModel)]
+pub struct ClientGetFunctionListRequest {
+    /// 功能标记
+    pub sign: String,
 }
 
 /// 获取路由权限绑定列表请求
 #[derive(Deserialize, IntoParams, ToSchema)]
+#[into_params(parameter_in = Query)]
 #[serde(rename_all = "camelCase")]
 pub struct GetFunctionRouteListRequest {
     /// 模块名
@@ -250,4 +288,13 @@ pub struct SetFunctionRouteDto {
         deserialize_with = "deserialize_option_i64_from_string_or_number"
     )]
     pub function_id: Option<i64>,
+}
+
+/// 权限路由同步数据
+pub struct PermissionRouteSyncItem<'a> {
+    /// 路由路径
+    pub route: &'a str,
+
+    /// 路由说明
+    pub remark: &'a str,
 }

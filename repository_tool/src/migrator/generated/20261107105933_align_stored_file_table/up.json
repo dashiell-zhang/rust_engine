@@ -1,0 +1,54 @@
+[
+  {
+    "kind": "Sql",
+    "value": "ALTER TABLE \"File\" RENAME TO \"StoredFile\""
+  },
+  {
+    "kind": "Sql",
+    "value": "ALTER TABLE \"StoredFile\" RENAME CONSTRAINT \"File_pkey\" TO \"StoredFile_pkey\""
+  },
+  {
+    "kind": "Sql",
+    "value": "ALTER TABLE \"StoredFile\" RENAME CONSTRAINT \"fk-File-CreateUserId\" TO \"fk-StoredFile-CreateUserId\""
+  },
+  {
+    "kind": "Sql",
+    "value": "ALTER TABLE \"StoredFile\" RENAME CONSTRAINT \"fk-File-DeleteUserId\" TO \"fk-StoredFile-DeleteUserId\""
+  },
+  {
+    "kind": "Sql",
+    "value": "ALTER INDEX \"IX_File_CreateTime\" RENAME TO \"IX_StoredFile_CreateTime\""
+  },
+  {
+    "kind": "Sql",
+    "value": "ALTER INDEX \"IX_File_CreateUserId\" RENAME TO \"IX_StoredFile_CreateUserId\""
+  },
+  {
+    "kind": "Sql",
+    "value": "ALTER INDEX \"IX_File_DeleteTime\" RENAME TO \"IX_StoredFile_DeleteTime\""
+  },
+  {
+    "kind": "Sql",
+    "value": "ALTER INDEX \"IX_File_DeleteUserId\" RENAME TO \"IX_StoredFile_DeleteUserId\""
+  },
+  {
+    "kind": "Sql",
+    "value": "ALTER INDEX \"IX_File_Path_NotDeleted\" RENAME TO \"IX_StoredFile_Path_NotDeleted\""
+  },
+  {
+    "kind": "Sql",
+    "value": "ALTER INDEX \"IX_File_Sign\" RENAME TO \"IX_StoredFile_Sign\""
+  },
+  {
+    "kind": "Sql",
+    "value": "ALTER INDEX \"IX_File_Table\" RENAME TO \"IX_StoredFile_Table\""
+  },
+  {
+    "kind": "Sql",
+    "value": "ALTER INDEX \"IX_File_TableId\" RENAME TO \"IX_StoredFile_TableId\""
+  },
+  {
+    "kind": "Sql",
+    "value": "ALTER INDEX \"IX_File_Table_TableId_NotDeleted\" RENAME TO \"IX_StoredFile_Table_TableId_NotDeleted\""
+  }
+]

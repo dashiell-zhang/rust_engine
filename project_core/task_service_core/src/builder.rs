@@ -1,44 +1,21 @@
-use std::{collections::BTreeMap, io, sync::Arc};
+use std::sync::Arc;
 
 use crate::{
     BuildTaskServiceCache, BuildTaskServiceEmailSender, BuildTaskServiceFileStorage,
     BuildTaskServiceLock, BuildTaskServiceLoggerRuntime, BuildTaskServiceSmsSender,
     TaskServiceLoggerBuilderContext,
     features::{TaskServiceFeature, TaskServiceFeatureContext},
-    registry::{RegisteredTaskKind, TaskRegistry},
+    registry::TaskRegistry,
     runner::{TaskServiceRunner, TaskServiceRunnerOptions},
     settings::Settings,
     startup::TaskServiceStartup,
-    sync::TaskRegistrySynchronizer,
+    sync::TaskRuntimeConfiguration,
 };
-use application_model::task_center::ARGS_DEFAULT_PARAMETER;
 use common::identifier_generator::IdentifierGenerator;
-use identifier_generator::refresh::RefreshSignTask;
 use logger::LoggerRuntime;
-use repository::{
-    extensions::SoftDeleteQueryExt, read_database::ReadDatabaseConnection, task_setting,
-};
-use sea_orm::{
-    ActiveModelTrait, ActiveValue::Set, Database, DatabaseConnection, EntityTrait, IntoActiveModel,
-};
-
-/// Debug 菜单展示项
-struct DebugTaskMenuItem {
-    /// 菜单序号
-    index: usize,
-
-    /// 任务配置主键
-    task_id: i64,
-
-    /// 任务类型
-    kind: RegisteredTaskKind,
-
-    /// 任务名称
-    name: String,
-
-    /// 当前是否启用
-    is_enable: bool,
-}
+use queue_task_database::{DatabaseQueueTaskStore, QueueTaskStore};
+use repository_core::ReadDatabaseConnection;
+use sea_orm::Database;
 
 /// TaskService 宿主构建器
 pub struct TaskServiceHostBuilder {
@@ -53,6 +30,7 @@ pub struct TaskServiceHostBuilder {
 
     /// 日志运行时构建方法
     build_logger_runtime: BuildTaskServiceLoggerRuntime,
+    build_event_transport: Option<crate::BuildTaskServiceEventTransport>,
 
     /// 短信发送器构建方法
     build_sms_sender: BuildTaskServiceSmsSender,
@@ -72,17 +50,16 @@ pub struct TaskServiceHost {
     /// 任务运行器
     runner: TaskServiceRunner,
 
-    /// 数据库连接
-    db_pool: Arc<DatabaseConnection>,
-
     /// 数据库只读连接
     read_db_pool: Arc<ReadDatabaseConnection>,
 
-    /// 任务注册表
-    registry: TaskRegistry,
+    /// 当前进程的任务运行配置
+    configuration: TaskRuntimeConfiguration,
 
     /// 日志运行时守卫
     _logger_runtime: LoggerRuntime,
+    event_bus: event_bus::PreparedEventBus,
+    event_listeners: event_bus::EventListenerRegistry,
 }
 
 impl TaskServiceHostBuilder {
@@ -105,7 +82,17 @@ impl TaskServiceHostBuilder {
             build_email_sender,
             build_file_storage,
             features: Vec::new(),
+            build_event_transport: None,
         }
+    }
+
+    /// 运行入口指定事件后端，禁止公共宿主自行选择实现。
+    pub fn with_event_transport_factory(
+        mut self,
+        factory: crate::BuildTaskServiceEventTransport,
+    ) -> Self {
+        self.build_event_transport = Some(factory);
+        self
     }
 
     /// 注册单个任务特性
@@ -125,16 +112,21 @@ impl TaskServiceHostBuilder {
 
     /// 构建 TaskService 宿主实例
     pub async fn build(self) -> Result<TaskServiceHost, String> {
+        let content_root = Arc::new(
+            std::env::current_dir().map_err(|error| format!("读取宿主内容目录失败: {error}"))?,
+        );
+        let http_client_factory = Arc::new(
+            application_interface::http_client::HttpClientFactory::new()
+                .map_err(|error| format!("HTTP 客户端工厂初始化失败: {error}"))?,
+        );
         let distributed_lock = (self.build_distributed_lock)(&self.settings).await?;
         let distributed_cache = (self.build_distributed_cache)(&self.settings).await?;
-        let identifier_generator = IdentifierGenerator::from_infrastructure(
+        let identifier_generator = IdentifierGenerator::from_settings(
             &self.settings.identifier_generator,
-            Arc::clone(&distributed_lock),
-            Arc::clone(&distributed_cache),
+            &self.settings.cache.connection,
         )
         .await
         .map_err(|error| format!("ID 服务初始化失败: {error}"))?;
-        let should_refresh_identifier_sign = identifier_generator.requires_sign_refresh().await;
 
         let db_pool = Arc::new(
             Database::connect(TaskServiceStartup::build_postgres_connect_options(
@@ -163,56 +155,89 @@ impl TaskServiceHostBuilder {
                 .map_err(|error| format!("只读数据库连接初始化失败: {error}"))?,
         ));
 
+        let log_db_pool = if self.settings.logger.component == logger::LoggerComponent::Database {
+            let mut options = TaskServiceStartup::build_postgres_connect_options(
+                self.settings
+                    .logger
+                    .write_connection(&self.settings.database.connection),
+                &self.settings.host.database_pool,
+            );
+            // 日志数据库自身的 SQL 不回流日志管线，避免递归记录。
+            options.sqlx_logging(false);
+            Some(Arc::new(
+                Database::connect(options)
+                    .await
+                    .map_err(|error| format!("日志写连接初始化失败: {error}"))?,
+            ))
+        } else {
+            None
+        };
+
         let logger_runtime = (self.build_logger_runtime)(
             &self.settings,
             &TaskServiceLoggerBuilderContext {
-                db_pool: Arc::clone(&db_pool),
+                log_db_pool: log_db_pool.clone(),
                 identifier_generator: identifier_generator.clone(),
             },
-        )?;
+        )
+        .await?;
 
-        let sms_sender = (self.build_sms_sender)(&self.settings)?;
+        let build_event_transport = self.build_event_transport.ok_or("宿主未注册事件后端")?;
+        let transport = build_event_transport(&self.settings, &identifier_generator)?;
+        let event_publisher = event_bus::EventPublisher::new(transport.clone());
+        let startup_stopping = event_bus::CancellationToken::new();
+        let prepare = event_bus::PreparedEventBus::prepare(
+            transport,
+            self.settings.event_bus.clone(),
+            &startup_stopping,
+        );
+        tokio::pin!(prepare);
+        let event_bus = tokio::select! {
+            result = &mut prepare => result?,
+            signal = common::system_helper::wait_for_shutdown() => {
+                startup_stopping.cancel();
+                // 让适配器完成服务器端取消，仍遵守宿主三十秒停机上限。
+                let _ = tokio::time::timeout(std::time::Duration::from_secs(30), &mut prepare).await;
+                signal?;
+                return Err("事件总线启动已取消".to_string());
+            },
+        };
+        let mut event_listeners = event_bus::EventListenerRegistry::default();
+
+        let sms_sender = (self.build_sms_sender)(&self.settings, http_client_factory.clone())?;
         let email_sender = (self.build_email_sender)(&self.settings)?;
-        let file_storage = (self.build_file_storage)(&self.settings)?;
-        let mut file_root_paths = Vec::new();
-        let primary_root_path = self.settings.file.root_path.trim();
-        if !primary_root_path.is_empty() {
-            file_root_paths.push(primary_root_path.to_string());
-        }
-
-        for root_path in &self.settings.file.additional_root_paths {
-            let root_path = root_path.trim();
-            if root_path.is_empty() {
-                continue;
-            }
-
-            if file_root_paths.iter().any(|item| item == root_path) {
-                continue;
-            }
-
-            file_root_paths.push(root_path.to_string());
-        }
-
-        let file_root_paths = Arc::new(file_root_paths);
-
+        let file_storage = (self.build_file_storage)(&self.settings, http_client_factory)?;
         let feature_context = TaskServiceFeatureContext {
+            cache: distributed_cache,
+            event_publisher,
             db_pool: Arc::clone(&db_pool),
             read_db_pool: Arc::clone(&read_db_pool),
             identifier_generator: identifier_generator.clone(),
             sms_sender,
             email_sender,
             file_storage,
-            file_root_paths,
+            content_root,
         };
+        for feature in &self.features {
+            feature.register_event_listeners(&mut event_listeners, &feature_context)?;
+        }
         let registry = build_task_registry(self.features, &feature_context)?;
 
-        sync_task_registry(&db_pool, &registry, &identifier_generator).await;
+        let store: Arc<dyn QueueTaskStore> = Arc::new(DatabaseQueueTaskStore::new(
+            db_pool.clone(),
+            identifier_generator,
+        ));
+        let settings = store
+            .get_settings()
+            .await
+            .map_err(|error| format!("任务配置初始化失败: {error}"))?;
+        let configuration = TaskRuntimeConfiguration::initialize(&registry, &settings);
 
         let runner = TaskServiceRunner::new(
-            Arc::clone(&db_pool),
-            registry.clone(),
+            store,
+            configuration.clone(),
+            registry,
             distributed_lock,
-            identifier_generator.clone(),
             TaskServiceRunnerOptions {
                 queue_poll_interval_seconds: self.settings.poll.queue_interval_seconds,
                 schedule_poll_interval_milliseconds: self
@@ -220,26 +245,16 @@ impl TaskServiceHostBuilder {
                     .poll
                     .resolved_schedule_interval_milliseconds(),
                 queue_lock_expiry_seconds: self.settings.lock.expiry_seconds,
-                schedule_lock_expiry_seconds: self.settings.lock.expiry_seconds,
-                log_project: self.settings.logger.project.clone(),
             },
         );
 
-        if should_refresh_identifier_sign {
-            RefreshSignTask::new(
-                Arc::new(identifier_generator.clone()),
-                Arc::clone(&distributed_cache),
-            )
-            .run()
-            .await;
-        }
-
         Ok(TaskServiceHost {
             runner,
-            db_pool,
             read_db_pool,
-            registry,
+            configuration,
             _logger_runtime: logger_runtime,
+            event_bus,
+            event_listeners,
         })
     }
 }
@@ -250,207 +265,48 @@ impl TaskServiceHost {
         self.read_db_pool.as_ref()
     }
 
-    /// Debug 模式下选择需要启用的任务
-    pub async fn select_debug_tasks(&self) -> Result<bool, String> {
-        if !cfg!(debug_assertions) {
-            return Ok(true);
-        }
-
-        loop {
-            let items = self.load_debug_task_menu_items().await?;
-
-            println!();
-            println!("TaskService Debug 模式");
-            println!("当前已完成任务注册表同步");
-            println!();
-
-            for item in &items {
-                let action_status = if item.is_enable {
-                    "已启用"
-                } else {
-                    "未启用"
-                };
-                println!(
-                    "[{}] {}：{} {}",
-                    item.index,
-                    item.kind.display_name(),
-                    item.name,
-                    action_status,
-                );
-            }
-
-            println!();
-            println!("请输入空格分隔的序号启用任务");
-            println!("直接回车刷新列表 输入 start 启动当前选择 输入 skip 跳过启动");
-
-            let mut input = String::new();
-            match io::stdin().read_line(&mut input) {
-                Ok(0) => return Ok(true),
-                Ok(_) => {}
-                Err(error) => {
-                    tracing::warn!(
-                        target: "task_service.debug.menu",
-                        error = %error,
-                        "读取 Debug 菜单输入失败，已按默认方式继续启动"
-                    );
-                    return Ok(true);
+    pub async fn run(mut self) -> Result<(), String> {
+        tracing::info!(target: "task_service.startup", "TaskService 启动完成");
+        let mut events = self.event_bus.start(self.event_listeners);
+        let stopping = event_bus::CancellationToken::new();
+        let mut runner = Box::pin(self.runner.run(stopping.clone()));
+        let mut menu = Box::pin(crate::debug_menu::run(self.configuration));
+        let mut menu_done = false;
+        let (mut result, drain) = loop {
+            tokio::select! {
+                _ = &mut runner => break (Ok(()), false),
+                failure = events.wait_failure() => break (failure, true),
+                signal = common::system_helper::wait_for_shutdown() => break (signal, true),
+                selection = &mut menu, if !menu_done => {
+                    match selection {
+                        Ok(true) => menu_done = true,
+                        Ok(false) => break (Ok(()), true),
+                        Err(error) => break (Err(error), true),
+                    }
                 }
             }
-
-            let command = input.trim();
-
-            if command.is_empty() {
-                continue;
-            }
-
-            if command.eq_ignore_ascii_case("start")
-                || command.eq_ignore_ascii_case("run")
-                || command.eq_ignore_ascii_case("y")
-                || command.eq_ignore_ascii_case("yes")
-            {
-                return Ok(true);
-            }
-
-            if command.eq_ignore_ascii_case("skip")
-                || command.eq_ignore_ascii_case("n")
-                || command.eq_ignore_ascii_case("no")
-                || command.eq_ignore_ascii_case("q")
-                || command.eq_ignore_ascii_case("quit")
-            {
-                return Ok(false);
-            }
-
-            let selected_task_ids = parse_selected_task_ids(command, &items)?;
-
-            if selected_task_ids.is_empty() {
-                println!("未选择任何有效任务");
-                continue;
-            }
-
-            self.enable_debug_tasks(&selected_task_ids).await?;
-            println!("已启用 {} 个任务，回车刷新列表", selected_task_ids.len());
-        }
-    }
-
-    /// 启动 TaskService 宿主
-    pub async fn run(self) {
-        tracing::info!(target: "task_service.startup", "TaskService 启动完成");
-        self.runner.run().await;
-    }
-
-    /// 加载 Debug 菜单展示项
-    async fn load_debug_task_menu_items(&self) -> Result<Vec<DebugTaskMenuItem>, String> {
-        let models = task_setting::Entity::find()
-            .not_deleted(task_setting::Column::DeleteTime)
-            .all(self.db_pool.as_ref())
-            .await
-            .map_err(|error| format!("加载任务配置失败: {error}"))?;
-
-        let mut model_index = BTreeMap::new();
-
-        for model in models {
-            let kind = match model.category.as_str() {
-                "QueueTask" => RegisteredTaskKind::Queue,
-                "ScheduleTask" => RegisteredTaskKind::Schedule,
-                _ => continue,
-            };
-
-            let parameter_key = model.parameter.clone().unwrap_or_default();
-            model_index.insert(
-                (
-                    kind.category_name().to_string(),
-                    model.name.clone(),
-                    parameter_key,
-                ),
-                model,
-            );
-        }
-
-        let mut items = Vec::new();
-
-        for (index, task) in self.registry.registered_tasks().into_iter().enumerate() {
-            let parameter_key =
-                if task.kind == RegisteredTaskKind::Schedule && task.supports_parameter {
-                    ARGS_DEFAULT_PARAMETER.to_string()
-                } else {
-                    String::new()
-                };
-
-            let Some(model) = model_index.get(&(
-                task.kind.category_name().to_string(),
-                task.name.clone(),
-                parameter_key,
-            )) else {
-                return Err(format!(
-                    "任务配置未同步到数据库: {} {}",
-                    task.kind.display_name(),
-                    task.name
-                ));
-            };
-
-            items.push(DebugTaskMenuItem {
-                index: index + 1,
-                task_id: model.id,
-                kind: task.kind,
-                name: task.name,
-                is_enable: model.is_enable,
-            });
-        }
-
-        Ok(items)
-    }
-
-    /// 启用 Debug 菜单中选中的任务
-    async fn enable_debug_tasks(&self, task_ids: &[i64]) -> Result<(), String> {
-        for task_id in task_ids {
-            let Some(task_model) = task_setting::Entity::find_by_id(*task_id)
-                .one(self.db_pool.as_ref())
-                .await
-                .map_err(|error| format!("加载任务配置失败: {error}"))?
-            else {
-                return Err(format!("任务配置不存在: {task_id}"));
-            };
-
-            if task_model.is_enable {
-                continue;
-            }
-
-            let mut active = task_model.into_active_model();
-            active.is_enable = Set(true);
-            active
-                .update(self.db_pool.as_ref())
-                .await
-                .map_err(|error| format!("更新任务启用状态失败: {error}"))?;
-        }
-
-        Ok(())
-    }
-}
-
-/// 解析 Debug 菜单中输入的任务序号
-fn parse_selected_task_ids(command: &str, items: &[DebugTaskMenuItem]) -> Result<Vec<i64>, String> {
-    let item_index = items
-        .iter()
-        .map(|item| (item.index, item.task_id))
-        .collect::<BTreeMap<_, _>>();
-
-    let mut task_ids = Vec::new();
-
-    for token in command.split_whitespace() {
-        let index = token
-            .parse::<usize>()
-            .map_err(|_| format!("无效的任务序号: {token}"))?;
-
-        let Some(task_id) = item_index.get(&index) else {
-            return Err(format!("无效的任务序号: {token}"));
         };
-
-        if !task_ids.contains(task_id) {
-            task_ids.push(*task_id);
+        drop(menu);
+        let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(30);
+        stopping.cancel();
+        events.cancel();
+        if drain
+            && tokio::time::timeout_at(deadline, &mut runner)
+                .await
+                .is_err()
+        {
+            tracing::warn!(target: "task_service.shutdown", "任务排空期限耗尽，剩余队列记录等待租约恢复");
+            result = result.and(Err("任务停机等待超时".into()));
         }
+        // 丢弃拥有 JoinSet 的运行器会取消剩余执行，禁止超时后继续续租或提交。
+        drop(runner);
+        let _ = tokio::time::timeout_at(deadline, events.shutdown()).await;
+        drop(events);
+        self._logger_runtime
+            .shutdown(deadline.saturating_duration_since(tokio::time::Instant::now()))
+            .await;
+        result
     }
-
-    Ok(task_ids)
 }
 
 /// 创建任务注册表
@@ -466,33 +322,4 @@ fn build_task_registry(
     registry.resolve_aliases()?;
 
     Ok(registry)
-}
-
-/// 同步任务注册表到数据库
-async fn sync_task_registry(
-    db_pool: &DatabaseConnection,
-    registry: &TaskRegistry,
-    identifier_generator: &IdentifierGenerator,
-) {
-    match TaskRegistrySynchronizer::sync_task_settings(db_pool, registry, identifier_generator)
-        .await
-    {
-        Ok(result) => {
-            tracing::info!(
-                target: "task_service.registry.sync",
-                created_queue_names = ?result.created_queue_names,
-                existing_queue_names = ?result.existing_queue_names,
-                created_schedule_names = ?result.created_schedule_names,
-                existing_schedule_names = ?result.existing_schedule_names,
-                "任务定义同步完成"
-            );
-        }
-        Err(error) => {
-            tracing::error!(
-                target: "task_service.registry.sync",
-                error = %error,
-                "任务定义同步失败"
-            );
-        }
-    }
 }

@@ -38,7 +38,7 @@ pub struct SendEmailRequest {
     pub is_body_html: bool,
 
     /// 发件人显示名称
-    /// 未指定时由基础设施层回退为发件账号
+    /// 未指定时不添加显示名称
     pub from_display_name: Option<String>,
 
     /// 附件列表

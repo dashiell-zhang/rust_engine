@@ -170,11 +170,6 @@ pub(crate) fn parse_bool_literal(value: &Expr, name: &str) -> syn::Result<bool> 
     Ok(value.value)
 }
 
-/// 解析 u32 整数字面量配置
-pub(crate) fn parse_u32_literal(value: &Expr, name: &str) -> syn::Result<u32> {
-    parse_integer_literal(value, name)
-}
-
 /// 解析 u64 整数字面量配置
 pub(crate) fn parse_u64_literal(value: &Expr, name: &str) -> syn::Result<u64> {
     parse_integer_literal(value, name)

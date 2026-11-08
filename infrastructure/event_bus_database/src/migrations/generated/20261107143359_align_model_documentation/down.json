@@ -1,0 +1,62 @@
+[
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON TABLE \"EventBusMessage\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"EventBusMessage\".\"Id\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"EventBusMessage\".\"Scope\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"EventBusMessage\".\"Position\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"EventBusMessage\".\"EventId\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"EventBusMessage\".\"EventName\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"EventBusMessage\".\"Payload\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"EventBusMessage\".\"CreateTime\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"EventBusMessage\".\"DeleteTime\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON TABLE \"EventBusStream\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"EventBusStream\".\"Id\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"EventBusStream\".\"Scope\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"EventBusStream\".\"Position\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"EventBusStream\".\"CreateTime\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"EventBusStream\".\"DeleteTime\" IS NULL"
+  }
+]

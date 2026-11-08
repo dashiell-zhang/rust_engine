@@ -1,5 +1,130 @@
 use crate::*;
 
+/// 一次方法调用的日志生命周期；未正常结束的调用不会记录为成功。
+#[doc(hidden)]
+pub struct InvocationLog {
+    method: String,
+    trace_id: String,
+    start: std::time::Instant,
+    completed: bool,
+    arguments: serde_json::Map<String, serde_json::Value>,
+    info_enabled: bool,
+    error_enabled: bool,
+}
+
+impl InvocationLog {
+    pub fn new(method: String) -> Self {
+        Self {
+            method,
+            trace_id: new_trace_id(),
+            start: std::time::Instant::now(),
+            completed: false,
+            arguments: serde_json::Map::new(),
+            info_enabled: tracing::enabled!(tracing::Level::INFO),
+            error_enabled: tracing::enabled!(tracing::Level::ERROR),
+        }
+    }
+
+    pub fn set_argument(&mut self, name: &str, capture: impl FnOnce() -> serde_json::Value) {
+        if self.info_enabled || self.error_enabled {
+            self.arguments.insert(name.into(), capture());
+        }
+    }
+
+    pub fn start(&self) {
+        if self.info_enabled {
+            self.emit("executing", None, None);
+        }
+    }
+
+    pub fn capture_stream_items(&self) -> bool {
+        self.info_enabled
+    }
+
+    pub fn capture_stream_error(&self) -> bool {
+        self.error_enabled
+    }
+
+    pub fn complete(&mut self) {
+        self.completed = true;
+        if self.info_enabled {
+            self.emit("executed", None, None);
+        }
+    }
+
+    pub fn complete_value<T: ?Sized>(
+        &mut self,
+        _value: &T,
+        capture: impl FnOnce() -> serde_json::Value,
+    ) {
+        self.completed = true;
+        if self.info_enabled {
+            let result = (std::any::type_name::<T>() != "()").then(capture);
+            self.emit("executed", result, None);
+        }
+    }
+
+    pub fn fail(&mut self, capture: impl FnOnce() -> serde_json::Value) {
+        self.completed = true;
+        if self.error_enabled {
+            self.emit("exception", None, Some(capture()));
+        }
+    }
+
+    pub fn panic(&mut self, payload: &(dyn std::any::Any + Send)) {
+        self.fail(|| crate::logging_snapshot::panic_payload(payload));
+    }
+
+    fn emit(
+        &self,
+        event: &str,
+        result: Option<serde_json::Value>,
+        exception: Option<serde_json::Value>,
+    ) {
+        let mut payload = serde_json::json!({
+            "event": event,
+            "method": self.method,
+            "traceId": self.trace_id,
+        });
+        if !self.arguments.is_empty() {
+            payload["args"] = serde_json::Value::Object(self.arguments.clone());
+        }
+        if event != "executing" {
+            payload["durationMs"] = u64::try_from(self.start.elapsed().as_millis())
+                .unwrap_or(u64::MAX)
+                .into();
+        }
+        if let Some(result) = result {
+            payload["result"] = result;
+        }
+        if let Some(exception) = exception {
+            payload["exception"] = exception;
+            tracing::error!("{payload}");
+        } else {
+            tracing::info!("{payload}");
+        }
+    }
+}
+
+impl Drop for InvocationLog {
+    fn drop(&mut self) {
+        if !self.completed {
+            self.fail(|| {
+                crate::logging_snapshot::exception_payload(
+                    "invocation",
+                    if std::thread::panicking() {
+                        "方法发生 panic"
+                    } else {
+                        "方法调用未完成即被取消"
+                    }
+                    .into(),
+                    None,
+                )
+            });
+        }
+    }
+}
+
 /// 生成新的调用追踪 ID
 ///
 /// 每次方法调用时生成唯一标识，用于在日志中关联同一次调用的 executing/executed/exception 三条记录

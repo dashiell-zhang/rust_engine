@@ -2,5 +2,13 @@
 dist/
 /.idea
 /logs/
+/Logs/
 /presentation/*/storage/
 /data/files/
+/deployment/.generation.lock
+/deployment/.generated-*/
+
+/wwwroot/uploads/
+/wwwroot/temps/
+/uploads/
+/temps/

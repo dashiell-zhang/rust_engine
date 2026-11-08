@@ -9,6 +9,25 @@ pub async fn retry_sleep(delay_ms: u64) {
     }
 }
 
+/// 只有允许继续重试时才调用；次数耗尽应先返回业务错误。
+pub fn check_retry_cancellation(token: &CancellationToken) -> Result<(), OperationCancelled> {
+    cancellation::check(token)
+}
+
+/// 正数等待支持取消；零间隔保持原有的直接重试语义。
+pub async fn retry_sleep_with_cancellation(
+    delay_ms: u64,
+    token: &CancellationToken,
+) -> Result<(), OperationCancelled> {
+    if delay_ms > 0 {
+        token
+            .run_until_cancelled(tokio::time::sleep(Duration::from_millis(delay_ms)))
+            .await
+            .ok_or(OperationCancelled)?;
+    }
+    Ok(())
+}
+
 /// 校验重试方法的声明参数类型实现 Copy
 #[doc(hidden)]
 pub fn assert_retry_parameter_type_copy<T>()

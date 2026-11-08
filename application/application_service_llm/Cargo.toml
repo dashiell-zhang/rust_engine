@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+repository_core = { path = "../../infrastructure/repository_core" }
 application_interface = { path = "../application_interface" }
 application_model = { path = "../application_model" }
 common = { path = "../../infrastructure/common" }
@@ -11,10 +12,10 @@ llm = { path = "../../infrastructure/llm" }
 repository = { path = "../../repository" }
 
 chrono = "0.4.45"
-async-stream = "0.3"
-async-trait = "0.1"
-futures-util = "0.3"
-regex = "1"
-sea-orm = { version = "2.0.1", features = ["sqlx-postgres", "runtime-tokio-rustls", "macros"] }
-serde_json = "1.0"
-tracing = "0.1"
+async-stream = "0.3.6"
+async-trait = "0.1.92"
+futures-util = "0.3.34"
+regex = "1.13.1"
+sea-orm = { version = "2.0.4", features = ["sqlx-postgres", "runtime-tokio-rustls", "macros"] }
+serde_json = "1.0.154"
+tracing = "0.1.44"

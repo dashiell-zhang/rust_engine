@@ -2,21 +2,29 @@ use application_interface::context::AppContext;
 use common::app_error::AppError;
 use repository::extensions::SoftDeleteQueryExt;
 use repository::{region_area, region_city, region_province, region_town};
-use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, QueryOrder};
+use sea_orm::{
+    ColumnTrait, ConnectionTrait, DatabaseConnection, EntityTrait, QueryFilter, QueryOrder,
+};
 use std::collections::HashMap;
 
 use super::models::{RegionDto, TownDto};
 
 /// 地区字典应用服务
-pub struct RegionService<'a> {
-    /// 应用层上下文
-    context: AppContext<'a>,
+pub struct RegionService<'a, C = DatabaseConnection> {
+    /// 查询连接，可以是主库或只读连接；本服务不执行写入。
+    db: &'a C,
 }
 
 impl<'a> RegionService<'a> {
     /// 创建地区字典应用服务
     pub fn new(context: AppContext<'a>) -> Self {
-        Self { context }
+        Self { db: context.db }
+    }
+}
+
+impl<'a, C: ConnectionTrait> RegionService<'a, C> {
+    pub fn with_connection(db: &'a C) -> Self {
+        Self { db }
     }
 
     /// 获取全部省份列表
@@ -24,12 +32,12 @@ impl<'a> RegionService<'a> {
         let list = region_province::Entity::find()
             .not_deleted(region_province::Column::DeleteTime)
             .order_by_asc(region_province::Column::Id)
-            .all(self.context.db)
+            .all(self.db)
             .await
             .map_err(to_app_error)?
             .into_iter()
             .map(|m| RegionDto {
-                id: m.id,
+                id: m.id.to_string(),
                 name: m.province,
                 child_list: None,
             })
@@ -44,12 +52,12 @@ impl<'a> RegionService<'a> {
             .filter(region_city::Column::ProvinceId.eq(province_id))
             .not_deleted(region_city::Column::DeleteTime)
             .order_by_asc(region_city::Column::Id)
-            .all(self.context.db)
+            .all(self.db)
             .await
             .map_err(to_app_error)?
             .into_iter()
             .map(|m| RegionDto {
-                id: m.id,
+                id: m.id.to_string(),
                 name: m.city,
                 child_list: None,
             })
@@ -64,12 +72,12 @@ impl<'a> RegionService<'a> {
             .filter(region_area::Column::CityId.eq(city_id))
             .not_deleted(region_area::Column::DeleteTime)
             .order_by_asc(region_area::Column::Id)
-            .all(self.context.db)
+            .all(self.db)
             .await
             .map_err(to_app_error)?
             .into_iter()
             .map(|m| RegionDto {
-                id: m.id,
+                id: m.id.to_string(),
                 name: m.area,
                 child_list: None,
             })
@@ -88,7 +96,7 @@ impl<'a> RegionService<'a> {
             .filter(region_town::Column::AreaId.eq(area_id))
             .not_deleted(region_town::Column::DeleteTime)
             .order_by_asc(region_town::Column::Id)
-            .all(self.context.db)
+            .all(self.db)
             .await
             .map_err(to_app_error)?
             .into_iter()
@@ -108,21 +116,21 @@ impl<'a> RegionService<'a> {
         let province_list = region_province::Entity::find()
             .not_deleted(region_province::Column::DeleteTime)
             .order_by_asc(region_province::Column::Id)
-            .all(self.context.db)
+            .all(self.db)
             .await
             .map_err(to_app_error)?;
 
         let city_list = region_city::Entity::find()
             .not_deleted(region_city::Column::DeleteTime)
             .order_by_asc(region_city::Column::Id)
-            .all(self.context.db)
+            .all(self.db)
             .await
             .map_err(to_app_error)?;
 
         let area_list = region_area::Entity::find()
             .not_deleted(region_area::Column::DeleteTime)
             .order_by_asc(region_area::Column::Id)
-            .all(self.context.db)
+            .all(self.db)
             .await
             .map_err(to_app_error)?;
 
@@ -130,7 +138,7 @@ impl<'a> RegionService<'a> {
         let mut area_map: HashMap<i32, Vec<RegionDto>> = HashMap::new();
         for area in area_list {
             area_map.entry(area.city_id).or_default().push(RegionDto {
-                id: area.id,
+                id: area.id.to_string(),
                 name: area.area,
                 child_list: None,
             });
@@ -144,7 +152,7 @@ impl<'a> RegionService<'a> {
                 .entry(city.province_id)
                 .or_default()
                 .push(RegionDto {
-                    id: city.id,
+                    id: city.id.to_string(),
                     name: city.city,
                     child_list: Some(child_list),
                 });
@@ -154,7 +162,7 @@ impl<'a> RegionService<'a> {
         let mut result = Vec::with_capacity(province_list.len());
         for province in province_list {
             result.push(RegionDto {
-                id: province.id,
+                id: province.id.to_string(),
                 name: province.province,
                 child_list: Some(city_map.remove(&province.id).unwrap_or_default()),
             });

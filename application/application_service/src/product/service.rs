@@ -1,9 +1,10 @@
 use repository::extensions::SoftDeleteQueryExt;
 use repository::product;
+use repository_core::pagination::SignedPage;
+use repository_core::versioned::VersionedActiveModel;
 use sea_orm::entity::prelude::Decimal;
 use sea_orm::{
-    ActiveModelTrait, ColumnTrait, EntityTrait, IntoActiveModel, PaginatorTrait, QueryFilter,
-    QueryOrder, QuerySelect, Set,
+    ColumnTrait, EntityTrait, IntoActiveModel, PaginatorTrait, QueryFilter, QueryOrder, Set,
 };
 use serde_json::json;
 use std::str::FromStr;
@@ -16,7 +17,7 @@ use application_interface::{
 use crate::user::models::PageListDto;
 use crate::write_support::{
     apply_soft_delete_audit_fields, apply_update_user_audit_field, build_create_full_audit_fields,
-    normalize_page, validate_page_request, write_data_update_log,
+    page_offset, validate_page_request, write_data_update_log,
 };
 
 use super::models::{EditProductDto, ProductDto, ProductPageListDto, ProductPageRequest};
@@ -56,20 +57,19 @@ impl<'a> ProductService<'a> {
             .count(self.context.db)
             .await
             .map_err(to_app_error)?;
+        let total = repository_core::pagination::count_i32(total).map_err(to_app_error)?;
 
         if total == 0 {
             return Ok(PageListDto {
                 total: 0,
-                list: vec![],
+                list: Some(vec![]),
             });
         }
 
-        let page = normalize_page(params.page);
-        let skip = (page - 1) * params.page_size;
+        let skip = page_offset(params.page, params.page_size);
         let list = query
             .order_by_desc(product::Column::Id)
-            .offset(skip)
-            .limit(params.page_size)
+            .signed_page(skip, params.page_size)
             .all(self.context.db)
             .await
             .map_err(to_app_error)?
@@ -77,7 +77,10 @@ impl<'a> ProductService<'a> {
             .map(to_product_dto)
             .collect();
 
-        Ok(PageListDto { total, list })
+        Ok(PageListDto {
+            total,
+            list: Some(list),
+        })
     }
 
     /// 获取单个商品
@@ -114,6 +117,7 @@ impl<'a> ProductService<'a> {
         let audit = build_create_full_audit_fields(current_user);
 
         product::ActiveModel {
+            row_version: Default::default(),
             id: Set(id),
             sku: Set(dto.sku.trim().to_string()),
             name: Set(dto.name.trim().to_string()),
@@ -126,7 +130,7 @@ impl<'a> ProductService<'a> {
             update_user_id: Set(audit.update_user_id),
             delete_user_id: Set(audit.delete_user_id),
         }
-        .insert(self.context.db)
+        .insert_versioned(self.context.db)
         .await
         .map_err(|e| AppError::internal(format!("创建商品失败: {e}")))?;
 
@@ -185,7 +189,7 @@ impl<'a> ProductService<'a> {
         apply_update_user_audit_field(&mut active.update_user_id, current_user);
 
         let updated = active
-            .update(self.context.db)
+            .update_versioned(self.context.db)
             .await
             .map_err(|e| AppError::internal(format!("更新商品失败: {e}")))?;
 
@@ -244,7 +248,7 @@ impl<'a> ProductService<'a> {
         );
 
         active
-            .update(self.context.db)
+            .update_versioned(self.context.db)
             .await
             .map_err(|e| AppError::internal(format!("删除商品失败: {e}")))?;
 

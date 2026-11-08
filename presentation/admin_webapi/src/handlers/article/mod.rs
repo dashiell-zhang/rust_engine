@@ -1,8 +1,9 @@
 use application_model::article::models::{
-    ArticleDto, ArticleIdQuery, ArticlePageListDto, CategoryDto, CategoryIdQuery,
-    CategoryPageListDto, CategoryPageRequest, CategorySelectDto, CreateArticleQuery,
-    DeleteArticleQuery, DeleteCategoryQuery, EditArticleDto, EditCategoryDto, UpdateArticleQuery,
+    ArticleDto, ArticleIdQuery, CategoryDto, CategoryIdQuery, CategoryPageRequest,
+    CategorySelectDto, CreateArticleQuery, DeleteArticleQuery, DeleteCategoryQuery, EditArticleDto,
+    EditCategoryDto, UpdateArticleQuery,
 };
+use application_model::shared::models::PageListDto;
 use application_model::shared::models::PageRequestDto;
 use axum::{
     extract::State,
@@ -12,6 +13,7 @@ use axum::{
 use std::sync::Arc;
 use webapi_core::extract::{Json, PageQuery, Query};
 use webapi_core::{auth::UserContext, error::AppError};
+use webapi_support::WebApiApplicationExt;
 
 use crate::state::AppState;
 
@@ -21,7 +23,7 @@ use crate::state::AppState;
     path = "/Article/GetCategoryList",
     params(CategoryPageRequest),
     responses(
-        (status = 200, description = "查询成功", body = CategoryPageListDto),
+        (status = 200, description = "查询成功", body = PageListDto<CategoryDto>),
         (status = 400, description = "请求参数无效"),
         (status = 401, description = "未授权"),
         (status = 500, description = "服务器内部错误"),
@@ -34,7 +36,7 @@ pub async fn get_category_list(
     _user_ctx: UserContext,
     PageQuery(params): PageQuery<CategoryPageRequest>,
 ) -> Result<Response, AppError> {
-    let service = app_state.article_webapi();
+    let service = app_state.services().article_webapi();
 
     match service.get_category_list(params).await {
         Ok(result) => Ok((StatusCode::OK, Json(result)).into_response()),
@@ -58,7 +60,7 @@ pub async fn get_category_select_list(
     State(app_state): State<Arc<AppState>>,
     _user_ctx: UserContext,
 ) -> Result<Response, AppError> {
-    let service = app_state.article_webapi();
+    let service = app_state.services().article_webapi();
 
     match service.get_category_select_list(None).await {
         Ok(result) => Ok((StatusCode::OK, Json(result)).into_response()),
@@ -84,7 +86,7 @@ pub async fn get_category(
     _user_ctx: UserContext,
     Query(query): Query<CategoryIdQuery>,
 ) -> Result<Response, AppError> {
-    let service = app_state.article_webapi();
+    let service = app_state.services().article_webapi();
 
     match service.get_category(query.category_id).await {
         Ok(result) => Ok((StatusCode::OK, Json(result)).into_response()),
@@ -111,11 +113,11 @@ pub async fn create_category(
     user_ctx: UserContext,
     Json(dto): Json<EditCategoryDto>,
 ) -> Result<Response, AppError> {
-    let service = app_state.article_webapi();
+    let service = app_state.services().article_webapi();
     let current_user = user_ctx.current_user();
 
     match service.create_category(dto, &current_user).await {
-        Ok(id) => Ok((StatusCode::OK, id).into_response()),
+        Ok(id) => Ok((StatusCode::OK, Json(id)).into_response()),
         Err(error) => Err(error.into()),
     }
 }
@@ -141,7 +143,7 @@ pub async fn update_category(
     Query(query): Query<CategoryIdQuery>,
     Json(dto): Json<EditCategoryDto>,
 ) -> Result<Response, AppError> {
-    let service = app_state.article_webapi();
+    let service = app_state.services().article_webapi();
     let current_user = user_ctx.current_user();
 
     match service
@@ -172,7 +174,7 @@ pub async fn delete_category(
     user_ctx: UserContext,
     Query(query): Query<DeleteCategoryQuery>,
 ) -> Result<Response, AppError> {
-    let service = app_state.article_webapi();
+    let service = app_state.services().article_webapi();
     let current_user = user_ctx.current_user();
 
     match service.delete_category(query.id, &current_user).await {
@@ -187,7 +189,7 @@ pub async fn delete_category(
     path = "/Article/GetArticleList",
     params(PageRequestDto),
     responses(
-        (status = 200, description = "查询成功", body = ArticlePageListDto),
+        (status = 200, description = "查询成功", body = PageListDto<ArticleDto>),
         (status = 400, description = "请求参数无效"),
         (status = 401, description = "未授权"),
         (status = 500, description = "服务器内部错误"),
@@ -200,7 +202,7 @@ pub async fn get_article_list(
     _user_ctx: UserContext,
     PageQuery(params): PageQuery<PageRequestDto>,
 ) -> Result<Response, AppError> {
-    let service = app_state.article_webapi();
+    let service = app_state.services().article_webapi();
 
     match service.get_article_list(params).await {
         Ok(result) => Ok((StatusCode::OK, Json(result)).into_response()),
@@ -226,7 +228,7 @@ pub async fn get_article(
     _user_ctx: UserContext,
     Query(query): Query<ArticleIdQuery>,
 ) -> Result<Response, AppError> {
-    let service = app_state.article_webapi();
+    let service = app_state.services().article_webapi();
 
     match service.get_article(query.article_id).await {
         Ok(result) => Ok((StatusCode::OK, Json(result)).into_response()),
@@ -255,14 +257,14 @@ pub async fn create_article(
     Query(query): Query<CreateArticleQuery>,
     Json(dto): Json<EditArticleDto>,
 ) -> Result<Response, AppError> {
-    let service = app_state.article_webapi();
+    let service = app_state.services().article_webapi();
     let current_user = user_ctx.current_user();
 
     match service
         .create_article(dto, query.upload_key, &current_user)
         .await
     {
-        Ok(id) => Ok((StatusCode::OK, id).into_response()),
+        Ok(id) => Ok((StatusCode::OK, Json(id)).into_response()),
         Err(error) => Err(error.into()),
     }
 }
@@ -288,7 +290,7 @@ pub async fn update_article(
     Query(query): Query<UpdateArticleQuery>,
     Json(dto): Json<EditArticleDto>,
 ) -> Result<Response, AppError> {
-    let service = app_state.article_webapi();
+    let service = app_state.services().article_webapi();
     let current_user = user_ctx.current_user();
 
     match service
@@ -319,7 +321,7 @@ pub async fn delete_article(
     user_ctx: UserContext,
     Query(query): Query<DeleteArticleQuery>,
 ) -> Result<Response, AppError> {
-    let service = app_state.article_webapi();
+    let service = app_state.services().article_webapi();
     let current_user = user_ctx.current_user();
 
     match service.delete_article(query.id, &current_user).await {

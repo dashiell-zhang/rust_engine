@@ -1,7 +1,6 @@
-use axum::Router;
 use std::sync::Arc;
 use utoipa::{OpenApi, openapi::OpenApi as OpenApiDocument};
-use webapi_core::builder::protect_method_router;
+use webapi_core::routes::WebApiRoutes as Router;
 
 use crate::{
     handlers::pay::{
@@ -12,7 +11,7 @@ use crate::{
     state::AppState,
 };
 
-use super::{WebApiFeature, WebApiRoutePermission};
+use super::WebApiFeature;
 
 /// 支付特性
 ///
@@ -24,124 +23,49 @@ impl WebApiFeature for PayFeature {
     fn register(
         &self,
         router: Router<Arc<AppState>>,
-        app_state: Arc<AppState>,
+        _app_state: Arc<AppState>,
     ) -> Router<Arc<AppState>> {
-        let permission_module = app_state.settings.permission_module.clone();
-
         router
             .route(
                 "/Pay/CreateAliPayPC",
-                protect_method_router(
-                    axum::routing::get(create_alipay_pc),
-                    app_state.clone(),
-                    permission_module.clone(),
-                    "/Pay/CreateAliPayPC",
-                    false,
-                ),
+                webapi_core::routes::get(create_alipay_pc),
             )
             .route(
                 "/Pay/CreateAliPayMiniApp",
-                protect_method_router(
-                    axum::routing::get(create_alipay_mini_app),
-                    app_state.clone(),
-                    permission_module.clone(),
-                    "/Pay/CreateAliPayMiniApp",
-                    false,
-                ),
+                webapi_core::routes::get(create_alipay_mini_app),
             )
             .route(
                 "/Pay/CreateAliPayH5",
-                protect_method_router(
-                    axum::routing::get(create_alipay_h5),
-                    app_state.clone(),
-                    permission_module.clone(),
-                    "/Pay/CreateAliPayH5",
-                    false,
-                ),
+                webapi_core::routes::get(create_alipay_h5),
             )
             .route(
                 "/Pay/CreateWeiXinPayJSAPI",
-                protect_method_router(
-                    axum::routing::get(create_wx_pay_jsapi),
-                    app_state.clone(),
-                    permission_module.clone(),
-                    "/Pay/CreateWeiXinPayJSAPI",
-                    false,
-                ),
+                webapi_core::routes::get(create_wx_pay_jsapi),
             )
             .route(
                 "/Pay/CreateWeiXinPayApp",
-                protect_method_router(
-                    axum::routing::get(create_wx_pay_app),
-                    app_state.clone(),
-                    permission_module.clone(),
-                    "/Pay/CreateWeiXinPayApp",
-                    false,
-                ),
+                webapi_core::routes::get(create_wx_pay_app),
             )
             .route(
                 "/Pay/CreateWeiXinPayH5",
-                protect_method_router(
-                    axum::routing::get(create_wx_pay_h5),
-                    app_state.clone(),
-                    permission_module.clone(),
-                    "/Pay/CreateWeiXinPayH5",
-                    false,
-                ),
+                webapi_core::routes::get(create_wx_pay_h5),
             )
             .route(
                 "/Pay/CreateWeiXinPayPC",
-                protect_method_router(
-                    axum::routing::get(create_wx_pay_pc),
-                    app_state.clone(),
-                    permission_module.clone(),
-                    "/Pay/CreateWeiXinPayPC",
-                    false,
-                ),
+                webapi_core::routes::get(create_wx_pay_pc),
             )
-            .route("/Pay/AliPayNotify", axum::routing::post(alipay_notify))
+            .route(
+                "/Pay/AliPayNotify",
+                webapi_core::routes::post(alipay_notify),
+            )
             .route(
                 "/Pay/WeiXinPayNotify/{mch_id}",
-                axum::routing::post(wx_pay_notify),
+                webapi_core::routes::post(wx_pay_notify).json_body("weiXinPayNotify"),
             )
     }
 
     /// 获取当前特性的 OpenAPI 子文档
     fn openapi(&self) -> Option<OpenApiDocument> {
         Some(PayApiDoc::openapi())
-    }
-
-    /// 获取当前特性的权限路由列表
-    fn permission_routes(&self) -> Vec<WebApiRoutePermission> {
-        vec![
-            WebApiRoutePermission {
-                route: "/Pay/CreateAliPayPC",
-                remark: "创建支付宝 PC 支付地址",
-            },
-            WebApiRoutePermission {
-                route: "/Pay/CreateAliPayMiniApp",
-                remark: "创建支付宝小程序支付交易号",
-            },
-            WebApiRoutePermission {
-                route: "/Pay/CreateAliPayH5",
-                remark: "创建支付宝 H5 支付地址",
-            },
-            WebApiRoutePermission {
-                route: "/Pay/CreateWeiXinPayJSAPI",
-                remark: "创建微信支付 JSAPI 预支付参数",
-            },
-            WebApiRoutePermission {
-                route: "/Pay/CreateWeiXinPayApp",
-                remark: "创建微信支付 App 预支付参数",
-            },
-            WebApiRoutePermission {
-                route: "/Pay/CreateWeiXinPayH5",
-                remark: "创建微信支付 H5 支付链接",
-            },
-            WebApiRoutePermission {
-                route: "/Pay/CreateWeiXinPayPC",
-                remark: "创建微信支付 PC 扫码支付链接",
-            },
-        ]
     }
 }

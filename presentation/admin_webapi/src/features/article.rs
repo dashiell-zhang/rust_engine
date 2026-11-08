@@ -8,9 +8,9 @@ use crate::{
     openapi::article::ArticleApiDoc,
     state::AppState,
 };
-use axum::Router;
 use std::sync::Arc;
 use utoipa::{OpenApi, openapi::OpenApi as OpenApiDocument};
+use webapi_core::routes::WebApiRoutes as Router;
 
 use super::{WebApiFeature, WebApiRoutePermission};
 
@@ -30,7 +30,7 @@ impl WebApiFeature for ArticleFeature {
             .route(
                 "/Article/GetCategoryList",
                 protect_method_router(
-                    axum::routing::get(get_category_list),
+                    webapi_core::routes::get(get_category_list),
                     app_state.clone(),
                     permission_module.clone(),
                     "/Article/GetCategoryList",
@@ -40,7 +40,7 @@ impl WebApiFeature for ArticleFeature {
             .route(
                 "/Article/GetCategorySelectList",
                 protect_method_router(
-                    axum::routing::get(get_category_select_list),
+                    webapi_core::routes::get(get_category_select_list),
                     app_state.clone(),
                     permission_module.clone(),
                     "/Article/GetCategorySelectList",
@@ -50,7 +50,7 @@ impl WebApiFeature for ArticleFeature {
             .route(
                 "/Article/GetCategory",
                 protect_method_router(
-                    axum::routing::get(get_category),
+                    webapi_core::routes::get(get_category),
                     app_state.clone(),
                     permission_module.clone(),
                     "/Article/GetCategory",
@@ -60,7 +60,7 @@ impl WebApiFeature for ArticleFeature {
             .route(
                 "/Article/CreateCategory",
                 protect_method_router(
-                    axum::routing::post(create_category),
+                    webapi_core::routes::post(create_category).json_body("createCategory"),
                     app_state.clone(),
                     permission_module.clone(),
                     "/Article/CreateCategory",
@@ -70,7 +70,7 @@ impl WebApiFeature for ArticleFeature {
             .route(
                 "/Article/UpdateCategory",
                 protect_method_router(
-                    axum::routing::post(update_category),
+                    webapi_core::routes::post(update_category).json_body("updateCategory"),
                     app_state.clone(),
                     permission_module.clone(),
                     "/Article/UpdateCategory",
@@ -80,7 +80,7 @@ impl WebApiFeature for ArticleFeature {
             .route(
                 "/Article/DeleteCategory",
                 protect_method_router(
-                    axum::routing::delete(delete_category),
+                    webapi_core::routes::delete(delete_category),
                     app_state.clone(),
                     permission_module.clone(),
                     "/Article/DeleteCategory",
@@ -90,7 +90,7 @@ impl WebApiFeature for ArticleFeature {
             .route(
                 "/Article/GetArticleList",
                 protect_method_router(
-                    axum::routing::get(get_article_list),
+                    webapi_core::routes::get(get_article_list),
                     app_state.clone(),
                     permission_module.clone(),
                     "/Article/GetArticleList",
@@ -100,7 +100,7 @@ impl WebApiFeature for ArticleFeature {
             .route(
                 "/Article/GetArticle",
                 protect_method_router(
-                    axum::routing::get(get_article),
+                    webapi_core::routes::get(get_article),
                     app_state.clone(),
                     permission_module.clone(),
                     "/Article/GetArticle",
@@ -110,7 +110,7 @@ impl WebApiFeature for ArticleFeature {
             .route(
                 "/Article/CreateArticle",
                 protect_method_router(
-                    axum::routing::post(create_article),
+                    webapi_core::routes::post(create_article).json_body("createArticle"),
                     app_state.clone(),
                     permission_module.clone(),
                     "/Article/CreateArticle",
@@ -120,7 +120,7 @@ impl WebApiFeature for ArticleFeature {
             .route(
                 "/Article/UpdateArticle",
                 protect_method_router(
-                    axum::routing::post(update_article),
+                    webapi_core::routes::post(update_article).json_body("updateArticle"),
                     app_state.clone(),
                     permission_module.clone(),
                     "/Article/UpdateArticle",
@@ -130,7 +130,7 @@ impl WebApiFeature for ArticleFeature {
             .route(
                 "/Article/DeleteArticle",
                 protect_method_router(
-                    axum::routing::delete(delete_article),
+                    webapi_core::routes::delete(delete_article),
                     app_state,
                     permission_module,
                     "/Article/DeleteArticle",
@@ -153,11 +153,11 @@ impl WebApiFeature for ArticleFeature {
             },
             WebApiRoutePermission {
                 route: "/Article/GetCategorySelectList",
-                remark: "获取栏目树形选择列表",
+                remark: "获取栏目树形列表",
             },
             WebApiRoutePermission {
                 route: "/Article/GetCategory",
-                remark: "获取单个栏目详情",
+                remark: "通过栏目Id 获取栏目信息",
             },
             WebApiRoutePermission {
                 route: "/Article/CreateCategory",
@@ -165,7 +165,7 @@ impl WebApiFeature for ArticleFeature {
             },
             WebApiRoutePermission {
                 route: "/Article/UpdateCategory",
-                remark: "更新栏目",
+                remark: "更新栏目信息",
             },
             WebApiRoutePermission {
                 route: "/Article/DeleteCategory",
@@ -177,7 +177,7 @@ impl WebApiFeature for ArticleFeature {
             },
             WebApiRoutePermission {
                 route: "/Article/GetArticle",
-                remark: "获取单篇文章详情",
+                remark: "通过文章ID 获取文章信息",
             },
             WebApiRoutePermission {
                 route: "/Article/CreateArticle",
@@ -185,7 +185,7 @@ impl WebApiFeature for ArticleFeature {
             },
             WebApiRoutePermission {
                 route: "/Article/UpdateArticle",
-                remark: "更新文章",
+                remark: "更新文章信息",
             },
             WebApiRoutePermission {
                 route: "/Article/DeleteArticle",

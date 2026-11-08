@@ -1,0 +1,62 @@
+[
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON TABLE \"EventBusMessage\" IS E'保存可由所有订阅实例独立读取的广播事件'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"EventBusMessage\".\"Id\" IS E'主键标识ID'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"EventBusMessage\".\"Scope\" IS E'所属广播范围'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"EventBusMessage\".\"Position\" IS E'范围内遵循提交顺序的读取位置'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"EventBusMessage\".\"EventId\" IS E'广播事件标识'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"EventBusMessage\".\"EventName\" IS E'共享事件类型的完整名称'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"EventBusMessage\".\"Payload\" IS E'使用统一约定序列化的事件参数'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"EventBusMessage\".\"CreateTime\" IS E'创建时间'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"EventBusMessage\".\"DeleteTime\" IS E'删除时间，不为 null 时表示已软删除'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON TABLE \"EventBusStream\" IS E'通过提交顺序维护广播范围的最新位置'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"EventBusStream\".\"Id\" IS E'主键标识ID'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"EventBusStream\".\"Scope\" IS E'互通实例共用的广播范围'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"EventBusStream\".\"Position\" IS E'当前已经提交的最大事件位置'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"EventBusStream\".\"CreateTime\" IS E'创建时间'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"EventBusStream\".\"DeleteTime\" IS E'删除时间，不为 null 时表示已软删除'"
+  }
+]

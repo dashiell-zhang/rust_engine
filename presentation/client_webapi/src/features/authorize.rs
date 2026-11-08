@@ -1,16 +1,17 @@
-use axum::Router;
 use std::sync::Arc;
 use utoipa::{OpenApi, openapi::OpenApi as OpenApiDocument};
+use webapi_core::routes::WebApiRoutes as Router;
 use webapi_core::{
     builder::protect_method_router,
+    cache_data::{CacheDataOptions, cache_method_router_with_options},
     queue_limit::{QueueLimitOptions, queue_limit_method_router},
 };
 
 use crate::{
     handlers::authorize::{
-        get_function_list, get_token, get_token_by_sms, get_token_by_wx_app,
+        get_function_list, get_public_key, get_token, get_token_by_sms, get_token_by_wx_app,
         get_token_by_wx_mini_app, send_sms_verify_code, update_password_by_old_password,
-        update_password_by_sms,
+        update_password_by_sms, update_route,
     },
     openapi::authorize::AuthorizeApiDoc,
     state::AppState,
@@ -32,27 +33,43 @@ impl WebApiFeature for AuthorizeFeature {
         let permission_module = app_state.settings.permission_module.clone();
 
         router
-            .route("/Authorize/GetToken", axum::routing::post(get_token))
+            .route(
+                "/Authorize/UpdateRoute",
+                webapi_core::routes::get(update_route),
+            )
+            .route(
+                "/Authorize/GetPublicKey",
+                webapi_core::routes::get(get_public_key),
+            )
+            .route(
+                "/Authorize/GetToken",
+                webapi_core::routes::post(get_token).json_body("login"),
+            )
             .route(
                 "/Authorize/GetTokenBySMS",
-                axum::routing::post(get_token_by_sms),
+                webapi_core::routes::post(get_token_by_sms).json_body("login"),
             )
             .route(
                 "/Authorize/GetTokenByWeiXinMiniApp",
-                axum::routing::post(get_token_by_wx_mini_app),
+                webapi_core::routes::post(get_token_by_wx_mini_app).json_body("login"),
             )
             .route(
                 "/Authorize/GetTokenByWeiXinApp",
-                axum::routing::post(get_token_by_wx_app),
+                webapi_core::routes::post(get_token_by_wx_app).json_body("login"),
             )
             .route(
                 "/Authorize/SendSMSVerifyCode",
-                axum::routing::post(send_sms_verify_code),
+                webapi_core::routes::post(send_sms_verify_code).json_body("sendVerifyCode"),
             )
             .route(
                 "/Authorize/GetFunctionList",
                 protect_method_router(
-                    axum::routing::get(get_function_list),
+                    cache_method_router_with_options(
+                        webapi_core::routes::get(get_function_list),
+                        app_state.clone(),
+                        CacheDataOptions::with_authorization(60),
+                        concat!(module_path!(), "::get_function_list"),
+                    ),
                     app_state.clone(),
                     permission_module.clone(),
                     "/Authorize/GetFunctionList",
@@ -63,9 +80,11 @@ impl WebApiFeature for AuthorizeFeature {
                 "/Authorize/UpdatePasswordBySMS",
                 protect_method_router(
                     queue_limit_method_router(
-                        axum::routing::post(update_password_by_sms),
-                        app_state.role_code_lock.clone(),
+                        webapi_core::routes::post(update_password_by_sms)
+                            .json_body("updatePassword"),
+                        app_state.distributed_lock.clone(),
                         QueueLimitOptions::rejecting_with_authorization(1),
+                        concat!(module_path!(), "::update_password_by_sms"),
                     ),
                     app_state.clone(),
                     permission_module.clone(),
@@ -77,9 +96,11 @@ impl WebApiFeature for AuthorizeFeature {
                 "/Authorize/UpdatePasswordByOldPassword",
                 protect_method_router(
                     queue_limit_method_router(
-                        axum::routing::post(update_password_by_old_password),
-                        app_state.role_code_lock.clone(),
+                        webapi_core::routes::post(update_password_by_old_password)
+                            .json_body("updatePassword"),
+                        app_state.distributed_lock.clone(),
                         QueueLimitOptions::rejecting_with_authorization(1),
+                        concat!(module_path!(), "::update_password_by_old_password"),
                     ),
                     app_state.clone(),
                     permission_module.clone(),
@@ -100,15 +121,15 @@ impl WebApiFeature for AuthorizeFeature {
         vec![
             WebApiRoutePermission {
                 route: "/Authorize/GetFunctionList",
-                remark: "获取当前用户可访问的功能列表",
+                remark: "获取授权功能列表",
             },
             WebApiRoutePermission {
                 route: "/Authorize/UpdatePasswordBySMS",
-                remark: "通过短信验证码修改密码",
+                remark: "通过短信验证码修改账户密码",
             },
             WebApiRoutePermission {
                 route: "/Authorize/UpdatePasswordByOldPassword",
-                remark: "通过旧密码修改密码",
+                remark: "通过老密码修改密码",
             },
         ]
     }

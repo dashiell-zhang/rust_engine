@@ -1,0 +1,14 @@
+[
+  {
+    "kind": "Sql",
+    "value": "ALTER TABLE \"LlmConversation\" DROP CONSTRAINT \"fk-LlmConversation-DeleteUserId\""
+  },
+  {
+    "kind": "Sql",
+    "value": "DROP INDEX \"IX_LlmConversation_DeleteUserId\""
+  },
+  {
+    "kind": "Sql",
+    "value": "ALTER TABLE \"LlmConversation\" DROP COLUMN \"DeleteUserId\""
+  }
+]

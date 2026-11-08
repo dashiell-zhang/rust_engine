@@ -1,9 +1,30 @@
-use chrono::{DateTime, Datelike, Duration, NaiveDate, NaiveDateTime, TimeZone, Utc};
+use chrono::{
+    DateTime, Datelike, Duration, FixedOffset, Local, NaiveDate, NaiveDateTime, Offset, TimeZone,
+    Utc,
+};
 use std::{
     net::{SocketAddr, ToSocketAddrs, UdpSocket},
     time::{Duration as StdDuration, SystemTime},
 };
 use uuid::Uuid;
+
+mod local;
+pub(crate) use local::resolve_local;
+#[cfg(unix)]
+pub(crate) use local::standard_offset_at;
+
+/// 转换为 TimeSpan 的有符号 100ns 计数；不足一个 tick 的部分向零截断。
+/// TimeDelta 的可表示范围更大，越过 TimeSpan 的 i64 范围时返回 None。
+pub fn time_span_ticks(value: Duration) -> Option<i64> {
+    let ticks =
+        i128::from(value.num_seconds()) * 10_000_000 + i128::from(value.subsec_nanos()) / 100;
+    i64::try_from(ticks).ok()
+}
+
+/// 将有符号 TimeSpan ticks 转换为可直接参与日期运算的时间差。
+pub fn time_span_from_ticks(ticks: i64) -> Duration {
+    Duration::seconds(ticks / 10_000_000) + Duration::nanoseconds(ticks % 10_000_000 * 100)
+}
 
 /// 获取某个日期所属周第一天
 pub fn get_week_first_day(date: NaiveDate) -> NaiveDate {
@@ -41,33 +62,16 @@ pub fn get_quarterly_first_day(date: NaiveDate) -> NaiveDate {
 
 /// 获取 NTP 网络远程时间
 pub fn get_network_time() -> std::io::Result<DateTime<Utc>> {
-    let servers = ("ntp.tencent.com", 123)
+    let server = ("ntp.tencent.com", 123)
         .to_socket_addrs()?
-        .collect::<Vec<_>>();
-    if servers.is_empty() {
-        return Err(std::io::Error::other("NTP 地址解析失败"));
-    }
-
-    let mut last_error = None;
-    for server in servers {
-        match get_network_time_from(server) {
-            Ok(value) => return Ok(value),
-            Err(error) => last_error = Some(error),
-        }
-    }
-
-    Err(last_error.unwrap_or_else(|| std::io::Error::other("NTP 时间获取失败")))
+        .find(SocketAddr::is_ipv4)
+        .ok_or_else(|| std::io::Error::other("未获取到可用的NTP IPv4地址"))?;
+    get_network_time_from(server)
 }
 
 /// 从指定 NTP 地址获取时间
 fn get_network_time_from(server: SocketAddr) -> std::io::Result<DateTime<Utc>> {
-    let bind_addr = if server.is_ipv4() {
-        "0.0.0.0:0"
-    } else {
-        "[::]:0"
-    };
-
-    let socket = UdpSocket::bind(bind_addr)?;
+    let socket = UdpSocket::bind("0.0.0.0:0")?;
     socket.set_read_timeout(Some(StdDuration::from_secs(3)))?;
     socket.connect(server)?;
 
@@ -77,8 +81,8 @@ fn get_network_time_from(server: SocketAddr) -> std::io::Result<DateTime<Utc>> {
     let received = socket.recv(&mut packet)?;
     if received < packet.len() {
         return Err(std::io::Error::new(
-            std::io::ErrorKind::UnexpectedEof,
-            "NTP 响应长度不足",
+            std::io::ErrorKind::InvalidData,
+            "NTP响应长度不足48字节",
         ));
     }
 
@@ -88,7 +92,7 @@ fn get_network_time_from(server: SocketAddr) -> std::io::Result<DateTime<Utc>> {
     if leap_indicator == 3 || mode != 4 || !(1..=15).contains(&stratum) {
         return Err(std::io::Error::new(
             std::io::ErrorKind::InvalidData,
-            "NTP 响应状态无效",
+            "NTP响应状态无效",
         ));
     }
 
@@ -97,16 +101,18 @@ fn get_network_time_from(server: SocketAddr) -> std::io::Result<DateTime<Utc>> {
     if seconds_part == 0 && fraction == 0 {
         return Err(std::io::Error::new(
             std::io::ErrorKind::InvalidData,
-            "NTP 响应未包含服务器发送时间",
+            "NTP响应未包含服务器发送时间",
         ));
     }
 
-    const NTP_UNIX_OFFSET_SECONDS: u64 = 2_208_988_800;
+    const NTP_UNIX_OFFSET_SECONDS: i64 = 2_208_988_800;
     const NTP_ERA_SECONDS: u64 = 1_u64 << 32;
 
-    let current_unix_seconds = u64::try_from(Utc::now().timestamp())
-        .map_err(|_| std::io::Error::other("当前时间早于 Unix 纪元"))?;
-    let current_ntp_seconds = current_unix_seconds + NTP_UNIX_OFFSET_SECONDS;
+    let current_ntp_seconds = Utc::now()
+        .timestamp()
+        .checked_add(NTP_UNIX_OFFSET_SECONDS)
+        .and_then(|value| u64::try_from(value).ok())
+        .ok_or_else(|| std::io::Error::other("当前时间早于 NTP 纪元"))?;
     let current_era = current_ntp_seconds / NTP_ERA_SECONDS;
     let mut seconds = u64::from(seconds_part) + current_era * NTP_ERA_SECONDS;
 
@@ -118,13 +124,15 @@ fn get_network_time_from(server: SocketAddr) -> std::io::Result<DateTime<Utc>> {
             .ok_or_else(|| std::io::Error::other("NTP 时代换算溢出"))?;
     }
 
-    let unix_seconds = seconds
-        .checked_sub(NTP_UNIX_OFFSET_SECONDS)
+    // 源助手按整数毫秒截断小数部分，不将 NTP 小数扩展为纳秒。
+    let unix_milliseconds = seconds
+        .checked_mul(1000)
+        .and_then(|value| value.checked_add(fraction * 1000 / NTP_ERA_SECONDS))
         .and_then(|value| i64::try_from(value).ok())
+        .and_then(|value| value.checked_sub(NTP_UNIX_OFFSET_SECONDS * 1000))
         .ok_or_else(|| std::io::Error::other("NTP 时间超出支持范围"))?;
-    let nanos = ((fraction * 1_000_000_000) >> 32) as u32;
 
-    DateTime::<Utc>::from_timestamp(unix_seconds, nanos)
+    datetime_from_unix_milliseconds(unix_milliseconds)
         .ok_or_else(|| std::io::Error::other("NTP 时间转换失败"))
 }
 
@@ -147,17 +155,22 @@ pub fn get_time_by_string(
 
 /// 年龄计算
 pub fn get_age(date: NaiveDate) -> i32 {
-    get_age_with_today(date, Utc::now().date_naive())
+    get_age_with_today(date, Local::now().date_naive())
 }
 
 /// 按指定当前日期计算年龄
 pub fn get_age_with_today(date: NaiveDate, today: NaiveDate) -> i32 {
     let mut age = today.year() - date.year();
-    if (today.month(), today.day()) < (date.month(), date.day()) {
+    // DateOnly.AddYears 在目标年非闰年时将 2 月 29 日落到 2 月 28 日。
+    let birthday = date
+        .with_year(today.year())
+        .or_else(|| date.with_day(28)?.with_year(today.year()))
+        .expect("同一年内的生日应有效");
+    if today < birthday {
         age -= 1;
     }
 
-    age
+    age.max(0)
 }
 
 /// 时间抹零
@@ -169,26 +182,50 @@ pub fn time_erase(date_time: NaiveDateTime) -> NaiveDateTime {
 }
 
 /// 带时区时间抹零并保留偏移量
-pub fn time_erase_with_timezone<Tz>(date_time: DateTime<Tz>) -> Option<DateTime<Tz>>
+pub fn time_erase_with_timezone<Tz>(date_time: DateTime<Tz>) -> Option<DateTime<FixedOffset>>
 where
     Tz: TimeZone,
 {
-    let naive = date_time
-        .date_naive()
-        .and_hms_opt(0, 0, 0)
-        .expect("抹零后的时间应始终有效");
-
-    date_time
-        .timezone()
-        .from_local_datetime(&naive)
-        .single()
-        .or_else(|| date_time.timezone().from_local_datetime(&naive).earliest())
+    let offset = date_time.offset().fix();
+    let seconds = offset.local_minus_utc();
+    if seconds % 60 != 0
+        || seconds.abs() > 14 * 3600
+        || !(1..=9999).contains(&date_time.naive_utc().year())
+    {
+        return None;
+    }
+    let local = date_time.naive_utc().checked_add_offset(offset)?;
+    if !(1..=9999).contains(&local.year()) {
+        return None;
+    }
+    let naive = local.date().and_hms_opt(0, 0, 0)?;
+    let result = offset.from_local_datetime(&naive).single()?;
+    (1..=9999)
+        .contains(&result.naive_utc().year())
+        .then_some(result)
 }
 
 /// 获取 UUIDv7 中的时间信息
 pub fn get_time_from_uuid_v7(uuid: Uuid) -> Option<SystemTime> {
-    uuid.get_timestamp().map(|timestamp| {
-        let (seconds, nanos) = timestamp.to_unix();
-        SystemTime::UNIX_EPOCH + std::time::Duration::new(seconds, nanos)
-    })
+    let date_time = get_time_from_guid_v7(uuid).ok()?;
+    SystemTime::UNIX_EPOCH
+        .checked_add(StdDuration::from_millis(date_time.timestamp_millis() as u64))
+}
+
+/// 按源 Guid 文本的版本位检查 V7，并返回零偏移的毫秒时间；不额外限制 variant。
+pub fn get_time_from_guid_v7(uuid: Uuid) -> Result<DateTime<Utc>, String> {
+    let bytes = uuid.as_bytes();
+    if bytes[6] >> 4 != 7 {
+        return Err("输入Guid不是Guid V7".to_owned());
+    }
+    let milliseconds = bytes[..6]
+        .iter()
+        .fold(0i64, |value, byte| (value << 8) | i64::from(*byte));
+    datetime_from_unix_milliseconds(milliseconds)
+        .ok_or_else(|| "Guid V7 时间超出 DateTimeOffset 范围".to_owned())
+}
+
+fn datetime_from_unix_milliseconds(milliseconds: i64) -> Option<DateTime<Utc>> {
+    DateTime::from_timestamp_millis(milliseconds)
+        .filter(|date_time| (1..=9999).contains(&date_time.year()))
 }

@@ -1,0 +1,2894 @@
+{
+  "format": 1,
+  "target": "business",
+  "migration_id": "20261107143359_align_model_documentation",
+  "model": {
+    "tables": {
+      "\"AppSetting\"": {
+        "schema": null,
+        "name": "AppSetting",
+        "columns": [
+          {
+            "name": "Id",
+            "sql_type": "bigint",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "配置主键"
+          },
+          {
+            "name": "Module",
+            "sql_type": "text",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "配置模块"
+          },
+          {
+            "name": "GroupId",
+            "sql_type": "bigint",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "配置分组 ID"
+          },
+          {
+            "name": "Key",
+            "sql_type": "text",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "配置键"
+          },
+          {
+            "name": "Value",
+            "sql_type": "text",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "配置值"
+          },
+          {
+            "name": "CreateTime",
+            "sql_type": "timestamp with time zone",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "创建时间"
+          },
+          {
+            "name": "DeleteTime",
+            "sql_type": "timestamp with time zone",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "删除时间"
+          }
+        ],
+        "primary_key": [
+          "Id"
+        ],
+        "foreign_keys": {},
+        "indexes": {
+          "IX_AppSetting_CreateTime": "CREATE INDEX \"IX_AppSetting_CreateTime\" ON \"AppSetting\" (\"CreateTime\")",
+          "IX_AppSetting_DeleteTime": "CREATE INDEX \"IX_AppSetting_DeleteTime\" ON \"AppSetting\" (\"DeleteTime\")",
+          "IX_AppSetting_Module": "CREATE INDEX \"IX_AppSetting_Module\" ON \"AppSetting\" (\"Module\")"
+        },
+        "partition": null,
+        "comment": "应用配置实体"
+      },
+      "\"Article\"": {
+        "schema": null,
+        "name": "Article",
+        "columns": [
+          {
+            "name": "Id",
+            "sql_type": "bigint",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "文章主键"
+          },
+          {
+            "name": "CategoryId",
+            "sql_type": "bigint",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "分类 ID"
+          },
+          {
+            "name": "Title",
+            "sql_type": "text",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "标题"
+          },
+          {
+            "name": "Content",
+            "sql_type": "text",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "正文内容"
+          },
+          {
+            "name": "IsRecommend",
+            "sql_type": "bool",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "是否推荐"
+          },
+          {
+            "name": "IsDisplay",
+            "sql_type": "bool",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "是否显示"
+          },
+          {
+            "name": "Sort",
+            "sql_type": "integer",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "排序值"
+          },
+          {
+            "name": "ClickCount",
+            "sql_type": "integer",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "点击次数"
+          },
+          {
+            "name": "Digest",
+            "sql_type": "text",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "摘要"
+          },
+          {
+            "name": "CreateTime",
+            "sql_type": "timestamp with time zone",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "创建时间"
+          },
+          {
+            "name": "DeleteTime",
+            "sql_type": "timestamp with time zone",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "删除时间"
+          },
+          {
+            "name": "CreateUserId",
+            "sql_type": "bigint",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "创建人用户 ID"
+          },
+          {
+            "name": "DeleteUserId",
+            "sql_type": "bigint",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "删除人用户 ID"
+          }
+        ],
+        "primary_key": [
+          "Id"
+        ],
+        "foreign_keys": {
+          "fk-Article-CategoryId": "ALTER TABLE \"Article\" ADD CONSTRAINT \"fk-Article-CategoryId\" FOREIGN KEY (\"CategoryId\") REFERENCES \"Category\" (\"Id\") ON DELETE RESTRICT ON UPDATE NO ACTION",
+          "fk-Article-CreateUserId": "ALTER TABLE \"Article\" ADD CONSTRAINT \"fk-Article-CreateUserId\" FOREIGN KEY (\"CreateUserId\") REFERENCES \"User\" (\"Id\") ON DELETE RESTRICT ON UPDATE NO ACTION",
+          "fk-Article-DeleteUserId": "ALTER TABLE \"Article\" ADD CONSTRAINT \"fk-Article-DeleteUserId\" FOREIGN KEY (\"DeleteUserId\") REFERENCES \"User\" (\"Id\") ON DELETE RESTRICT ON UPDATE NO ACTION"
+        },
+        "indexes": {
+          "IX_Article_CategoryId": "CREATE INDEX \"IX_Article_CategoryId\" ON \"Article\" (\"CategoryId\")",
+          "IX_Article_CreateTime": "CREATE INDEX \"IX_Article_CreateTime\" ON \"Article\" (\"CreateTime\")",
+          "IX_Article_CreateUserId": "CREATE INDEX \"IX_Article_CreateUserId\" ON \"Article\" (\"CreateUserId\")",
+          "IX_Article_DeleteTime": "CREATE INDEX \"IX_Article_DeleteTime\" ON \"Article\" (\"DeleteTime\")",
+          "IX_Article_DeleteUserId": "CREATE INDEX \"IX_Article_DeleteUserId\" ON \"Article\" (\"DeleteUserId\")",
+          "IX_Article_Title": "CREATE INDEX \"IX_Article_Title\" ON \"Article\" (\"Title\")"
+        },
+        "partition": null,
+        "comment": "文章实体"
+      },
+      "\"Category\"": {
+        "schema": null,
+        "name": "Category",
+        "columns": [
+          {
+            "name": "Id",
+            "sql_type": "bigint",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "分类主键"
+          },
+          {
+            "name": "Name",
+            "sql_type": "text",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "分类名称"
+          },
+          {
+            "name": "Sort",
+            "sql_type": "integer",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "排序值"
+          },
+          {
+            "name": "ParentId",
+            "sql_type": "bigint",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "父级分类 ID"
+          },
+          {
+            "name": "Remark",
+            "sql_type": "text",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "分类备注"
+          },
+          {
+            "name": "CreateTime",
+            "sql_type": "timestamp with time zone",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "创建时间"
+          },
+          {
+            "name": "DeleteTime",
+            "sql_type": "timestamp with time zone",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "删除时间"
+          },
+          {
+            "name": "CreateUserId",
+            "sql_type": "bigint",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "创建人用户 ID"
+          },
+          {
+            "name": "DeleteUserId",
+            "sql_type": "bigint",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "删除人用户 ID"
+          }
+        ],
+        "primary_key": [
+          "Id"
+        ],
+        "foreign_keys": {
+          "fk-Category-CreateUserId": "ALTER TABLE \"Category\" ADD CONSTRAINT \"fk-Category-CreateUserId\" FOREIGN KEY (\"CreateUserId\") REFERENCES \"User\" (\"Id\") ON DELETE RESTRICT ON UPDATE NO ACTION",
+          "fk-Category-DeleteUserId": "ALTER TABLE \"Category\" ADD CONSTRAINT \"fk-Category-DeleteUserId\" FOREIGN KEY (\"DeleteUserId\") REFERENCES \"User\" (\"Id\") ON DELETE RESTRICT ON UPDATE NO ACTION",
+          "fk-Category-ParentId": "ALTER TABLE \"Category\" ADD CONSTRAINT \"fk-Category-ParentId\" FOREIGN KEY (\"ParentId\") REFERENCES \"Category\" (\"Id\") ON DELETE RESTRICT ON UPDATE NO ACTION"
+        },
+        "indexes": {
+          "IX_Category_CreateTime": "CREATE INDEX \"IX_Category_CreateTime\" ON \"Category\" (\"CreateTime\")",
+          "IX_Category_CreateUserId": "CREATE INDEX \"IX_Category_CreateUserId\" ON \"Category\" (\"CreateUserId\")",
+          "IX_Category_DeleteTime": "CREATE INDEX \"IX_Category_DeleteTime\" ON \"Category\" (\"DeleteTime\")",
+          "IX_Category_DeleteUserId": "CREATE INDEX \"IX_Category_DeleteUserId\" ON \"Category\" (\"DeleteUserId\")",
+          "IX_Category_Name": "CREATE INDEX \"IX_Category_Name\" ON \"Category\" (\"Name\")",
+          "IX_Category_ParentId": "CREATE INDEX \"IX_Category_ParentId\" ON \"Category\" (\"ParentId\")"
+        },
+        "partition": null,
+        "comment": "文章分类实体"
+      },
+      "\"DataUpdateLog\"": {
+        "schema": null,
+        "name": "DataUpdateLog",
+        "columns": [
+          {
+            "name": "Id",
+            "sql_type": "bigint",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "日志主键"
+          },
+          {
+            "name": "Table",
+            "sql_type": "text",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "业务表名"
+          },
+          {
+            "name": "TableId",
+            "sql_type": "bigint",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "业务主键"
+          },
+          {
+            "name": "Content",
+            "sql_type": "text",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "变更内容"
+          },
+          {
+            "name": "ActionUserId",
+            "sql_type": "bigint",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "操作人用户 ID"
+          },
+          {
+            "name": "IpAddress",
+            "sql_type": "text",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "IP 地址"
+          },
+          {
+            "name": "DeviceMark",
+            "sql_type": "text",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "设备标识"
+          },
+          {
+            "name": "CreateTime",
+            "sql_type": "timestamp with time zone",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "创建时间"
+          },
+          {
+            "name": "DeleteTime",
+            "sql_type": "timestamp with time zone",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "删除时间"
+          }
+        ],
+        "primary_key": [
+          "Id"
+        ],
+        "foreign_keys": {
+          "fk-DataUpdateLog-ActionUserId": "ALTER TABLE \"DataUpdateLog\" ADD CONSTRAINT \"fk-DataUpdateLog-ActionUserId\" FOREIGN KEY (\"ActionUserId\") REFERENCES \"User\" (\"Id\") ON DELETE RESTRICT ON UPDATE NO ACTION"
+        },
+        "indexes": {
+          "IX_DataUpdateLog_ActionUserId": "CREATE INDEX \"IX_DataUpdateLog_ActionUserId\" ON \"DataUpdateLog\" (\"ActionUserId\")",
+          "IX_DataUpdateLog_CreateTime": "CREATE INDEX \"IX_DataUpdateLog_CreateTime\" ON \"DataUpdateLog\" (\"CreateTime\")",
+          "IX_DataUpdateLog_DeleteTime": "CREATE INDEX \"IX_DataUpdateLog_DeleteTime\" ON \"DataUpdateLog\" (\"DeleteTime\")",
+          "IX_DataUpdateLog_Table": "CREATE INDEX \"IX_DataUpdateLog_Table\" ON \"DataUpdateLog\" (\"Table\")",
+          "IX_DataUpdateLog_TableId": "CREATE INDEX \"IX_DataUpdateLog_TableId\" ON \"DataUpdateLog\" (\"TableId\")"
+        },
+        "partition": null,
+        "comment": "数据变更日志实体"
+      },
+      "\"Function\"": {
+        "schema": null,
+        "name": "Function",
+        "columns": [
+          {
+            "name": "Id",
+            "sql_type": "bigint",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "功能主键"
+          },
+          {
+            "name": "Name",
+            "sql_type": "text",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "功能名称"
+          },
+          {
+            "name": "Sign",
+            "sql_type": "text",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "功能标识"
+          },
+          {
+            "name": "Remark",
+            "sql_type": "text",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "功能备注"
+          },
+          {
+            "name": "ParentId",
+            "sql_type": "bigint",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "父节点 ID"
+          },
+          {
+            "name": "Type",
+            "sql_type": "integer",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "节点类型"
+          },
+          {
+            "name": "CreateTime",
+            "sql_type": "timestamp with time zone",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "创建时间"
+          },
+          {
+            "name": "DeleteTime",
+            "sql_type": "timestamp with time zone",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "删除时间"
+          }
+        ],
+        "primary_key": [
+          "Id"
+        ],
+        "foreign_keys": {
+          "fk-Function-ParentId": "ALTER TABLE \"Function\" ADD CONSTRAINT \"fk-Function-ParentId\" FOREIGN KEY (\"ParentId\") REFERENCES \"Function\" (\"Id\") ON DELETE RESTRICT ON UPDATE NO ACTION"
+        },
+        "indexes": {
+          "IX_Function_CreateTime": "CREATE INDEX \"IX_Function_CreateTime\" ON \"Function\" (\"CreateTime\")",
+          "IX_Function_DeleteTime": "CREATE INDEX \"IX_Function_DeleteTime\" ON \"Function\" (\"DeleteTime\")",
+          "IX_Function_ParentId": "CREATE INDEX \"IX_Function_ParentId\" ON \"Function\" (\"ParentId\")",
+          "IX_Function_Sign": "CREATE INDEX \"IX_Function_Sign\" ON \"Function\" (\"Sign\")"
+        },
+        "partition": null,
+        "comment": "功能节点实体"
+      },
+      "\"FunctionAuthorize\"": {
+        "schema": null,
+        "name": "FunctionAuthorize",
+        "columns": [
+          {
+            "name": "Id",
+            "sql_type": "bigint",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "授权主键"
+          },
+          {
+            "name": "FunctionId",
+            "sql_type": "bigint",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "功能 ID"
+          },
+          {
+            "name": "RoleId",
+            "sql_type": "bigint",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "角色 ID"
+          },
+          {
+            "name": "UserId",
+            "sql_type": "bigint",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "用户 ID"
+          },
+          {
+            "name": "CreateTime",
+            "sql_type": "timestamp with time zone",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "创建时间"
+          },
+          {
+            "name": "DeleteTime",
+            "sql_type": "timestamp with time zone",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "删除时间"
+          },
+          {
+            "name": "UpdateTime",
+            "sql_type": "timestamp with time zone",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "更新时间"
+          },
+          {
+            "name": "CreateUserId",
+            "sql_type": "bigint",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "创建人用户 ID"
+          },
+          {
+            "name": "UpdateUserId",
+            "sql_type": "bigint",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "更新人用户 ID"
+          },
+          {
+            "name": "DeleteUserId",
+            "sql_type": "bigint",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "删除人用户 ID"
+          }
+        ],
+        "primary_key": [
+          "Id"
+        ],
+        "foreign_keys": {
+          "fk-FunctionAuthorize-CreateUserId": "ALTER TABLE \"FunctionAuthorize\" ADD CONSTRAINT \"fk-FunctionAuthorize-CreateUserId\" FOREIGN KEY (\"CreateUserId\") REFERENCES \"User\" (\"Id\") ON DELETE RESTRICT ON UPDATE NO ACTION",
+          "fk-FunctionAuthorize-DeleteUserId": "ALTER TABLE \"FunctionAuthorize\" ADD CONSTRAINT \"fk-FunctionAuthorize-DeleteUserId\" FOREIGN KEY (\"DeleteUserId\") REFERENCES \"User\" (\"Id\") ON DELETE RESTRICT ON UPDATE NO ACTION",
+          "fk-FunctionAuthorize-FunctionId": "ALTER TABLE \"FunctionAuthorize\" ADD CONSTRAINT \"fk-FunctionAuthorize-FunctionId\" FOREIGN KEY (\"FunctionId\") REFERENCES \"Function\" (\"Id\") ON DELETE RESTRICT ON UPDATE NO ACTION",
+          "fk-FunctionAuthorize-RoleId": "ALTER TABLE \"FunctionAuthorize\" ADD CONSTRAINT \"fk-FunctionAuthorize-RoleId\" FOREIGN KEY (\"RoleId\") REFERENCES \"Role\" (\"Id\") ON DELETE RESTRICT ON UPDATE NO ACTION",
+          "fk-FunctionAuthorize-UpdateUserId": "ALTER TABLE \"FunctionAuthorize\" ADD CONSTRAINT \"fk-FunctionAuthorize-UpdateUserId\" FOREIGN KEY (\"UpdateUserId\") REFERENCES \"User\" (\"Id\") ON DELETE RESTRICT ON UPDATE NO ACTION",
+          "fk-FunctionAuthorize-UserId": "ALTER TABLE \"FunctionAuthorize\" ADD CONSTRAINT \"fk-FunctionAuthorize-UserId\" FOREIGN KEY (\"UserId\") REFERENCES \"User\" (\"Id\") ON DELETE RESTRICT ON UPDATE NO ACTION"
+        },
+        "indexes": {
+          "IX_FunctionAuthorize_CreateTime": "CREATE INDEX \"IX_FunctionAuthorize_CreateTime\" ON \"FunctionAuthorize\" (\"CreateTime\")",
+          "IX_FunctionAuthorize_CreateUserId": "CREATE INDEX \"IX_FunctionAuthorize_CreateUserId\" ON \"FunctionAuthorize\" (\"CreateUserId\")",
+          "IX_FunctionAuthorize_DeleteTime": "CREATE INDEX \"IX_FunctionAuthorize_DeleteTime\" ON \"FunctionAuthorize\" (\"DeleteTime\")",
+          "IX_FunctionAuthorize_DeleteUserId": "CREATE INDEX \"IX_FunctionAuthorize_DeleteUserId\" ON \"FunctionAuthorize\" (\"DeleteUserId\")",
+          "IX_FunctionAuthorize_FunctionId": "CREATE INDEX \"IX_FunctionAuthorize_FunctionId\" ON \"FunctionAuthorize\" (\"FunctionId\")",
+          "IX_FunctionAuthorize_RoleId": "CREATE INDEX \"IX_FunctionAuthorize_RoleId\" ON \"FunctionAuthorize\" (\"RoleId\")",
+          "IX_FunctionAuthorize_UpdateTime": "CREATE INDEX \"IX_FunctionAuthorize_UpdateTime\" ON \"FunctionAuthorize\" (\"UpdateTime\")",
+          "IX_FunctionAuthorize_UpdateUserId": "CREATE INDEX \"IX_FunctionAuthorize_UpdateUserId\" ON \"FunctionAuthorize\" (\"UpdateUserId\")",
+          "IX_FunctionAuthorize_UserId": "CREATE INDEX \"IX_FunctionAuthorize_UserId\" ON \"FunctionAuthorize\" (\"UserId\")"
+        },
+        "partition": null,
+        "comment": "功能授权实体"
+      },
+      "\"FunctionRoute\"": {
+        "schema": null,
+        "name": "FunctionRoute",
+        "columns": [
+          {
+            "name": "Id",
+            "sql_type": "bigint",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "路由绑定主键"
+          },
+          {
+            "name": "FunctionId",
+            "sql_type": "bigint",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "功能 ID"
+          },
+          {
+            "name": "Module",
+            "sql_type": "text",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "模块名称"
+          },
+          {
+            "name": "Route",
+            "sql_type": "text",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "路由地址"
+          },
+          {
+            "name": "Remark",
+            "sql_type": "text",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "路由备注"
+          },
+          {
+            "name": "CreateTime",
+            "sql_type": "timestamp with time zone",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "创建时间"
+          },
+          {
+            "name": "DeleteTime",
+            "sql_type": "timestamp with time zone",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "删除时间"
+          }
+        ],
+        "primary_key": [
+          "Id"
+        ],
+        "foreign_keys": {
+          "fk-FunctionRoute-FunctionId": "ALTER TABLE \"FunctionRoute\" ADD CONSTRAINT \"fk-FunctionRoute-FunctionId\" FOREIGN KEY (\"FunctionId\") REFERENCES \"Function\" (\"Id\") ON DELETE RESTRICT ON UPDATE NO ACTION"
+        },
+        "indexes": {
+          "IX_FunctionRoute_CreateTime": "CREATE INDEX \"IX_FunctionRoute_CreateTime\" ON \"FunctionRoute\" (\"CreateTime\")",
+          "IX_FunctionRoute_DeleteTime": "CREATE INDEX \"IX_FunctionRoute_DeleteTime\" ON \"FunctionRoute\" (\"DeleteTime\")",
+          "IX_FunctionRoute_FunctionId": "CREATE INDEX \"IX_FunctionRoute_FunctionId\" ON \"FunctionRoute\" (\"FunctionId\")"
+        },
+        "partition": null,
+        "comment": "功能路由绑定实体"
+      },
+      "\"Link\"": {
+        "schema": null,
+        "name": "Link",
+        "columns": [
+          {
+            "name": "Id",
+            "sql_type": "bigint",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "友链主键"
+          },
+          {
+            "name": "Name",
+            "sql_type": "text",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "名称"
+          },
+          {
+            "name": "Url",
+            "sql_type": "text",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "链接地址"
+          },
+          {
+            "name": "Sort",
+            "sql_type": "integer",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "排序值"
+          },
+          {
+            "name": "Remark",
+            "sql_type": "text",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "备注"
+          },
+          {
+            "name": "CreateTime",
+            "sql_type": "timestamp with time zone",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "创建时间"
+          },
+          {
+            "name": "DeleteTime",
+            "sql_type": "timestamp with time zone",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "删除时间"
+          },
+          {
+            "name": "CreateUserId",
+            "sql_type": "bigint",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "创建人用户 ID"
+          },
+          {
+            "name": "DeleteUserId",
+            "sql_type": "bigint",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "删除人用户 ID"
+          }
+        ],
+        "primary_key": [
+          "Id"
+        ],
+        "foreign_keys": {
+          "fk-Link-CreateUserId": "ALTER TABLE \"Link\" ADD CONSTRAINT \"fk-Link-CreateUserId\" FOREIGN KEY (\"CreateUserId\") REFERENCES \"User\" (\"Id\") ON DELETE RESTRICT ON UPDATE NO ACTION",
+          "fk-Link-DeleteUserId": "ALTER TABLE \"Link\" ADD CONSTRAINT \"fk-Link-DeleteUserId\" FOREIGN KEY (\"DeleteUserId\") REFERENCES \"User\" (\"Id\") ON DELETE RESTRICT ON UPDATE NO ACTION"
+        },
+        "indexes": {
+          "IX_Link_CreateTime": "CREATE INDEX \"IX_Link_CreateTime\" ON \"Link\" (\"CreateTime\")",
+          "IX_Link_CreateUserId": "CREATE INDEX \"IX_Link_CreateUserId\" ON \"Link\" (\"CreateUserId\")",
+          "IX_Link_DeleteTime": "CREATE INDEX \"IX_Link_DeleteTime\" ON \"Link\" (\"DeleteTime\")",
+          "IX_Link_DeleteUserId": "CREATE INDEX \"IX_Link_DeleteUserId\" ON \"Link\" (\"DeleteUserId\")",
+          "IX_Link_Sort": "CREATE INDEX \"IX_Link_Sort\" ON \"Link\" (\"Sort\")"
+        },
+        "partition": null,
+        "comment": "友情链接实体"
+      },
+      "\"LlmApp\"": {
+        "schema": null,
+        "name": "LlmApp",
+        "columns": [
+          {
+            "name": "Id",
+            "sql_type": "bigint",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "主键 ID"
+          },
+          {
+            "name": "Code",
+            "sql_type": "text",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "应用标记"
+          },
+          {
+            "name": "Name",
+            "sql_type": "text",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "应用名称"
+          },
+          {
+            "name": "LlmModelId",
+            "sql_type": "bigint",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "关联的 LLM 模型 ID"
+          },
+          {
+            "name": "SystemPromptTemplate",
+            "sql_type": "text",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "System 提示词模板"
+          },
+          {
+            "name": "PromptTemplate",
+            "sql_type": "text",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "User 提示词模板"
+          },
+          {
+            "name": "ExtraBodyJson",
+            "sql_type": "text",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "额外请求参数 JSON 字符串"
+          },
+          {
+            "name": "IsEnable",
+            "sql_type": "bool",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "是否启用"
+          },
+          {
+            "name": "Remark",
+            "sql_type": "text",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "备注"
+          },
+          {
+            "name": "CreateTime",
+            "sql_type": "timestamp with time zone",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "创建时间"
+          },
+          {
+            "name": "DeleteTime",
+            "sql_type": "timestamp with time zone",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "软删除时间"
+          },
+          {
+            "name": "UpdateTime",
+            "sql_type": "timestamp with time zone",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "更新时间"
+          },
+          {
+            "name": "CreateUserId",
+            "sql_type": "bigint",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "创建人 ID"
+          },
+          {
+            "name": "UpdateUserId",
+            "sql_type": "bigint",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "更新人 ID"
+          },
+          {
+            "name": "DeleteUserId",
+            "sql_type": "bigint",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "删除人 ID"
+          }
+        ],
+        "primary_key": [
+          "Id"
+        ],
+        "foreign_keys": {
+          "fk-LlmApp-CreateUserId": "ALTER TABLE \"LlmApp\" ADD CONSTRAINT \"fk-LlmApp-CreateUserId\" FOREIGN KEY (\"CreateUserId\") REFERENCES \"User\" (\"Id\") ON DELETE RESTRICT ON UPDATE NO ACTION",
+          "fk-LlmApp-DeleteUserId": "ALTER TABLE \"LlmApp\" ADD CONSTRAINT \"fk-LlmApp-DeleteUserId\" FOREIGN KEY (\"DeleteUserId\") REFERENCES \"User\" (\"Id\") ON DELETE RESTRICT ON UPDATE NO ACTION",
+          "fk-LlmApp-LlmModelId": "ALTER TABLE \"LlmApp\" ADD CONSTRAINT \"fk-LlmApp-LlmModelId\" FOREIGN KEY (\"LlmModelId\") REFERENCES \"LlmModel\" (\"Id\") ON DELETE RESTRICT ON UPDATE NO ACTION",
+          "fk-LlmApp-UpdateUserId": "ALTER TABLE \"LlmApp\" ADD CONSTRAINT \"fk-LlmApp-UpdateUserId\" FOREIGN KEY (\"UpdateUserId\") REFERENCES \"User\" (\"Id\") ON DELETE RESTRICT ON UPDATE NO ACTION"
+        },
+        "indexes": {
+          "IX_LlmApp_Code": "CREATE INDEX \"IX_LlmApp_Code\" ON \"LlmApp\" (\"Code\")",
+          "IX_LlmApp_CreateTime": "CREATE INDEX \"IX_LlmApp_CreateTime\" ON \"LlmApp\" (\"CreateTime\")",
+          "IX_LlmApp_CreateUserId": "CREATE INDEX \"IX_LlmApp_CreateUserId\" ON \"LlmApp\" (\"CreateUserId\")",
+          "IX_LlmApp_DeleteTime": "CREATE INDEX \"IX_LlmApp_DeleteTime\" ON \"LlmApp\" (\"DeleteTime\")",
+          "IX_LlmApp_DeleteUserId": "CREATE INDEX \"IX_LlmApp_DeleteUserId\" ON \"LlmApp\" (\"DeleteUserId\")",
+          "IX_LlmApp_IsEnable": "CREATE INDEX \"IX_LlmApp_IsEnable\" ON \"LlmApp\" (\"IsEnable\")",
+          "IX_LlmApp_LlmModelId": "CREATE INDEX \"IX_LlmApp_LlmModelId\" ON \"LlmApp\" (\"LlmModelId\")",
+          "IX_LlmApp_UpdateTime": "CREATE INDEX \"IX_LlmApp_UpdateTime\" ON \"LlmApp\" (\"UpdateTime\")",
+          "IX_LlmApp_UpdateUserId": "CREATE INDEX \"IX_LlmApp_UpdateUserId\" ON \"LlmApp\" (\"UpdateUserId\")"
+        },
+        "partition": null,
+        "comment": "LLM 应用配置实体\n\n存储 LLM 应用业务配置"
+      },
+      "\"LlmConversation\"": {
+        "schema": null,
+        "name": "LlmConversation",
+        "columns": [
+          {
+            "name": "Id",
+            "sql_type": "bigint",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "主键 ID"
+          },
+          {
+            "name": "LlmAppId",
+            "sql_type": "bigint",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "关联的 LLM 应用配置 ID"
+          },
+          {
+            "name": "SystemContent",
+            "sql_type": "text",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "系统提示词内容"
+          },
+          {
+            "name": "UserContent",
+            "sql_type": "text",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "用户消息内容"
+          },
+          {
+            "name": "AssistantContent",
+            "sql_type": "text",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "助手回复内容"
+          },
+          {
+            "name": "CreateUserId",
+            "sql_type": "bigint",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "创建人用户 ID"
+          },
+          {
+            "name": "DeleteUserId",
+            "sql_type": "bigint",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "删除人用户 ID，与源 CD_User 基类一致。"
+          },
+          {
+            "name": "CreateTime",
+            "sql_type": "timestamp with time zone",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "创建时间"
+          },
+          {
+            "name": "DeleteTime",
+            "sql_type": "timestamp with time zone",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "软删除时间"
+          }
+        ],
+        "primary_key": [
+          "Id"
+        ],
+        "foreign_keys": {
+          "fk-LlmConversation-CreateUserId": "ALTER TABLE \"LlmConversation\" ADD CONSTRAINT \"fk-LlmConversation-CreateUserId\" FOREIGN KEY (\"CreateUserId\") REFERENCES \"User\" (\"Id\") ON DELETE RESTRICT ON UPDATE NO ACTION",
+          "fk-LlmConversation-DeleteUserId": "ALTER TABLE \"LlmConversation\" ADD CONSTRAINT \"fk-LlmConversation-DeleteUserId\" FOREIGN KEY (\"DeleteUserId\") REFERENCES \"User\" (\"Id\") ON DELETE RESTRICT ON UPDATE NO ACTION",
+          "fk-LlmConversation-LlmAppId": "ALTER TABLE \"LlmConversation\" ADD CONSTRAINT \"fk-LlmConversation-LlmAppId\" FOREIGN KEY (\"LlmAppId\") REFERENCES \"LlmApp\" (\"Id\") ON DELETE RESTRICT ON UPDATE NO ACTION"
+        },
+        "indexes": {
+          "IX_LlmConversation_CreateTime": "CREATE INDEX \"IX_LlmConversation_CreateTime\" ON \"LlmConversation\" (\"CreateTime\")",
+          "IX_LlmConversation_CreateUserId": "CREATE INDEX \"IX_LlmConversation_CreateUserId\" ON \"LlmConversation\" (\"CreateUserId\")",
+          "IX_LlmConversation_DeleteTime": "CREATE INDEX \"IX_LlmConversation_DeleteTime\" ON \"LlmConversation\" (\"DeleteTime\")",
+          "IX_LlmConversation_DeleteUserId": "CREATE INDEX \"IX_LlmConversation_DeleteUserId\" ON \"LlmConversation\" (\"DeleteUserId\")",
+          "IX_LlmConversation_LlmAppId": "CREATE INDEX \"IX_LlmConversation_LlmAppId\" ON \"LlmConversation\" (\"LlmAppId\")"
+        },
+        "partition": null,
+        "comment": "LLM 会话记录实体\n\n记录每次 LLM 调用的系统提示词、用户输入与模型输出"
+      },
+      "\"LlmModel\"": {
+        "schema": null,
+        "name": "LlmModel",
+        "columns": [
+          {
+            "name": "Id",
+            "sql_type": "bigint",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "主键 ID"
+          },
+          {
+            "name": "Name",
+            "sql_type": "text",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "模型显示名称"
+          },
+          {
+            "name": "ModelId",
+            "sql_type": "text",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "模型标识"
+          },
+          {
+            "name": "Endpoint",
+            "sql_type": "text",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "API 端点地址"
+          },
+          {
+            "name": "ApiKey",
+            "sql_type": "text",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "接口密钥"
+          },
+          {
+            "name": "ProtocolType",
+            "sql_type": "integer",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "协议类型（0=Chat, 1=Responses, 2=Anthropic）"
+          },
+          {
+            "name": "IsEnable",
+            "sql_type": "bool",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "是否启用"
+          },
+          {
+            "name": "Remark",
+            "sql_type": "text",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "备注"
+          },
+          {
+            "name": "CreateTime",
+            "sql_type": "timestamp with time zone",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "创建时间"
+          },
+          {
+            "name": "DeleteTime",
+            "sql_type": "timestamp with time zone",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "软删除时间"
+          },
+          {
+            "name": "UpdateTime",
+            "sql_type": "timestamp with time zone",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "更新时间"
+          },
+          {
+            "name": "CreateUserId",
+            "sql_type": "bigint",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "创建人 ID"
+          },
+          {
+            "name": "UpdateUserId",
+            "sql_type": "bigint",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "更新人 ID"
+          },
+          {
+            "name": "DeleteUserId",
+            "sql_type": "bigint",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "删除人 ID"
+          }
+        ],
+        "primary_key": [
+          "Id"
+        ],
+        "foreign_keys": {
+          "fk-LlmModel-CreateUserId": "ALTER TABLE \"LlmModel\" ADD CONSTRAINT \"fk-LlmModel-CreateUserId\" FOREIGN KEY (\"CreateUserId\") REFERENCES \"User\" (\"Id\") ON DELETE RESTRICT ON UPDATE NO ACTION",
+          "fk-LlmModel-DeleteUserId": "ALTER TABLE \"LlmModel\" ADD CONSTRAINT \"fk-LlmModel-DeleteUserId\" FOREIGN KEY (\"DeleteUserId\") REFERENCES \"User\" (\"Id\") ON DELETE RESTRICT ON UPDATE NO ACTION",
+          "fk-LlmModel-UpdateUserId": "ALTER TABLE \"LlmModel\" ADD CONSTRAINT \"fk-LlmModel-UpdateUserId\" FOREIGN KEY (\"UpdateUserId\") REFERENCES \"User\" (\"Id\") ON DELETE RESTRICT ON UPDATE NO ACTION"
+        },
+        "indexes": {
+          "IX_LlmModel_CreateTime": "CREATE INDEX \"IX_LlmModel_CreateTime\" ON \"LlmModel\" (\"CreateTime\")",
+          "IX_LlmModel_CreateUserId": "CREATE INDEX \"IX_LlmModel_CreateUserId\" ON \"LlmModel\" (\"CreateUserId\")",
+          "IX_LlmModel_DeleteTime": "CREATE INDEX \"IX_LlmModel_DeleteTime\" ON \"LlmModel\" (\"DeleteTime\")",
+          "IX_LlmModel_DeleteUserId": "CREATE INDEX \"IX_LlmModel_DeleteUserId\" ON \"LlmModel\" (\"DeleteUserId\")",
+          "IX_LlmModel_IsEnable": "CREATE INDEX \"IX_LlmModel_IsEnable\" ON \"LlmModel\" (\"IsEnable\")",
+          "IX_LlmModel_UpdateTime": "CREATE INDEX \"IX_LlmModel_UpdateTime\" ON \"LlmModel\" (\"UpdateTime\")",
+          "IX_LlmModel_UpdateUserId": "CREATE INDEX \"IX_LlmModel_UpdateUserId\" ON \"LlmModel\" (\"UpdateUserId\")"
+        },
+        "partition": null,
+        "comment": "LLM 模型配置实体\n\n存储模型连接信息与协议类型"
+      },
+      "\"Order\"": {
+        "schema": null,
+        "name": "Order",
+        "columns": [
+          {
+            "name": "Id",
+            "sql_type": "bigint",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "订单主键"
+          },
+          {
+            "name": "OrderNo",
+            "sql_type": "text",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "订单号"
+          },
+          {
+            "name": "Type",
+            "sql_type": "text",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "订单类型"
+          },
+          {
+            "name": "Price",
+            "sql_type": "decimal(10, 2)",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "订单金额"
+          },
+          {
+            "name": "SerialNo",
+            "sql_type": "text",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "外部流水号"
+          },
+          {
+            "name": "State",
+            "sql_type": "text",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "订单状态"
+          },
+          {
+            "name": "PayType",
+            "sql_type": "text",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "支付方式"
+          },
+          {
+            "name": "PayState",
+            "sql_type": "bool",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "是否已支付"
+          },
+          {
+            "name": "PayTime",
+            "sql_type": "timestamp with time zone",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "支付时间"
+          },
+          {
+            "name": "PayPrice",
+            "sql_type": "decimal(10, 2)",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "实付金额"
+          },
+          {
+            "name": "CreateTime",
+            "sql_type": "timestamp with time zone",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "创建时间"
+          },
+          {
+            "name": "DeleteTime",
+            "sql_type": "timestamp with time zone",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "删除时间"
+          },
+          {
+            "name": "UpdateTime",
+            "sql_type": "timestamp with time zone",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "更新时间"
+          },
+          {
+            "name": "CreateUserId",
+            "sql_type": "bigint",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "创建人用户 ID"
+          },
+          {
+            "name": "UpdateUserId",
+            "sql_type": "bigint",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "更新人用户 ID"
+          },
+          {
+            "name": "DeleteUserId",
+            "sql_type": "bigint",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "删除人用户 ID"
+          }
+        ],
+        "primary_key": [
+          "Id"
+        ],
+        "foreign_keys": {
+          "fk-Order-CreateUserId": "ALTER TABLE \"Order\" ADD CONSTRAINT \"fk-Order-CreateUserId\" FOREIGN KEY (\"CreateUserId\") REFERENCES \"User\" (\"Id\") ON DELETE RESTRICT ON UPDATE NO ACTION",
+          "fk-Order-DeleteUserId": "ALTER TABLE \"Order\" ADD CONSTRAINT \"fk-Order-DeleteUserId\" FOREIGN KEY (\"DeleteUserId\") REFERENCES \"User\" (\"Id\") ON DELETE RESTRICT ON UPDATE NO ACTION",
+          "fk-Order-UpdateUserId": "ALTER TABLE \"Order\" ADD CONSTRAINT \"fk-Order-UpdateUserId\" FOREIGN KEY (\"UpdateUserId\") REFERENCES \"User\" (\"Id\") ON DELETE RESTRICT ON UPDATE NO ACTION"
+        },
+        "indexes": {
+          "IX_Order_CreateTime": "CREATE INDEX \"IX_Order_CreateTime\" ON \"Order\" (\"CreateTime\")",
+          "IX_Order_CreateUserId": "CREATE INDEX \"IX_Order_CreateUserId\" ON \"Order\" (\"CreateUserId\")",
+          "IX_Order_DeleteTime": "CREATE INDEX \"IX_Order_DeleteTime\" ON \"Order\" (\"DeleteTime\")",
+          "IX_Order_DeleteUserId": "CREATE INDEX \"IX_Order_DeleteUserId\" ON \"Order\" (\"DeleteUserId\")",
+          "IX_Order_OrderNo": "CREATE INDEX \"IX_Order_OrderNo\" ON \"Order\" (\"OrderNo\")",
+          "IX_Order_UpdateTime": "CREATE INDEX \"IX_Order_UpdateTime\" ON \"Order\" (\"UpdateTime\")",
+          "IX_Order_UpdateUserId": "CREATE INDEX \"IX_Order_UpdateUserId\" ON \"Order\" (\"UpdateUserId\")"
+        },
+        "partition": null,
+        "comment": "订单实体"
+      },
+      "\"OrderDetail\"": {
+        "schema": null,
+        "name": "OrderDetail",
+        "columns": [
+          {
+            "name": "Id",
+            "sql_type": "bigint",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "明细主键"
+          },
+          {
+            "name": "OrderId",
+            "sql_type": "bigint",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "订单 ID"
+          },
+          {
+            "name": "ProductId",
+            "sql_type": "bigint",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "商品 ID"
+          },
+          {
+            "name": "Number",
+            "sql_type": "integer",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "购买数量"
+          },
+          {
+            "name": "CreateTime",
+            "sql_type": "timestamp with time zone",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "创建时间"
+          },
+          {
+            "name": "DeleteTime",
+            "sql_type": "timestamp with time zone",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "删除时间"
+          }
+        ],
+        "primary_key": [
+          "Id"
+        ],
+        "foreign_keys": {
+          "fk-OrderDetail-OrderId": "ALTER TABLE \"OrderDetail\" ADD CONSTRAINT \"fk-OrderDetail-OrderId\" FOREIGN KEY (\"OrderId\") REFERENCES \"Order\" (\"Id\") ON DELETE RESTRICT ON UPDATE NO ACTION",
+          "fk-OrderDetail-ProductId": "ALTER TABLE \"OrderDetail\" ADD CONSTRAINT \"fk-OrderDetail-ProductId\" FOREIGN KEY (\"ProductId\") REFERENCES \"Product\" (\"Id\") ON DELETE RESTRICT ON UPDATE NO ACTION"
+        },
+        "indexes": {
+          "IX_OrderDetail_CreateTime": "CREATE INDEX \"IX_OrderDetail_CreateTime\" ON \"OrderDetail\" (\"CreateTime\")",
+          "IX_OrderDetail_DeleteTime": "CREATE INDEX \"IX_OrderDetail_DeleteTime\" ON \"OrderDetail\" (\"DeleteTime\")",
+          "IX_OrderDetail_OrderId": "CREATE INDEX \"IX_OrderDetail_OrderId\" ON \"OrderDetail\" (\"OrderId\")",
+          "IX_OrderDetail_ProductId": "CREATE INDEX \"IX_OrderDetail_ProductId\" ON \"OrderDetail\" (\"ProductId\")"
+        },
+        "partition": null,
+        "comment": "订单明细实体"
+      },
+      "\"Product\"": {
+        "schema": null,
+        "name": "Product",
+        "columns": [
+          {
+            "name": "Id",
+            "sql_type": "bigint",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "商品主键"
+          },
+          {
+            "name": "SKU",
+            "sql_type": "text",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "商品 SKU"
+          },
+          {
+            "name": "Name",
+            "sql_type": "text",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "商品名称"
+          },
+          {
+            "name": "Price",
+            "sql_type": "decimal(10, 2)",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "商品价格"
+          },
+          {
+            "name": "Detail",
+            "sql_type": "text",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "商品详情"
+          },
+          {
+            "name": "CreateTime",
+            "sql_type": "timestamp with time zone",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "创建时间"
+          },
+          {
+            "name": "DeleteTime",
+            "sql_type": "timestamp with time zone",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "删除时间"
+          },
+          {
+            "name": "UpdateTime",
+            "sql_type": "timestamp with time zone",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "更新时间"
+          },
+          {
+            "name": "CreateUserId",
+            "sql_type": "bigint",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "创建人用户 ID"
+          },
+          {
+            "name": "UpdateUserId",
+            "sql_type": "bigint",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "更新人用户 ID"
+          },
+          {
+            "name": "DeleteUserId",
+            "sql_type": "bigint",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "删除人用户 ID"
+          }
+        ],
+        "primary_key": [
+          "Id"
+        ],
+        "foreign_keys": {
+          "fk-Product-CreateUserId": "ALTER TABLE \"Product\" ADD CONSTRAINT \"fk-Product-CreateUserId\" FOREIGN KEY (\"CreateUserId\") REFERENCES \"User\" (\"Id\") ON DELETE RESTRICT ON UPDATE NO ACTION",
+          "fk-Product-DeleteUserId": "ALTER TABLE \"Product\" ADD CONSTRAINT \"fk-Product-DeleteUserId\" FOREIGN KEY (\"DeleteUserId\") REFERENCES \"User\" (\"Id\") ON DELETE RESTRICT ON UPDATE NO ACTION",
+          "fk-Product-UpdateUserId": "ALTER TABLE \"Product\" ADD CONSTRAINT \"fk-Product-UpdateUserId\" FOREIGN KEY (\"UpdateUserId\") REFERENCES \"User\" (\"Id\") ON DELETE RESTRICT ON UPDATE NO ACTION"
+        },
+        "indexes": {
+          "IX_Product_CreateTime": "CREATE INDEX \"IX_Product_CreateTime\" ON \"Product\" (\"CreateTime\")",
+          "IX_Product_CreateUserId": "CREATE INDEX \"IX_Product_CreateUserId\" ON \"Product\" (\"CreateUserId\")",
+          "IX_Product_DeleteTime": "CREATE INDEX \"IX_Product_DeleteTime\" ON \"Product\" (\"DeleteTime\")",
+          "IX_Product_DeleteUserId": "CREATE INDEX \"IX_Product_DeleteUserId\" ON \"Product\" (\"DeleteUserId\")",
+          "IX_Product_Name": "CREATE INDEX \"IX_Product_Name\" ON \"Product\" (\"Name\")",
+          "IX_Product_SKU": "CREATE INDEX \"IX_Product_SKU\" ON \"Product\" (\"SKU\")",
+          "IX_Product_UpdateTime": "CREATE INDEX \"IX_Product_UpdateTime\" ON \"Product\" (\"UpdateTime\")",
+          "IX_Product_UpdateUserId": "CREATE INDEX \"IX_Product_UpdateUserId\" ON \"Product\" (\"UpdateUserId\")"
+        },
+        "partition": null,
+        "comment": "商品实体"
+      },
+      "\"QueueTask\"": {
+        "schema": null,
+        "name": "QueueTask",
+        "columns": [
+          {
+            "name": "Id",
+            "sql_type": "bigint",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "队列任务主键"
+          },
+          {
+            "name": "Name",
+            "sql_type": "text",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "任务名称"
+          },
+          {
+            "name": "Parameter",
+            "sql_type": "text",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "任务参数"
+          },
+          {
+            "name": "Status",
+            "sql_type": "integer",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "执行状态"
+          },
+          {
+            "name": "Count",
+            "sql_type": "integer",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "已开始执行的次数，首次执行也计数。"
+          },
+          {
+            "name": "FirstTime",
+            "sql_type": "timestamp with time zone",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "首次执行时间"
+          },
+          {
+            "name": "LastTime",
+            "sql_type": "timestamp with time zone",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "最近执行时间"
+          },
+          {
+            "name": "SuccessTime",
+            "sql_type": "timestamp with time zone",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "成功完成时间"
+          },
+          {
+            "name": "CreateTime",
+            "sql_type": "timestamp with time zone",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "创建时间"
+          },
+          {
+            "name": "DeleteTime",
+            "sql_type": "timestamp with time zone",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "删除时间"
+          },
+          {
+            "name": "PlanTime",
+            "sql_type": "timestamp with time zone",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "计划执行时间"
+          },
+          {
+            "name": "WorkerId",
+            "sql_type": "text",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "当前执行实例标识"
+          },
+          {
+            "name": "LeaseExpireTime",
+            "sql_type": "timestamp with time zone",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "执行租约过期时间"
+          },
+          {
+            "name": "CallbackName",
+            "sql_type": "text",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "回调任务名称"
+          },
+          {
+            "name": "CallbackParameter",
+            "sql_type": "text",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "回调任务参数"
+          },
+          {
+            "name": "ChildSuccessTime",
+            "sql_type": "timestamp with time zone",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "子任务全部成功时间"
+          },
+          {
+            "name": "ParentTaskId",
+            "sql_type": "bigint",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "父任务 ID"
+          }
+        ],
+        "primary_key": [
+          "Id"
+        ],
+        "foreign_keys": {
+          "fk-QueueTask-ParentTaskId": "ALTER TABLE \"QueueTask\" ADD CONSTRAINT \"fk-QueueTask-ParentTaskId\" FOREIGN KEY (\"ParentTaskId\") REFERENCES \"QueueTask\" (\"Id\") ON DELETE RESTRICT ON UPDATE NO ACTION"
+        },
+        "indexes": {
+          "IX_QueueTask_CreateTime": "CREATE INDEX \"IX_QueueTask_CreateTime\" ON \"QueueTask\" (\"CreateTime\")",
+          "IX_QueueTask_DeleteTime": "CREATE INDEX \"IX_QueueTask_DeleteTime\" ON \"QueueTask\" (\"DeleteTime\")",
+          "IX_QueueTask_ParentTaskId": "CREATE INDEX \"IX_QueueTask_ParentTaskId\" ON \"QueueTask\" (\"ParentTaskId\")"
+        },
+        "partition": null,
+        "comment": "队列任务实体"
+      },
+      "\"RegionArea\"": {
+        "schema": null,
+        "name": "RegionArea",
+        "columns": [
+          {
+            "name": "Id",
+            "sql_type": "integer",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "区县主键"
+          },
+          {
+            "name": "Area",
+            "sql_type": "text",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "区县名称"
+          },
+          {
+            "name": "CityId",
+            "sql_type": "integer",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "城市 ID"
+          },
+          {
+            "name": "CreateTime",
+            "sql_type": "timestamp with time zone",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "创建时间"
+          },
+          {
+            "name": "DeleteTime",
+            "sql_type": "timestamp with time zone",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "删除时间"
+          }
+        ],
+        "primary_key": [
+          "Id"
+        ],
+        "foreign_keys": {
+          "fk-RegionArea-CityId": "ALTER TABLE \"RegionArea\" ADD CONSTRAINT \"fk-RegionArea-CityId\" FOREIGN KEY (\"CityId\") REFERENCES \"RegionCity\" (\"Id\") ON DELETE RESTRICT ON UPDATE NO ACTION"
+        },
+        "indexes": {
+          "IX_RegionArea_Area": "CREATE INDEX \"IX_RegionArea_Area\" ON \"RegionArea\" (\"Area\")",
+          "IX_RegionArea_CityId": "CREATE INDEX \"IX_RegionArea_CityId\" ON \"RegionArea\" (\"CityId\")",
+          "IX_RegionArea_CreateTime": "CREATE INDEX \"IX_RegionArea_CreateTime\" ON \"RegionArea\" (\"CreateTime\")",
+          "IX_RegionArea_DeleteTime": "CREATE INDEX \"IX_RegionArea_DeleteTime\" ON \"RegionArea\" (\"DeleteTime\")"
+        },
+        "partition": null,
+        "comment": "区县字典实体"
+      },
+      "\"RegionCity\"": {
+        "schema": null,
+        "name": "RegionCity",
+        "columns": [
+          {
+            "name": "Id",
+            "sql_type": "integer",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "城市主键"
+          },
+          {
+            "name": "City",
+            "sql_type": "text",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "城市名称"
+          },
+          {
+            "name": "ProvinceId",
+            "sql_type": "integer",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "省份 ID"
+          },
+          {
+            "name": "CreateTime",
+            "sql_type": "timestamp with time zone",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "创建时间"
+          },
+          {
+            "name": "DeleteTime",
+            "sql_type": "timestamp with time zone",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "删除时间"
+          }
+        ],
+        "primary_key": [
+          "Id"
+        ],
+        "foreign_keys": {
+          "fk-RegionCity-ProvinceId": "ALTER TABLE \"RegionCity\" ADD CONSTRAINT \"fk-RegionCity-ProvinceId\" FOREIGN KEY (\"ProvinceId\") REFERENCES \"RegionProvince\" (\"Id\") ON DELETE RESTRICT ON UPDATE NO ACTION"
+        },
+        "indexes": {
+          "IX_RegionCity_City": "CREATE INDEX \"IX_RegionCity_City\" ON \"RegionCity\" (\"City\")",
+          "IX_RegionCity_CreateTime": "CREATE INDEX \"IX_RegionCity_CreateTime\" ON \"RegionCity\" (\"CreateTime\")",
+          "IX_RegionCity_DeleteTime": "CREATE INDEX \"IX_RegionCity_DeleteTime\" ON \"RegionCity\" (\"DeleteTime\")",
+          "IX_RegionCity_ProvinceId": "CREATE INDEX \"IX_RegionCity_ProvinceId\" ON \"RegionCity\" (\"ProvinceId\")"
+        },
+        "partition": null,
+        "comment": "城市字典实体"
+      },
+      "\"RegionProvince\"": {
+        "schema": null,
+        "name": "RegionProvince",
+        "columns": [
+          {
+            "name": "Id",
+            "sql_type": "integer",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "省份主键"
+          },
+          {
+            "name": "Province",
+            "sql_type": "text",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "省份名称"
+          },
+          {
+            "name": "CreateTime",
+            "sql_type": "timestamp with time zone",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "创建时间"
+          },
+          {
+            "name": "DeleteTime",
+            "sql_type": "timestamp with time zone",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "删除时间"
+          }
+        ],
+        "primary_key": [
+          "Id"
+        ],
+        "foreign_keys": {},
+        "indexes": {
+          "IX_RegionProvince_CreateTime": "CREATE INDEX \"IX_RegionProvince_CreateTime\" ON \"RegionProvince\" (\"CreateTime\")",
+          "IX_RegionProvince_DeleteTime": "CREATE INDEX \"IX_RegionProvince_DeleteTime\" ON \"RegionProvince\" (\"DeleteTime\")",
+          "IX_RegionProvince_Province": "CREATE INDEX \"IX_RegionProvince_Province\" ON \"RegionProvince\" (\"Province\")"
+        },
+        "partition": null,
+        "comment": "省份字典实体"
+      },
+      "\"RegionTown\"": {
+        "schema": null,
+        "name": "RegionTown",
+        "columns": [
+          {
+            "name": "Id",
+            "sql_type": "integer",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "乡镇主键"
+          },
+          {
+            "name": "Town",
+            "sql_type": "text",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "乡镇名称"
+          },
+          {
+            "name": "AreaId",
+            "sql_type": "integer",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "区县 ID"
+          },
+          {
+            "name": "CreateTime",
+            "sql_type": "timestamp with time zone",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "创建时间"
+          },
+          {
+            "name": "DeleteTime",
+            "sql_type": "timestamp with time zone",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "删除时间"
+          }
+        ],
+        "primary_key": [
+          "Id"
+        ],
+        "foreign_keys": {
+          "fk-RegionTown-AreaId": "ALTER TABLE \"RegionTown\" ADD CONSTRAINT \"fk-RegionTown-AreaId\" FOREIGN KEY (\"AreaId\") REFERENCES \"RegionArea\" (\"Id\") ON DELETE RESTRICT ON UPDATE NO ACTION"
+        },
+        "indexes": {
+          "IX_RegionTown_AreaId": "CREATE INDEX \"IX_RegionTown_AreaId\" ON \"RegionTown\" (\"AreaId\")",
+          "IX_RegionTown_CreateTime": "CREATE INDEX \"IX_RegionTown_CreateTime\" ON \"RegionTown\" (\"CreateTime\")",
+          "IX_RegionTown_DeleteTime": "CREATE INDEX \"IX_RegionTown_DeleteTime\" ON \"RegionTown\" (\"DeleteTime\")",
+          "IX_RegionTown_Town": "CREATE INDEX \"IX_RegionTown_Town\" ON \"RegionTown\" (\"Town\")"
+        },
+        "partition": null,
+        "comment": "乡镇字典实体"
+      },
+      "\"Role\"": {
+        "schema": null,
+        "name": "Role",
+        "columns": [
+          {
+            "name": "Id",
+            "sql_type": "bigint",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "角色主键"
+          },
+          {
+            "name": "Name",
+            "sql_type": "text",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "角色名称"
+          },
+          {
+            "name": "Remark",
+            "sql_type": "text",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "角色备注"
+          },
+          {
+            "name": "CreateTime",
+            "sql_type": "timestamp with time zone",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "创建时间"
+          },
+          {
+            "name": "DeleteTime",
+            "sql_type": "timestamp with time zone",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "删除时间"
+          },
+          {
+            "name": "Code",
+            "sql_type": "text",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "角色编码"
+          }
+        ],
+        "primary_key": [
+          "Id"
+        ],
+        "foreign_keys": {},
+        "indexes": {
+          "IX_Role_CreateTime": "CREATE INDEX \"IX_Role_CreateTime\" ON \"Role\" (\"CreateTime\")",
+          "IX_Role_DeleteTime": "CREATE INDEX \"IX_Role_DeleteTime\" ON \"Role\" (\"DeleteTime\")"
+        },
+        "partition": null,
+        "comment": "角色实体"
+      },
+      "\"StoredFile\"": {
+        "schema": null,
+        "name": "StoredFile",
+        "columns": [
+          {
+            "name": "Id",
+            "sql_type": "bigint",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "文件主键"
+          },
+          {
+            "name": "Name",
+            "sql_type": "text",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "文件名称"
+          },
+          {
+            "name": "Path",
+            "sql_type": "text",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "文件相对路径"
+          },
+          {
+            "name": "Table",
+            "sql_type": "text",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "所属业务表名"
+          },
+          {
+            "name": "TableId",
+            "sql_type": "bigint",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "所属业务主键"
+          },
+          {
+            "name": "Sign",
+            "sql_type": "text",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "文件标记"
+          },
+          {
+            "name": "Sort",
+            "sql_type": "integer",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "排序值"
+          },
+          {
+            "name": "CreateTime",
+            "sql_type": "timestamp with time zone",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "创建时间"
+          },
+          {
+            "name": "DeleteTime",
+            "sql_type": "timestamp with time zone",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "删除时间"
+          },
+          {
+            "name": "CreateUserId",
+            "sql_type": "bigint",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "创建人用户 ID"
+          },
+          {
+            "name": "DeleteUserId",
+            "sql_type": "bigint",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "删除人用户 ID"
+          },
+          {
+            "name": "Length",
+            "sql_type": "bigint",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "文件长度"
+          },
+          {
+            "name": "IsPublicRead",
+            "sql_type": "bool",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "是否允许公开读取"
+          }
+        ],
+        "primary_key": [
+          "Id"
+        ],
+        "foreign_keys": {
+          "fk-StoredFile-CreateUserId": "ALTER TABLE \"StoredFile\" ADD CONSTRAINT \"fk-StoredFile-CreateUserId\" FOREIGN KEY (\"CreateUserId\") REFERENCES \"User\" (\"Id\") ON DELETE RESTRICT ON UPDATE NO ACTION",
+          "fk-StoredFile-DeleteUserId": "ALTER TABLE \"StoredFile\" ADD CONSTRAINT \"fk-StoredFile-DeleteUserId\" FOREIGN KEY (\"DeleteUserId\") REFERENCES \"User\" (\"Id\") ON DELETE RESTRICT ON UPDATE NO ACTION"
+        },
+        "indexes": {
+          "IX_StoredFile_CreateTime": "CREATE INDEX \"IX_StoredFile_CreateTime\" ON \"StoredFile\" (\"CreateTime\")",
+          "IX_StoredFile_CreateUserId": "CREATE INDEX \"IX_StoredFile_CreateUserId\" ON \"StoredFile\" (\"CreateUserId\")",
+          "IX_StoredFile_DeleteTime": "CREATE INDEX \"IX_StoredFile_DeleteTime\" ON \"StoredFile\" (\"DeleteTime\")",
+          "IX_StoredFile_DeleteUserId": "CREATE INDEX \"IX_StoredFile_DeleteUserId\" ON \"StoredFile\" (\"DeleteUserId\")",
+          "IX_StoredFile_Sign": "CREATE INDEX \"IX_StoredFile_Sign\" ON \"StoredFile\" (\"Sign\")",
+          "IX_StoredFile_Table": "CREATE INDEX \"IX_StoredFile_Table\" ON \"StoredFile\" (\"Table\")",
+          "IX_StoredFile_TableId": "CREATE INDEX \"IX_StoredFile_TableId\" ON \"StoredFile\" (\"TableId\")"
+        },
+        "partition": null,
+        "comment": "文件记录实体"
+      },
+      "\"TaskSetting\"": {
+        "schema": null,
+        "name": "TaskSetting",
+        "columns": [
+          {
+            "name": "Id",
+            "sql_type": "bigint",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "任务配置主键"
+          },
+          {
+            "name": "Name",
+            "sql_type": "text",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "任务名称"
+          },
+          {
+            "name": "Category",
+            "sql_type": "text",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "任务分类"
+          },
+          {
+            "name": "Semaphore",
+            "sql_type": "integer",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "并发信号量"
+          },
+          {
+            "name": "Cron",
+            "sql_type": "text",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "Cron 表达式"
+          },
+          {
+            "name": "Remark",
+            "sql_type": "text",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "备注"
+          },
+          {
+            "name": "CreateTime",
+            "sql_type": "timestamp with time zone",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "创建时间"
+          },
+          {
+            "name": "DeleteTime",
+            "sql_type": "timestamp with time zone",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "删除时间"
+          },
+          {
+            "name": "UpdateTime",
+            "sql_type": "timestamp with time zone",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "更新时间"
+          },
+          {
+            "name": "CreateUserId",
+            "sql_type": "bigint",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "创建人用户 ID"
+          },
+          {
+            "name": "UpdateUserId",
+            "sql_type": "bigint",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "更新人用户 ID"
+          },
+          {
+            "name": "DeleteUserId",
+            "sql_type": "bigint",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "删除人用户 ID"
+          },
+          {
+            "name": "IsEnable",
+            "sql_type": "bool",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "是否启用"
+          },
+          {
+            "name": "Parameter",
+            "sql_type": "text",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "任务参数"
+          }
+        ],
+        "primary_key": [
+          "Id"
+        ],
+        "foreign_keys": {},
+        "indexes": {
+          "IX_TaskSetting_CreateTime": "CREATE INDEX \"IX_TaskSetting_CreateTime\" ON \"TaskSetting\" (\"CreateTime\")",
+          "IX_TaskSetting_DeleteTime": "CREATE INDEX \"IX_TaskSetting_DeleteTime\" ON \"TaskSetting\" (\"DeleteTime\")",
+          "IX_TaskSetting_UpdateTime": "CREATE INDEX \"IX_TaskSetting_UpdateTime\" ON \"TaskSetting\" (\"UpdateTime\")",
+          "UX_TaskSetting_Category_Name_ActiveDefinition": "CREATE UNIQUE INDEX \"UX_TaskSetting_Category_Name_ActiveDefinition\"\nON \"TaskSetting\" (\"Category\", \"Name\")\nWHERE \"DeleteTime\" IS NULL AND (\n    \"Category\" = 'QueueTask' OR (\n        \"Category\" = 'ScheduleTask' AND (\"Parameter\" IS NULL OR \"Parameter\" = '__args_default__')\n    )\n)"
+        },
+        "partition": null,
+        "comment": "定时任务配置实体"
+      },
+      "\"User\"": {
+        "schema": null,
+        "name": "User",
+        "columns": [
+          {
+            "name": "Id",
+            "sql_type": "bigint",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "用户主键"
+          },
+          {
+            "name": "UserName",
+            "sql_type": "text",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "用户名"
+          },
+          {
+            "name": "Name",
+            "sql_type": "citext",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "用户姓名；数据库比较遵循 citext，保留保存时的原始大小写。"
+          },
+          {
+            "name": "Phone",
+            "sql_type": "text",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "手机号"
+          },
+          {
+            "name": "Email",
+            "sql_type": "text",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "邮箱"
+          },
+          {
+            "name": "Password",
+            "sql_type": "text",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "密码散列值"
+          },
+          {
+            "name": "CreateTime",
+            "sql_type": "timestamp with time zone",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "创建时间"
+          },
+          {
+            "name": "DeleteTime",
+            "sql_type": "timestamp with time zone",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "删除时间"
+          },
+          {
+            "name": "UpdateTime",
+            "sql_type": "timestamp with time zone",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "更新时间"
+          },
+          {
+            "name": "CreateUserId",
+            "sql_type": "bigint",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "创建人用户 ID"
+          },
+          {
+            "name": "UpdateUserId",
+            "sql_type": "bigint",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "更新人用户 ID"
+          },
+          {
+            "name": "DeleteUserId",
+            "sql_type": "bigint",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "删除人用户 ID"
+          }
+        ],
+        "primary_key": [
+          "Id"
+        ],
+        "foreign_keys": {
+          "fk-User-CreateUserId": "ALTER TABLE \"User\" ADD CONSTRAINT \"fk-User-CreateUserId\" FOREIGN KEY (\"CreateUserId\") REFERENCES \"User\" (\"Id\") ON DELETE RESTRICT ON UPDATE NO ACTION",
+          "fk-User-DeleteUserId": "ALTER TABLE \"User\" ADD CONSTRAINT \"fk-User-DeleteUserId\" FOREIGN KEY (\"DeleteUserId\") REFERENCES \"User\" (\"Id\") ON DELETE RESTRICT ON UPDATE NO ACTION",
+          "fk-User-UpdateUserId": "ALTER TABLE \"User\" ADD CONSTRAINT \"fk-User-UpdateUserId\" FOREIGN KEY (\"UpdateUserId\") REFERENCES \"User\" (\"Id\") ON DELETE RESTRICT ON UPDATE NO ACTION"
+        },
+        "indexes": {
+          "IX_User_CreateTime": "CREATE INDEX \"IX_User_CreateTime\" ON \"User\" (\"CreateTime\")",
+          "IX_User_CreateUserId": "CREATE INDEX \"IX_User_CreateUserId\" ON \"User\" (\"CreateUserId\")",
+          "IX_User_DeleteTime": "CREATE INDEX \"IX_User_DeleteTime\" ON \"User\" (\"DeleteTime\")",
+          "IX_User_DeleteUserId": "CREATE INDEX \"IX_User_DeleteUserId\" ON \"User\" (\"DeleteUserId\")",
+          "IX_User_Email": "CREATE INDEX \"IX_User_Email\" ON \"User\" (\"Email\")",
+          "IX_User_Phone": "CREATE INDEX \"IX_User_Phone\" ON \"User\" (\"Phone\")",
+          "IX_User_UpdateTime": "CREATE INDEX \"IX_User_UpdateTime\" ON \"User\" (\"UpdateTime\")",
+          "IX_User_UpdateUserId": "CREATE INDEX \"IX_User_UpdateUserId\" ON \"User\" (\"UpdateUserId\")",
+          "IX_User_UserName": "CREATE INDEX \"IX_User_UserName\" ON \"User\" (\"UserName\")"
+        },
+        "partition": null,
+        "comment": "用户实体"
+      },
+      "\"UserBindExternal\"": {
+        "schema": null,
+        "name": "UserBindExternal",
+        "columns": [
+          {
+            "name": "Id",
+            "sql_type": "bigint",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "绑定主键"
+          },
+          {
+            "name": "UserId",
+            "sql_type": "bigint",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "用户 ID"
+          },
+          {
+            "name": "AppName",
+            "sql_type": "text",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "外部应用名称"
+          },
+          {
+            "name": "AppId",
+            "sql_type": "text",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "外部应用 ID"
+          },
+          {
+            "name": "OpenId",
+            "sql_type": "text",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "外部账号 OpenId"
+          },
+          {
+            "name": "CreateTime",
+            "sql_type": "timestamp with time zone",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "创建时间"
+          },
+          {
+            "name": "DeleteTime",
+            "sql_type": "timestamp with time zone",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "删除时间"
+          }
+        ],
+        "primary_key": [
+          "Id"
+        ],
+        "foreign_keys": {
+          "fk-UserBindExternal-UserId": "ALTER TABLE \"UserBindExternal\" ADD CONSTRAINT \"fk-UserBindExternal-UserId\" FOREIGN KEY (\"UserId\") REFERENCES \"User\" (\"Id\") ON DELETE RESTRICT ON UPDATE NO ACTION"
+        },
+        "indexes": {
+          "IX_UserBindExternal_CreateTime": "CREATE INDEX \"IX_UserBindExternal_CreateTime\" ON \"UserBindExternal\" (\"CreateTime\")",
+          "IX_UserBindExternal_DeleteTime": "CREATE INDEX \"IX_UserBindExternal_DeleteTime\" ON \"UserBindExternal\" (\"DeleteTime\")",
+          "IX_UserBindExternal_UserId": "CREATE INDEX \"IX_UserBindExternal_UserId\" ON \"UserBindExternal\" (\"UserId\")"
+        },
+        "partition": null,
+        "comment": "用户外部账号绑定实体"
+      },
+      "\"UserInfo\"": {
+        "schema": null,
+        "name": "UserInfo",
+        "columns": [
+          {
+            "name": "Id",
+            "sql_type": "bigint",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "用户资料主键"
+          },
+          {
+            "name": "UserId",
+            "sql_type": "bigint",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "用户 ID"
+          },
+          {
+            "name": "RegionAreaId",
+            "sql_type": "integer",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "区县 ID"
+          },
+          {
+            "name": "Address",
+            "sql_type": "text",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "地址"
+          },
+          {
+            "name": "Sex",
+            "sql_type": "bool",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "性别"
+          },
+          {
+            "name": "UpdateUserId",
+            "sql_type": "bigint",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "更新人用户 ID"
+          },
+          {
+            "name": "CreateTime",
+            "sql_type": "timestamp with time zone",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "创建时间"
+          },
+          {
+            "name": "DeleteTime",
+            "sql_type": "timestamp with time zone",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "删除时间"
+          },
+          {
+            "name": "UpdateTime",
+            "sql_type": "timestamp with time zone",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "更新时间"
+          }
+        ],
+        "primary_key": [
+          "Id"
+        ],
+        "foreign_keys": {
+          "fk-UserInfo-RegionAreaId": "ALTER TABLE \"UserInfo\" ADD CONSTRAINT \"fk-UserInfo-RegionAreaId\" FOREIGN KEY (\"RegionAreaId\") REFERENCES \"RegionArea\" (\"Id\") ON DELETE RESTRICT ON UPDATE NO ACTION",
+          "fk-UserInfo-UpdateUserId": "ALTER TABLE \"UserInfo\" ADD CONSTRAINT \"fk-UserInfo-UpdateUserId\" FOREIGN KEY (\"UpdateUserId\") REFERENCES \"User\" (\"Id\") ON DELETE RESTRICT ON UPDATE NO ACTION",
+          "fk-UserInfo-UserId": "ALTER TABLE \"UserInfo\" ADD CONSTRAINT \"fk-UserInfo-UserId\" FOREIGN KEY (\"UserId\") REFERENCES \"User\" (\"Id\") ON DELETE RESTRICT ON UPDATE NO ACTION"
+        },
+        "indexes": {
+          "IX_UserInfo_CreateTime": "CREATE INDEX \"IX_UserInfo_CreateTime\" ON \"UserInfo\" (\"CreateTime\")",
+          "IX_UserInfo_DeleteTime": "CREATE INDEX \"IX_UserInfo_DeleteTime\" ON \"UserInfo\" (\"DeleteTime\")",
+          "IX_UserInfo_RegionAreaId": "CREATE INDEX \"IX_UserInfo_RegionAreaId\" ON \"UserInfo\" (\"RegionAreaId\")",
+          "IX_UserInfo_UpdateTime": "CREATE INDEX \"IX_UserInfo_UpdateTime\" ON \"UserInfo\" (\"UpdateTime\")",
+          "IX_UserInfo_UpdateUserId": "CREATE INDEX \"IX_UserInfo_UpdateUserId\" ON \"UserInfo\" (\"UpdateUserId\")",
+          "IX_UserInfo_UserId": "CREATE UNIQUE INDEX \"IX_UserInfo_UserId\" ON \"UserInfo\" (\"UserId\")"
+        },
+        "partition": null,
+        "comment": "用户资料实体"
+      },
+      "\"UserRole\"": {
+        "schema": null,
+        "name": "UserRole",
+        "columns": [
+          {
+            "name": "Id",
+            "sql_type": "bigint",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "关系主键"
+          },
+          {
+            "name": "RoleId",
+            "sql_type": "bigint",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "角色 ID"
+          },
+          {
+            "name": "UserId",
+            "sql_type": "bigint",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "用户 ID"
+          },
+          {
+            "name": "CreateTime",
+            "sql_type": "timestamp with time zone",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "创建时间"
+          },
+          {
+            "name": "DeleteTime",
+            "sql_type": "timestamp with time zone",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "删除时间"
+          },
+          {
+            "name": "UpdateTime",
+            "sql_type": "timestamp with time zone",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "更新时间"
+          },
+          {
+            "name": "CreateUserId",
+            "sql_type": "bigint",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "创建人用户 ID"
+          },
+          {
+            "name": "UpdateUserId",
+            "sql_type": "bigint",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "更新人用户 ID"
+          },
+          {
+            "name": "DeleteUserId",
+            "sql_type": "bigint",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "删除人用户 ID"
+          }
+        ],
+        "primary_key": [
+          "Id"
+        ],
+        "foreign_keys": {
+          "fk-UserRole-CreateUserId": "ALTER TABLE \"UserRole\" ADD CONSTRAINT \"fk-UserRole-CreateUserId\" FOREIGN KEY (\"CreateUserId\") REFERENCES \"User\" (\"Id\") ON DELETE RESTRICT ON UPDATE NO ACTION",
+          "fk-UserRole-DeleteUserId": "ALTER TABLE \"UserRole\" ADD CONSTRAINT \"fk-UserRole-DeleteUserId\" FOREIGN KEY (\"DeleteUserId\") REFERENCES \"User\" (\"Id\") ON DELETE RESTRICT ON UPDATE NO ACTION",
+          "fk-UserRole-RoleId": "ALTER TABLE \"UserRole\" ADD CONSTRAINT \"fk-UserRole-RoleId\" FOREIGN KEY (\"RoleId\") REFERENCES \"Role\" (\"Id\") ON DELETE RESTRICT ON UPDATE NO ACTION",
+          "fk-UserRole-UpdateUserId": "ALTER TABLE \"UserRole\" ADD CONSTRAINT \"fk-UserRole-UpdateUserId\" FOREIGN KEY (\"UpdateUserId\") REFERENCES \"User\" (\"Id\") ON DELETE RESTRICT ON UPDATE NO ACTION",
+          "fk-UserRole-UserId": "ALTER TABLE \"UserRole\" ADD CONSTRAINT \"fk-UserRole-UserId\" FOREIGN KEY (\"UserId\") REFERENCES \"User\" (\"Id\") ON DELETE RESTRICT ON UPDATE NO ACTION"
+        },
+        "indexes": {
+          "IX_UserRole_CreateTime": "CREATE INDEX \"IX_UserRole_CreateTime\" ON \"UserRole\" (\"CreateTime\")",
+          "IX_UserRole_CreateUserId": "CREATE INDEX \"IX_UserRole_CreateUserId\" ON \"UserRole\" (\"CreateUserId\")",
+          "IX_UserRole_DeleteTime": "CREATE INDEX \"IX_UserRole_DeleteTime\" ON \"UserRole\" (\"DeleteTime\")",
+          "IX_UserRole_DeleteUserId": "CREATE INDEX \"IX_UserRole_DeleteUserId\" ON \"UserRole\" (\"DeleteUserId\")",
+          "IX_UserRole_RoleId": "CREATE INDEX \"IX_UserRole_RoleId\" ON \"UserRole\" (\"RoleId\")",
+          "IX_UserRole_UpdateTime": "CREATE INDEX \"IX_UserRole_UpdateTime\" ON \"UserRole\" (\"UpdateTime\")",
+          "IX_UserRole_UpdateUserId": "CREATE INDEX \"IX_UserRole_UpdateUserId\" ON \"UserRole\" (\"UpdateUserId\")",
+          "IX_UserRole_UserId": "CREATE INDEX \"IX_UserRole_UserId\" ON \"UserRole\" (\"UserId\")"
+        },
+        "partition": null,
+        "comment": "用户角色关系实体"
+      },
+      "\"UserToken\"": {
+        "schema": null,
+        "name": "UserToken",
+        "columns": [
+          {
+            "name": "Id",
+            "sql_type": "bigint",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "Token 主键"
+          },
+          {
+            "name": "UserId",
+            "sql_type": "bigint",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "用户 ID"
+          },
+          {
+            "name": "LastId",
+            "sql_type": "bigint",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "最后访问标识"
+          },
+          {
+            "name": "CreateTime",
+            "sql_type": "timestamp with time zone",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "创建时间"
+          },
+          {
+            "name": "DeleteTime",
+            "sql_type": "timestamp with time zone",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "删除时间"
+          }
+        ],
+        "primary_key": [
+          "Id"
+        ],
+        "foreign_keys": {
+          "fk-UserToken-UserId": "ALTER TABLE \"UserToken\" ADD CONSTRAINT \"fk-UserToken-UserId\" FOREIGN KEY (\"UserId\") REFERENCES \"User\" (\"Id\") ON DELETE RESTRICT ON UPDATE NO ACTION"
+        },
+        "indexes": {
+          "IX_UserToken_CreateTime": "CREATE INDEX \"IX_UserToken_CreateTime\" ON \"UserToken\" (\"CreateTime\")",
+          "IX_UserToken_DeleteTime": "CREATE INDEX \"IX_UserToken_DeleteTime\" ON \"UserToken\" (\"DeleteTime\")",
+          "IX_UserToken_UserId": "CREATE INDEX \"IX_UserToken_UserId\" ON \"UserToken\" (\"UserId\")"
+        },
+        "partition": null,
+        "comment": "用户 Token 实体"
+      }
+    },
+    "extensions": [
+      "citext"
+    ]
+  }
+}

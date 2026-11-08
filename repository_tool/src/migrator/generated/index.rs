@@ -1,0 +1,9 @@
+&[
+    include!("20261107015309_align_declared_model_indexes/migration.rs"),
+    include!("20261107105933_align_stored_file_table/migration.rs"),
+    include!("20261107135818_align_llm_conversation_audit/migration.rs"),
+    include!("20261107141007_align_source_column_constraints/migration.rs"),
+    include!("20261107142136_align_source_business_indexes/migration.rs"),
+    include!("20261107143359_align_model_documentation/migration.rs"),
+    include!("20261107144333_align_constraint_names/migration.rs"),
+]

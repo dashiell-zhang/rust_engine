@@ -5,6 +5,8 @@ use utoipa::ToSchema;
 /// 远程上传文件请求
 #[derive(Debug, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
+#[derive(common::json_helper::input::JsonModel)]
+#[json(type_name = "Application.Model.Basic.File.RemoteUploadFileDto")]
 pub struct RemoteUploadFileDto {
     /// 业务领域
     pub business: String,
@@ -18,7 +20,6 @@ pub struct RemoteUploadFileDto {
     pub key: Option<i64>,
 
     /// 自定义标记
-    #[serde(default)]
     pub sign: String,
 
     /// 是否允许公开访问
@@ -55,28 +56,41 @@ pub struct UploadFileDto {
 }
 
 /// 文件信息返回模型
-#[derive(Serialize, ToSchema)]
+#[derive(Deserialize, Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
+#[derive(common::json_helper::input::JsonModel)]
+#[json(type_name = "Application.Model.Basic.File.FileInfoDto")]
 pub struct FileInfoDto {
     /// 文件 ID
+    #[serde(
+        default = "crate::shared::input::zero_id",
+        deserialize_with = "crate::shared::input::id"
+    )]
+    #[json(value, scalar_type = "System.Int64")]
     pub id: String,
 
     /// 文件名称
     pub name: String,
 
     /// 文件大小
+    #[serde(default)]
+    #[schema(value_type = String)]
     pub length: i64,
 
     /// 文件大小文本
     pub length_text: String,
 
-    /// 文件相对路径
-    pub path: String,
-
     /// 自定义标记
     pub sign: String,
 
+    /// 文件相对路径
+    pub path: String,
+
     /// 文件访问地址
+    #[serde(
+        default,
+        deserialize_with = "common::json_helper::deserialize_optional_json_scalar"
+    )]
     pub url: Option<String>,
 }
 
@@ -102,4 +116,10 @@ pub struct FileLocalContentDto {
 
     /// 本地物理路径
     pub local_path: std::path::PathBuf,
+}
+
+/// 图片读取结果；未缩放时继续使用原物理文件响应。
+pub struct ImageFileContentDto {
+    pub file: FileLocalContentDto,
+    pub resized_png: Option<Vec<u8>>,
 }

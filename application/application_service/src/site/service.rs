@@ -1,10 +1,10 @@
 use repository::extensions::SoftDeleteQueryExt;
+use repository_core::versioned::VersionedActiveModel;
 use std::collections::HashMap;
 
 use repository::app_setting;
 use sea_orm::{
-    ActiveModelTrait, ActiveValue::Set, ColumnTrait, ConnectionTrait, EntityTrait, IntoActiveModel,
-    QueryFilter,
+    ActiveValue::Set, ColumnTrait, ConnectionTrait, EntityTrait, IntoActiveModel, QueryFilter,
 };
 use serde_json::json;
 
@@ -142,7 +142,7 @@ impl<'a> SiteService<'a> {
     /// 写入单个站点配置
     async fn upsert_site_setting<C>(&self, db: &C, key: &str, value: &str) -> Result<(), AppError>
     where
-        C: ConnectionTrait,
+        C: ConnectionTrait + sea_orm::TransactionTrait,
     {
         let mut models = app_setting::Entity::find()
             .filter(app_setting::Column::Module.eq(SITE_MODULE))
@@ -165,7 +165,7 @@ impl<'a> SiteService<'a> {
                 active.value = Set(value.to_string());
                 active.delete_time = Set(None);
                 active
-                    .update(db)
+                    .update_versioned(db)
                     .await
                     .map_err(|error| AppError::internal(format!("更新站点配置失败: {error}")))?;
             }
@@ -177,6 +177,7 @@ impl<'a> SiteService<'a> {
                 let audit_fields = build_system_create_audit_fields();
 
                 app_setting::ActiveModel {
+                    row_version: Default::default(),
                     id: Set(setting_id),
                     module: Set(SITE_MODULE.to_string()),
                     group_id: Set(None),
@@ -185,7 +186,7 @@ impl<'a> SiteService<'a> {
                     create_time: Set(audit_fields.create_time),
                     delete_time: Set(audit_fields.delete_time),
                 }
-                .insert(db)
+                .insert_versioned(db)
                 .await
                 .map_err(|error| AppError::internal(format!("创建站点配置失败: {error}")))?;
             }

@@ -5,10 +5,10 @@ pub(crate) struct CacheableArgs {
     /// 缓存实例表达式
     cache: Expr,
 
-    /// L1 与 L2 共同遵守的缓存有效期秒数
+    /// 分布式缓存有效期秒数
     ttl_seconds: Option<Expr>,
 
-    /// 可选的分布式锁实例表达式
+    /// 缓存回源使用的分布式锁实例表达式
     lock: Option<Expr>,
 
     /// 防击穿锁有效期秒数
@@ -314,53 +314,10 @@ pub(crate) fn expand_cacheable(args: CacheableArgs, mut input: ItemFn) -> syn::R
         || quote! { #runtime::DEFAULT_CACHEABLE_LOCK_EXPIRY_SECONDS },
         |value| quote! { #value },
     );
-    let lock_behavior = if let Some(lock_expr) = args.lock {
-        quote! {
-            let __cache_lock_source = &(#lock_expr);
-            let __cache_lock_service =
-                #runtime::distributed_lock_ref(__cache_lock_source);
-            let __cache_lock_expiry_seconds: u64 = #lock_expiry_seconds;
-            let __cache_lock_guard = match __cache_lock_service
-                .lock(
-                    &#runtime::cacheable_lock_key(
-                        &__cache_method_key,
-                        &__cache_arguments_key,
-                    ),
-                    ::std::time::Duration::from_secs(__cache_lock_expiry_seconds),
-                    1,
-                )
-                .await
-            {
-                ::core::result::Result::Ok(guard) => ::core::option::Option::Some(guard),
-                ::core::result::Result::Err(error) => {
-                    #runtime::log_cache_degraded(
-                        &__cache_method_key,
-                        "stampede_lock",
-                        &error,
-                    );
-                    ::core::option::Option::None
-                }
-            };
-
-            if __cache_lock_guard.is_some() {
-                match __cache.get_json(&__cache_key).await {
-                    ::core::result::Result::Ok(::core::option::Option::Some(value)) => {
-                        return ::core::result::Result::Ok(value);
-                    }
-                    ::core::result::Result::Ok(::core::option::Option::None) => {}
-                    ::core::result::Result::Err(error) => {
-                        #runtime::log_cache_degraded(
-                            &__cache_method_key,
-                            "read_after_lock",
-                            &error,
-                        );
-                    }
-                }
-            }
-        }
-    } else {
-        quote! {}
-    };
+    let lock_expr = args
+        .lock
+        .as_ref()
+        .ok_or_else(|| syn::Error::new_spanned(sig, "缓存返回值时必须配置 lock"))?;
 
     let expanded: TokenStream2 = quote! {
         #(#attrs)*
@@ -368,6 +325,8 @@ pub(crate) fn expand_cacheable(args: CacheableArgs, mut input: ItemFn) -> syn::R
 
             #cache_body_declaration
 
+            let __cache_ttl_seconds: u64 = #ttl_seconds;
+            assert!(__cache_ttl_seconds > 0, "ttl_seconds 必须大于 0");
             let __cache_method_key = #method_key;
             #(#parameter_safety_checks)*
 
@@ -387,61 +346,19 @@ pub(crate) fn expand_cacheable(args: CacheableArgs, mut input: ItemFn) -> syn::R
                     return #cache_body(#(#cache_body_arguments),*).await;
                 }
             };
-            let __cache_key = #runtime::cacheable_key(
+            let __cache_source = &(#cache_expr);
+            let __cache = #runtime::distributed_cache_ref(__cache_source);
+            let __cache_lock_source = &(#lock_expr);
+            let __cache_lock = #runtime::distributed_lock_ref(__cache_lock_source);
+            #runtime::invoke_cacheable(
+                __cache,
+                __cache_lock,
                 &__cache_method_key,
                 &__cache_arguments_key,
-            );
-            let __cache_source = &(#cache_expr);
-            let __cache = #runtime::hybrid_cache_ref(__cache_source);
-            let __cache_ttl_seconds: u64 = #ttl_seconds;
-
-            if __cache_ttl_seconds == 0 {
-                #runtime::log_cache_degraded(
-                    &__cache_method_key,
-                    "configuration",
-                    &"ttl_seconds 必须大于 0",
-                );
-                return #cache_body(#(#cache_body_arguments),*).await;
-            }
-
-            match __cache.get_json(&__cache_key).await {
-                ::core::result::Result::Ok(::core::option::Option::Some(value)) => {
-                    return ::core::result::Result::Ok(value);
-                }
-                ::core::result::Result::Ok(::core::option::Option::None) => {}
-                ::core::result::Result::Err(error) => {
-                    #runtime::log_cache_degraded(
-                        &__cache_method_key,
-                        "read",
-                        &error,
-                    );
-                }
-            }
-
-            #lock_behavior
-
-            let __cache_value = match #cache_body(#(#cache_body_arguments),*).await {
-                ::core::result::Result::Ok(value) => value,
-                ::core::result::Result::Err(error) => {
-                    return ::core::result::Result::Err(error);
-                }
-            };
-
-            if let ::core::result::Result::Err(error) = #runtime::set_cacheable_json(
-                __cache,
-                &__cache_key,
-                &__cache_value,
                 __cache_ttl_seconds,
+                #lock_expiry_seconds,
+                #cache_body(#(#cache_body_arguments),*),
             ).await
-            {
-                #runtime::log_cache_degraded(
-                    &__cache_method_key,
-                    "write",
-                    &error,
-                );
-            }
-
-            ::core::result::Result::Ok(__cache_value)
 
         }
     };

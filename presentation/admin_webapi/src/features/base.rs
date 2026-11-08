@@ -1,6 +1,6 @@
-use axum::Router;
 use std::sync::Arc;
 use utoipa::{OpenApi, openapi::OpenApi as OpenApiDocument};
+use webapi_core::routes::WebApiRoutes as Router;
 use webapi_core::sign_verify::sign_verify_method_router;
 
 use crate::{
@@ -28,23 +28,29 @@ impl WebApiFeature for BaseFeature {
         router
             .route(
                 "/Base/GetRegion",
-                sign_verify_method_router(axum::routing::get(get_region), app_state.clone()),
+                sign_verify_method_router(webapi_core::routes::get(get_region), app_state.clone()),
             )
             .route(
                 "/Base/GetRegionAll",
-                sign_verify_method_router(axum::routing::get(get_region_all), app_state.clone()),
+                sign_verify_method_router(
+                    webapi_core::routes::get(get_region_all),
+                    app_state.clone(),
+                ),
             )
             .route(
                 "/Base/GetQrCode",
-                sign_verify_method_router(axum::routing::get(get_qr_code), app_state.clone()),
+                sign_verify_method_router(webapi_core::routes::get(get_qr_code), app_state.clone()),
             )
             .route(
                 "/Base/GetValueList",
-                sign_verify_method_router(axum::routing::get(get_value_list), app_state.clone()),
+                sign_verify_method_router(
+                    webapi_core::routes::get(get_value_list),
+                    app_state.clone(),
+                ),
             )
             .route(
                 "/Base/GetSnowflakeId",
-                sign_verify_method_router(axum::routing::get(get_snowflake_id), app_state),
+                sign_verify_method_router(webapi_core::routes::get(get_snowflake_id), app_state),
             )
     }
 

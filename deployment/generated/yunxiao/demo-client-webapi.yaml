@@ -1,0 +1,72 @@
+sources:
+  repo_0:
+    type: codeup
+    name: "DemoProject"
+    endpoint: "https://codeup.aliyun.com/example/demo-project.git"
+    branch: "main"
+    certificate:
+      type: serviceConnection
+      serviceConnection: "demo-service-connection"
+defaultWorkspace: repo_0
+stages:
+  stage_0:
+    name: 构建
+    jobs:
+      job_0:
+        name: 构建 Linux 发布包
+        runsOn:
+          group: public/cn-hangzhou
+          labels: linux,amd64
+          container: rust:latest
+          instanceType: DEFAULT
+        timeoutMinutes: 30
+        steps:
+          step_0:
+            name: 编译并准备配置
+            step: Command
+            with:
+              run: |-
+                set -eu
+                apt-get update
+                apt-get install -y --no-install-recommends pkg-config libssl-dev ca-certificates clang libclang-dev python3 ninja-build libfontconfig1-dev fonts-dejavu-core
+                sh deployment/build-release.sh client_webapi
+              givenExecShell: sh
+              ifGivenShell: true
+              executeUser: root
+          step_1:
+            name: 上传制品
+            step: ArtifactUpload
+            with:
+              uploadType: flowPublic
+              artifact: app_${PIPELINE_ID}
+              version: ${DATETIME}
+              filePath:
+              - dist/client_webapi
+              includePathInArtifact: false
+        driven: auto
+        plugins: []
+  stage_1:
+    name: 部署
+    jobs:
+      job_0:
+        name: 部署
+        component: VMDeploy
+        driven: auto
+        with:
+          downloadArtifact: true
+          artifact: $[stages.stage_0.job_0.step_1.artifacts.app_${PIPELINE_ID}]
+          useEncode: false
+          pauseStrategy: firstBatchPause
+          machineGroup: "demo-machine-group"
+          run: |-
+            set -eu
+            mkdir -p /var/appdata/demo/clientwebapi
+            systemctl stop demo-client-webapi.service
+            tar -xzf /var/appdata/flow/demo-client-webapi.tgz -C /var/appdata/demo/clientwebapi/
+            chmod 755 /var/appdata/demo/clientwebapi/client_webapi
+            systemctl start demo-client-webapi.service
+            rm /var/appdata/flow/demo-client-webapi.tgz
+          artifactDownloadPath: /var/appdata/flow/demo-client-webapi.tgz
+          executeUser: root
+          batchNumber: 2
+        plugins: []

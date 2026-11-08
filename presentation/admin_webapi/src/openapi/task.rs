@@ -1,6 +1,6 @@
+use application_model::shared::models::PageListDto;
 use application_model::task_center::models::{
-    CreateScheduleTaskDto, EditTaskSettingDto, QueueTaskDto, QueueTaskPageListDto, TaskSettingDto,
-    TaskSettingPageListDto,
+    CreateScheduleTaskDto, EditTaskSettingDto, QueueTaskDto, TaskSettingDto,
 };
 use utoipa::OpenApi;
 
@@ -19,11 +19,11 @@ use crate::handlers::task;
     ),
     components(
         schemas(
-            TaskSettingPageListDto,
+            PageListDto<TaskSettingDto>,
             TaskSettingDto,
             EditTaskSettingDto,
             CreateScheduleTaskDto,
-            QueueTaskPageListDto,
+            PageListDto<QueueTaskDto>,
             QueueTaskDto,
         )
     ),

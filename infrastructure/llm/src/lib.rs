@@ -1,8 +1,16 @@
+mod http_response;
+mod payload;
+mod streaming;
+mod wire;
+
 /// LLM 操作错误类型
 pub mod error;
 
-/// LLM 单次请求整体超时时间
+/// LLM 非流式完整请求、流式响应头的超时时间
 pub(crate) const LLM_REQUEST_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(120);
+
+/// 源 StringContent 明确声明 JSON 的 UTF-8 字符集。
+pub(crate) const JSON_CONTENT_TYPE: &str = "application/json; charset=utf-8";
 
 /// LLM 数据模型（消息、请求、响应、流式分片等）
 pub mod models;
@@ -31,3 +39,6 @@ pub use models::{
     ChatStreamChunk, ChatStreamDelta, Usage,
 };
 pub use protocol::{LlmModelConfig, LlmProtocolType, create_client};
+
+/// 可由调用方独立控制的取消令牌。
+pub use cancellation::{CancellationError, CancellationToken, OperationCancelled};

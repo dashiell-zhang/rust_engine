@@ -1,4 +1,4 @@
-use crate::auth::{HasJwtCodec, JwtDecodingState, TokenRenewalState, TokenValidationState};
+use crate::auth::{HasJwtCodec, JwtDecodingState, TokenRenewalState};
 use crate::health::{
     HEALTH_STATUS_HEALTHY, HEALTH_STATUS_UNHEALTHY, HealthComponentResponse, HealthState,
     HealthzResponse,
@@ -9,26 +9,32 @@ use application_interface::email::AppEmailSender;
 use application_interface::http_client::HttpClientFactory;
 use application_interface::storage::AppFileStorage;
 use application_interface::{auth::EcJwtCodec, error::AppError};
-use application_service::authorize::service::{
-    build_token_valid_cache_key, try_cache_token_validity,
-};
 use async_trait::async_trait;
 use chrono::Utc;
 use common::app_error::AppError as ApplicationError;
 use distributed_cache::{CacheEntryOptions, DistributedCache, DistributedCacheExt};
 use distributed_lock::DistributedLock;
 use identifier_generator::IdentifierGenerator;
-use repository::{
-    database_health, extensions::SoftDeleteQueryExt, read_database::ReadDatabaseConnection,
-    user_token,
-};
+use repository_core::{ReadDatabaseConnection, database_health};
 use sea_orm::DatabaseConnection;
-use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
 use std::sync::Arc;
 use std::time::Duration;
 
 /// WebAPI 应用状态
 pub struct AppState {
+    pub application: Arc<dyn super::super::application::WebApiApplication>,
+    pub event_publisher: event_bus::EventPublisher,
+    /// 日志专用查询入口，与业务读库独立。
+    pub log_query: logger_database::query::LogQueryService,
+
+    /// 日志写入器使用的连接（文件日志组件为空，健康探测单独装配）。
+    pub log_db_pool: Option<Arc<DatabaseConnection>>,
+
+    /// 独立日志目标健康探测；不要求启用数据库日志写入器。
+    pub log_health_db_pool: Arc<DatabaseConnection>,
+    /// 由宿主档案声明是否检查日志读库。
+    pub check_log_read_health: bool,
+
     /// 数据库连接池
     pub db_pool: Arc<DatabaseConnection>,
 
@@ -38,8 +44,8 @@ pub struct AppState {
     /// ID 生成器适配器
     pub id_generator: IdentifierGenerator,
 
-    /// 角色编码并发校验锁
-    pub role_code_lock: Arc<dyn DistributedLock>,
+    /// 宿主共享分布式锁
+    pub distributed_lock: Arc<dyn DistributedLock>,
 
     /// 文件存储
     pub file_storage: Option<Arc<dyn AppFileStorage>>,
@@ -51,7 +57,7 @@ pub struct AppState {
     pub email_sender: Arc<dyn AppEmailSender>,
 
     /// 共享 HTTP 客户端工厂
-    pub http_client_factory: HttpClientFactory,
+    pub http_client_factory: Arc<HttpClientFactory>,
 
     /// 应用配置
     pub settings: Settings,
@@ -100,36 +106,6 @@ impl HasJwtCodec for AppState {
 }
 
 #[async_trait]
-impl TokenValidationState for AppState {
-    /// 校验令牌是否仍然有效
-    async fn validate_token(&self, user_id: i64, token_id: i64) -> Result<bool, ApplicationError> {
-        let cache_key = build_token_valid_cache_key(user_id, token_id);
-
-        if let Some(cached_value) = self.cache.get_string(&cache_key).await.map_err(|error| {
-            ApplicationError::internal(format!("Token 状态缓存读取失败: {error}"))
-        })? {
-            return match cached_value.as_str() {
-                "1" => Ok(true),
-                "0" => Ok(false),
-                _ => Err(ApplicationError::internal("Token 状态缓存值格式无效")),
-            };
-        }
-
-        let token_exists = user_token::Entity::find_by_id(token_id)
-            .filter(user_token::Column::UserId.eq(user_id))
-            .not_deleted(user_token::Column::DeleteTime)
-            .one(self.db_pool.as_ref())
-            .await
-            .map_err(|error| ApplicationError::internal(format!("Token 状态校验失败: {error}")))?
-            .is_some();
-
-        try_cache_token_validity(Some(self.cache.as_ref()), user_id, token_id, token_exists).await;
-
-        Ok(token_exists)
-    }
-}
-
-#[async_trait]
 impl TokenRenewalState for AppState {
     /// 委托授权服务执行 Token 续签逻辑
     async fn try_renew_token(
@@ -139,23 +115,53 @@ impl TokenRenewalState for AppState {
         nbf: i64,
         exp: i64,
     ) -> Result<Option<String>, ApplicationError> {
-        self.authorize()
-            .try_renew_token(user_id, token_id, nbf, exp)
+        self.application
+            .try_renew_token(self, user_id, token_id, nbf, exp)
             .await
     }
 }
 
 #[async_trait]
 impl HealthState for AppState {
-    /// 聚合数据库 缓存和分布式锁的健康状态
+    /// 并行检查源宿主注册的数据库、缓存和事件目标。
     async fn health_report(&self) -> HealthzResponse {
-        let mut components = Vec::with_capacity(3);
-
-        components.push(check_database_health(self).await);
-
-        components.push(check_cache_health(self).await);
-        components.push(check_lock_health(self).await);
-
+        self.health_report_with_cancellation(&event_bus::CancellationToken::new())
+            .await
+    }
+    async fn health_report_with_cancellation(
+        &self,
+        stopping: &event_bus::CancellationToken,
+    ) -> HealthzResponse {
+        let (write, read, log_write, log_read, cache, event) = tokio::join!(
+            check_named_database_health(self.primary_db(), "Business.Write", stopping),
+            check_named_database_health(self.read_db_pool.as_ref(), "Business.Read", stopping),
+            check_named_database_health(self.log_health_db_pool.as_ref(), "Log.Write", stopping),
+            async {
+                if self.check_log_read_health {
+                    Some(
+                        check_named_database_health(
+                            self.log_query.connection(),
+                            "Log.Read",
+                            stopping,
+                        )
+                        .await,
+                    )
+                } else {
+                    None
+                }
+            },
+            check_cache_health(self, stopping),
+            async {
+                health_result(
+                    "EventBus",
+                    self.event_publisher
+                        .health_with_cancellation(stopping)
+                        .await,
+                )
+            },
+        );
+        let mut components = vec![write, read, log_write, cache, event];
+        components.extend(log_read);
         let status = if components
             .iter()
             .all(|component| component.status == HEALTH_STATUS_HEALTHY)
@@ -164,7 +170,6 @@ impl HealthState for AppState {
         } else {
             HEALTH_STATUS_UNHEALTHY
         };
-
         HealthzResponse {
             service: self.settings.logger.project.clone(),
             status,
@@ -174,133 +179,73 @@ impl HealthState for AppState {
     }
 }
 
-/// 检查数据库健康状态
-async fn check_database_health(state: &AppState) -> HealthComponentResponse {
-    check_named_database_health(
-        state.primary_db(),
-        "database",
-        format!(
-            "provider=postgresql target=primary max_connections={} min_connections={}",
-            state.settings.host.database_pool.max_connections,
-            state.settings.host.database_pool.min_connections
-        ),
+async fn check_named_database_health<C: database_health::DatabaseHealthConnection>(
+    db: &C,
+    name: &str,
+    stopping: &event_bus::CancellationToken,
+) -> HealthComponentResponse {
+    health_result(
+        name,
+        database_health::check_database_health_with_cancellation(db, stopping)
+            .await
+            .map_err(|error| error.to_string()),
     )
-    .await
 }
 
-/// 检查命名数据库连接健康状态
-async fn check_named_database_health(
-    db: &DatabaseConnection,
-    name: &str,
-    detail: String,
+async fn check_cache_health(
+    state: &AppState,
+    stopping: &event_bus::CancellationToken,
 ) -> HealthComponentResponse {
-    match database_health::check_database_health(db).await {
-        Ok(_) => HealthComponentResponse {
-            name: name.to_string(),
+    let check = state.cache.set_string_with_options(
+        "cacheHealthCheck",
+        "",
+        CacheEntryOptions::relative(Duration::from_secs(10)),
+    );
+    let result = tokio::select! {
+        biased;
+        _ = stopping.cancelled() => Err("健康检查已取消".into()),
+        result = check => result.map_err(|error| error.to_string()),
+    };
+    health_result("Business.Cache", result)
+}
+
+fn health_result(name: &str, result: Result<(), String>) -> HealthComponentResponse {
+    match result {
+        Ok(()) => HealthComponentResponse {
+            name: name.to_owned(),
             status: HEALTH_STATUS_HEALTHY,
+            detail: String::new(),
+        },
+        Err(detail) => HealthComponentResponse {
+            name: name.to_owned(),
+            status: HEALTH_STATUS_UNHEALTHY,
             detail,
         },
-        Err(error) => HealthComponentResponse {
-            name: name.to_string(),
-            status: HEALTH_STATUS_UNHEALTHY,
-            detail: format!("{detail} error={error}"),
-        },
     }
 }
 
-/// 检查缓存健康状态
-async fn check_cache_health(state: &AppState) -> HealthComponentResponse {
-    let cache_component = cache_component_name(&state.settings);
-    let key = format!(
-        "healthz:cache:{}:{}",
-        state.settings.logger.project,
-        Utc::now().timestamp_nanos_opt().unwrap_or_default()
-    );
-    let value = "ok";
-
-    // 通过写入 读取和删除验证缓存基本读写能力
-    let result = async {
-        state
-            .cache
-            .set_string_with_options(
-                &key,
-                value,
-                CacheEntryOptions::relative(Duration::from_secs(30)),
-            )
-            .await?;
-        let cached_value = state.cache.get_string(&key).await?;
-        state.cache.remove(&key).await?;
-        Ok::<Option<String>, AppError>(cached_value)
-    }
-    .await;
-
-    match result {
-        Ok(Some(cached_value)) if cached_value == value => HealthComponentResponse {
-            name: "cache".to_string(),
-            status: HEALTH_STATUS_HEALTHY,
-            detail: format!("component={cache_component}"),
-        },
-        Ok(other_value) => HealthComponentResponse {
-            name: "cache".to_string(),
-            status: HEALTH_STATUS_UNHEALTHY,
-            detail: format!("component={cache_component} unexpected_value={other_value:?}"),
-        },
-        Err(error) => HealthComponentResponse {
-            name: "cache".to_string(),
-            status: HEALTH_STATUS_UNHEALTHY,
-            detail: format!("component={cache_component} error={}", error.message()),
-        },
+impl application_interface::events::EventPublisherProvider for AppState {
+    fn event_publisher(&self) -> &event_bus::EventPublisher {
+        &self.event_publisher
     }
 }
 
-/// 检查分布式锁健康状态
-async fn check_lock_health(state: &AppState) -> HealthComponentResponse {
-    let lock_component = lock_component_name(&state.settings);
-    let key = format!(
-        "healthz:lock:{}:{}",
-        state.settings.logger.project,
-        Utc::now().timestamp_nanos_opt().unwrap_or_default()
-    );
-
-    // 通过临时锁申请验证当前锁组件可用性
-    match state
-        .role_code_lock
-        .try_lock(&key, Duration::from_secs(5), 1)
-        .await
-    {
-        Ok(Some(guard)) => {
-            drop(guard);
-            HealthComponentResponse {
-                name: "lock".to_string(),
-                status: HEALTH_STATUS_HEALTHY,
-                detail: format!("component={lock_component}"),
-            }
-        }
-        Ok(None) => HealthComponentResponse {
-            name: "lock".to_string(),
-            status: HEALTH_STATUS_UNHEALTHY,
-            detail: format!("component={lock_component} detail=lock_not_acquired"),
-        },
-        Err(error) => HealthComponentResponse {
-            name: "lock".to_string(),
-            status: HEALTH_STATUS_UNHEALTHY,
-            detail: format!("component={lock_component} error={error}"),
-        },
+#[async_trait]
+impl crate::auth::PermissionState for AppState {
+    async fn check_permission(
+        &self,
+        current_user: application_interface::context::CurrentUser,
+        module: &str,
+        route: &str,
+        allow_unbound: bool,
+    ) -> Result<bool, AppError> {
+        self.application
+            .check_permission(self, current_user, module, route, allow_unbound)
+            .await
     }
 }
-
-/// 获取缓存组件名称
-fn cache_component_name(settings: &Settings) -> &'static str {
-    match settings.cache.component {
-        crate::host::settings::CacheComponent::InMemory => "in_memory",
-        crate::host::settings::CacheComponent::Redis => "redis",
-    }
-}
-
-/// 获取锁组件名称
-fn lock_component_name(settings: &Settings) -> &'static str {
-    match settings.lock.component {
-        crate::host::settings::LockComponent::InMemory => "in_memory",
-        crate::host::settings::LockComponent::Redis => "redis",
+impl AppState {
+    pub async fn sync_permission_routes(&self) -> Result<bool, AppError> {
+        self.application.sync_permission_routes(self).await
     }
 }

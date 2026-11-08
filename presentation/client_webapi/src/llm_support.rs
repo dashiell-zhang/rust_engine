@@ -1,18 +1,13 @@
-#[cfg(feature = "debug-demo")]
 use crate::state::AppState;
-#[cfg(feature = "debug-demo")]
 use application_interface::context::{AppContext, LlmContext};
-#[cfg(feature = "debug-demo")]
 use application_service_llm::llm::invoke_service::LlmInvokeService;
 
 /// 客户端 LLM 应用服务适配器
-#[cfg(feature = "debug-demo")]
 pub struct ClientLlmApplicationAdapter<'a> {
     /// WebAPI 宿主状态
     state: &'a AppState,
 }
 
-#[cfg(feature = "debug-demo")]
 impl<'a> ClientLlmApplicationAdapter<'a> {
     /// 创建客户端 LLM 应用服务适配器
     pub fn new(state: &'a AppState) -> Self {
@@ -23,7 +18,7 @@ impl<'a> ClientLlmApplicationAdapter<'a> {
     fn llm_context(&self) -> LlmContext<'_> {
         LlmContext {
             app: self.app_context(),
-            distributed_lock: self.state.role_code_lock.as_ref(),
+            distributed_lock: self.state.distributed_lock.as_ref(),
             http_client_factory: &self.state.http_client_factory,
         }
     }
@@ -38,7 +33,9 @@ impl<'a> ClientLlmApplicationAdapter<'a> {
     }
 
     /// 创建 LLM 运行时调用服务
-    pub fn llm_invoke(&self) -> LlmInvokeService<'_> {
-        LlmInvokeService::new(self.llm_context())
+    pub fn llm_invoke(
+        &self,
+    ) -> Box<dyn application_interface::services::llm_invoke::LlmInvokeService + '_> {
+        Box::new(LlmInvokeService::new(self.llm_context()))
     }
 }

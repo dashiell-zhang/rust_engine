@@ -1,8 +1,8 @@
 use application_model::llm::models::{
-    EditLlmAppDto, EditLlmModelDto, LlmAppDto, LlmAppPageListDto, LlmConversationDto,
-    LlmConversationPageListDto, LlmModelDto, LlmModelPageListDto, LlmModelSelectDto,
+    EditLlmAppDto, EditLlmModelDto, LlmAppDto, LlmConversationDto, LlmModelDto, LlmModelSelectDto,
     TestLlmAppRequest, TestLlmAppResult, TestLlmAppUsage,
 };
+use application_model::shared::models::PageListDto;
 use utoipa::OpenApi;
 
 use crate::handlers::llm;
@@ -25,17 +25,17 @@ use crate::handlers::llm;
     ),
     components(
         schemas(
-            LlmAppPageListDto,
+            PageListDto<LlmAppDto>,
             LlmAppDto,
             EditLlmAppDto,
-            LlmModelPageListDto,
+            PageListDto<LlmModelDto>,
             LlmModelDto,
             LlmModelSelectDto,
             EditLlmModelDto,
             TestLlmAppRequest,
             TestLlmAppResult,
             TestLlmAppUsage,
-            LlmConversationPageListDto,
+            PageListDto<LlmConversationDto>,
             LlmConversationDto,
         )
     ),

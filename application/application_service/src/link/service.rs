@@ -1,8 +1,9 @@
 use repository::extensions::SoftDeleteQueryExt;
 use repository::link;
+use repository_core::pagination::SignedPage;
+use repository_core::versioned::VersionedActiveModel;
 use sea_orm::{
-    ActiveModelTrait, ColumnTrait, EntityTrait, IntoActiveModel, PaginatorTrait, QueryFilter,
-    QueryOrder, QuerySelect, Set,
+    ColumnTrait, EntityTrait, IntoActiveModel, PaginatorTrait, QueryFilter, QueryOrder, Set,
 };
 use serde_json::json;
 
@@ -13,8 +14,8 @@ use application_interface::{
 
 use crate::user::models::PageListDto;
 use crate::write_support::{
-    apply_soft_delete_audit_fields, build_create_audit_fields, normalize_page,
-    validate_page_request, write_data_update_log,
+    apply_soft_delete_audit_fields, build_create_audit_fields, page_offset, validate_page_request,
+    write_data_update_log,
 };
 
 use super::models::{EditLinkDto, LinkDto, LinkPageListDto, LinkPageRequest, PublicLinkDto};
@@ -45,20 +46,19 @@ impl<'a> LinkService<'a> {
             .count(self.context.db)
             .await
             .map_err(to_app_error)?;
+        let total = repository_core::pagination::count_i32(total).map_err(to_app_error)?;
 
         if total == 0 {
             return Ok(PageListDto {
                 total: 0,
-                list: vec![],
+                list: None,
             });
         }
 
-        let page = normalize_page(params.page);
-        let skip = (page - 1) * params.page_size;
+        let skip = page_offset(params.page, params.page_size);
         let list = query
             .order_by_desc(link::Column::Id)
-            .offset(skip)
-            .limit(params.page_size)
+            .signed_page(skip, params.page_size)
             .all(self.context.db)
             .await
             .map_err(to_app_error)?
@@ -66,15 +66,14 @@ impl<'a> LinkService<'a> {
             .map(to_link_dto)
             .collect();
 
-        Ok(PageListDto { total, list })
+        Ok(PageListDto {
+            total,
+            list: Some(list),
+        })
     }
 
     /// 获取单个友情链接
     pub async fn get_link(&self, link_id: i64) -> Result<Option<LinkDto>, AppError> {
-        if link_id <= 0 {
-            return Err(AppError::bad_request("无效的 linkId"));
-        }
-
         let model = link::Entity::find()
             .filter(link::Column::Id.eq(link_id))
             .not_deleted(link::Column::DeleteTime)
@@ -124,6 +123,7 @@ impl<'a> LinkService<'a> {
         });
         let audit_fields = build_create_audit_fields(current_user);
         let model = link::ActiveModel {
+            row_version: Default::default(),
             id: Set(id),
             name: Set(dto.name),
             url: Set(dto.url),
@@ -136,7 +136,7 @@ impl<'a> LinkService<'a> {
         };
 
         model
-            .insert(self.context.db)
+            .insert_versioned(self.context.db)
             .await
             .map_err(|e| AppError::internal(format!("创建链接失败: {e}")))?;
 
@@ -190,7 +190,7 @@ impl<'a> LinkService<'a> {
         active.sort = Set(dto.sort);
 
         let updated_model = active
-            .update(self.context.db)
+            .update_versioned(self.context.db)
             .await
             .map_err(|e| AppError::internal(format!("更新链接失败: {e}")))?;
 
@@ -219,10 +219,6 @@ impl<'a> LinkService<'a> {
         link_id: i64,
         current_user: &CurrentUser,
     ) -> Result<bool, AppError> {
-        if link_id <= 0 {
-            return Err(AppError::bad_request("无效的 linkId"));
-        }
-
         let model = link::Entity::find()
             .filter(link::Column::Id.eq(link_id))
             .not_deleted(link::Column::DeleteTime)
@@ -248,7 +244,7 @@ impl<'a> LinkService<'a> {
         );
 
         active
-            .update(self.context.db)
+            .update_versioned(self.context.db)
             .await
             .map_err(|e| AppError::internal(format!("删除链接失败: {e}")))?;
 

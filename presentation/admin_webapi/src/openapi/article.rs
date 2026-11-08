@@ -1,7 +1,7 @@
 use application_model::article::models::{
-    ArticleDto, ArticlePageListDto, CategoryDto, CategoryPageListDto, CategorySelectDto,
-    EditArticleDto, EditCategoryDto,
+    ArticleDto, CategoryDto, CategorySelectDto, EditArticleDto, EditCategoryDto,
 };
+use application_model::shared::models::PageListDto;
 use utoipa::OpenApi;
 
 use crate::handlers::article;
@@ -24,11 +24,11 @@ use crate::handlers::article;
     ),
     components(
         schemas(
-            CategoryPageListDto,
+            PageListDto<CategoryDto>,
             CategoryDto,
             CategorySelectDto,
             EditCategoryDto,
-            ArticlePageListDto,
+            PageListDto<ArticleDto>,
             ArticleDto,
             EditArticleDto,
         )

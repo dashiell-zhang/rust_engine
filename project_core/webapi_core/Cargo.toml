@@ -4,7 +4,8 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-application_service = { path = "../../application/application_service" }
+event_bus = { path = "../../infrastructure/event_bus" }
+logger_database = { path = "../../infrastructure/logger_database" }
 application_interface = { path = "../../application/application_interface" }
 application_model = { path = "../../application/application_model" }
 common = { path = "../../infrastructure/common" }
@@ -13,26 +14,37 @@ distributed_lock = { path = "../../infrastructure/distributed_lock" }
 identifier_generator = { path = "../../infrastructure/identifier_generator" }
 logger = { path = "../../infrastructure/logger" }
 llm = { path = "../../infrastructure/llm" }
-repository = { path = "../../repository" }
+repository_core = { path = "../../infrastructure/repository_core" }
 source_generator_runtime = { path = "../../source_generator/source_generator_runtime" }
 
-axum = { version = "0.8.9", features = ["multipart"] }
-async-trait = "0.1"
+axum = { version = "0.8.9", features = ["multipart", "http2"] }
+async-trait = "0.1.92"
 base64 = "0.23.1"
 chrono = "0.4.45"
-config = "0.15.25"
-dashmap = "6"
-futures-util = "0.3"
-jsonwebtoken = { version = "11.0.0", features = ["rust_crypto"] }
-multer = "3"
+config = "0.15.27"
+dashmap = "6.2.1"
+futures-util = "0.3.34"
+flate2 = "1.1.11"
+jsonwebtoken = { version = "11.1.0", features = ["rust_crypto"] }
+http-body = "1.1.0"
+httpdate = "1.0.3"
+percent-encoding = "2.3.2"
+multer = "3.1.0"
+mime = "0.3.18"
+openssl = { version = "0.10.82", features = ["vendored"] }
 p256 = { version = "0.14.0", features = ["pkcs8"] }
-sea-orm = { version = "2.0.1", features = [ "sqlx-postgres", "runtime-tokio-rustls", "macros" ] }
+sea-orm = { version = "2.0.4", features = [ "sqlx-postgres", "runtime-tokio-rustls", "macros" ] }
 serde = { version = "1.0.229", features = ["derive"] }
-serde_json = "1.0.151"
-sha2 = "0.11.0"
-tokio = { version = "1.53.1", features = ["full"] }
-tower-http = { version = "0.7", features = ["cors", "fs"] }
+serde_json = { version = "1.0.154", features = ["raw_value"] }
+sha2 = "0.11.1"
+tempfile = "3.27.0"
+tokio = { version = "1.54.1", features = ["full"] }
+tokio-util = { version = "0.7.20", features = ["io", "rt"] }
+tokio-rustls = { version = "0.26.6", default-features = false, features = ["ring", "tls12", "logging"] }
+tower = { version = "0.5.3", features = ["util"] }
+tower-http = { version = "0.7.1", features = ["fs", "compression-br", "compression-gzip"] }
 tracing = "0.1.44"
-url = "2"
-utoipa = { version = "5", features = ["axum_extras", "chrono"] }
-utoipa-swagger-ui = { version = "9", features = ["axum"] }
+url = "2.5.8"
+utoipa = { version = "6.0.0", features = ["axum_extras", "chrono"] }
+utoipa-swagger-ui = { version = "10.0.2", features = ["axum"] }
+uuid = { version = "1.29.0", features = ["v4"] }

@@ -1,4 +1,5 @@
-use application_model::log::models::{LogDto, LogPageListDto};
+use application_model::log::models::LogDto;
+use application_model::shared::models::PageListDto;
 use utoipa::OpenApi;
 
 use crate::handlers::log;
@@ -11,7 +12,7 @@ use crate::handlers::log;
     ),
     components(
         schemas(
-            LogPageListDto,
+            PageListDto<LogDto>,
             LogDto,
         )
     ),

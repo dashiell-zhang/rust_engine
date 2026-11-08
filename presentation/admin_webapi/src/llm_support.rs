@@ -67,45 +67,89 @@ pub fn build_cache(
 }
 
 /// 构建管理端日志运行时
-pub fn build_logger_runtime(
-    settings: &Settings,
-    context: &WebApiLoggerBuilderContext,
-) -> Result<LoggerRuntime, String> {
-    match settings.logger.component {
-        LoggerComponent::Database => init_database_logger(
-            &settings.logger,
-            Arc::clone(&context.db_pool),
-            context.identifier_generator.clone(),
-        ),
-        LoggerComponent::LocalFile => init_local_file_logger(&settings.logger),
-    }
-    .map_err(|error| format!("日志组件初始化失败: {error}"))
+pub fn build_logger_runtime<'a>(
+    settings: &'a Settings,
+    context: &'a WebApiLoggerBuilderContext,
+) -> Pin<Box<dyn Future<Output = Result<LoggerRuntime, String>> + Send + 'a>> {
+    Box::pin(async move {
+        match settings.logger.component {
+            LoggerComponent::Database => {
+                // 分区维护必须在所有宿主使用同一连接和前缀，不能沿用宿主专属业务锁前缀。
+                let maintenance_lock: Arc<dyn DistributedLock> = match settings.lock.component {
+                    LockComponent::InMemory => Arc::new(InMemoryLock::new()),
+                    LockComponent::Redis => Arc::new(
+                        RedisLock::new(
+                            if settings
+                                .logger
+                                .maintenance_lock_connection
+                                .trim()
+                                .is_empty()
+                            {
+                                &settings.lock.connection
+                            } else {
+                                &settings.logger.maintenance_lock_connection
+                            },
+                            &settings.logger.maintenance_lock_prefix,
+                        )
+                        .await
+                        .map_err(|error| format!("日志维护锁初始化失败: {error}"))?,
+                    ),
+                };
+                init_database_logger(
+                    &settings.logger,
+                    context
+                        .log_db_pool
+                        .clone()
+                        .ok_or("数据库日志写连接未装配")?,
+                    context.identifier_generator.clone(),
+                    settings
+                        .logger
+                        .write_connection(&settings.database.connection),
+                    maintenance_lock,
+                )
+                .await
+            }
+            LoggerComponent::LocalFile => {
+                init_local_file_logger(&settings.logger).map_err(|error| error.to_string())
+            }
+        }
+        .map_err(|error| format!("日志组件初始化失败: {error}"))
+    })
 }
 
 /// 构建管理端文件存储
-pub fn build_file_storage(settings: &Settings) -> Result<Option<Arc<dyn AppFileStorage>>, String> {
+pub fn build_file_storage(
+    settings: &Settings,
+    http_clients: Arc<application_interface::http_client::HttpClientFactory>,
+) -> Result<Option<Arc<dyn AppFileStorage>>, String> {
     match settings.file.component {
         webapi_core::settings::FileStorageComponent::Local => Ok(None),
         webapi_core::settings::FileStorageComponent::AliyunOss => Ok(Some(Arc::new(
-            AliyunOssFileStorage::new(AliyunOssFileStorageSettings {
-                region: settings.file.aliyun_oss.region.clone(),
-                use_internal_endpoint: settings.file.aliyun_oss.use_internal_endpoint,
-                access_key_id: settings.file.aliyun_oss.access_key_id.clone(),
-                access_key_secret: settings.file.aliyun_oss.access_key_secret.clone(),
-                bucket_name: settings.file.aliyun_oss.bucket_name.clone(),
-                url: settings.file.public_base_url.clone(),
-            })
+            AliyunOssFileStorage::new(
+                AliyunOssFileStorageSettings {
+                    region: settings.file.aliyun_oss.region.clone(),
+                    use_internal_endpoint: settings.file.aliyun_oss.use_internal_endpoint,
+                    access_key_id: settings.file.aliyun_oss.access_key_id.clone(),
+                    access_key_secret: settings.file.aliyun_oss.access_key_secret.clone(),
+                    bucket_name: settings.file.aliyun_oss.bucket_name.clone(),
+                    url: settings.file.public_base_url.clone(),
+                },
+                http_clients,
+            )
             .map_err(|error| error.message().to_string())?,
         ))),
         webapi_core::settings::FileStorageComponent::TencentCos => Ok(Some(Arc::new(
-            TencentCosFileStorage::new(TencentCosFileStorageSettings {
-                app_id: settings.file.tencent_cos.app_id.clone(),
-                region: settings.file.tencent_cos.region.clone(),
-                secret_id: settings.file.tencent_cos.secret_id.clone(),
-                secret_key: settings.file.tencent_cos.secret_key.clone(),
-                bucket_name: settings.file.tencent_cos.bucket_name.clone(),
-                url: settings.file.public_base_url.clone(),
-            })
+            TencentCosFileStorage::new(
+                TencentCosFileStorageSettings {
+                    app_id: settings.file.tencent_cos.app_id.clone(),
+                    region: settings.file.tencent_cos.region.clone(),
+                    secret_id: settings.file.tencent_cos.secret_id.clone(),
+                    secret_key: settings.file.tencent_cos.secret_key.clone(),
+                    bucket_name: settings.file.tencent_cos.bucket_name.clone(),
+                    url: settings.file.public_base_url.clone(),
+                },
+                http_clients,
+            )
             .map_err(|error| error.message().to_string())?,
         ))),
     }
@@ -137,7 +181,7 @@ impl<'a> AdminLlmApplicationAdapter<'a> {
     fn llm_context(&self) -> LlmContext<'_> {
         LlmContext {
             app: self.app_context(),
-            distributed_lock: self.state.role_code_lock.as_ref(),
+            distributed_lock: self.state.distributed_lock.as_ref(),
             http_client_factory: &self.state.http_client_factory,
         }
     }
@@ -152,17 +196,63 @@ impl<'a> AdminLlmApplicationAdapter<'a> {
     }
 
     /// 创建 LLM 应用配置服务
-    pub fn llm_app(&self) -> LlmAppService<'_> {
-        LlmAppService::new(self.llm_context())
+    pub fn llm_app(&self) -> Box<dyn application_interface::services::llm_app::LlmAppService + '_> {
+        Box::new(LlmAppService::new(self.llm_context()))
     }
 
     /// 创建 LLM 模型配置服务
-    pub fn llm_model(&self) -> LlmModelService<'_> {
-        LlmModelService::new(self.llm_context())
+    pub fn llm_model(
+        &self,
+    ) -> Box<dyn application_interface::services::llm_model::LlmModelService + '_> {
+        Box::new(LlmModelService::new(self.llm_context()))
     }
 
     /// 创建 LLM 对话记录管理服务
-    pub fn llm_conversation_manage(&self) -> LlmConversationManageService<'_> {
-        LlmConversationManageService::new(self.llm_context())
+    pub fn llm_conversation_manage(
+        &self,
+    ) -> Box<dyn application_interface::services::llm_conversation::LlmConversationManageService + '_>
+    {
+        Box::new(LlmConversationManageService::new(self.state.read_db()))
+    }
+}
+
+/// 明确选择事件目标；后端连接由事件组件独立持有。
+pub fn build_event_transport(
+    settings: &Settings,
+    identifiers: &common::identifier_generator::IdentifierGenerator,
+) -> Result<Arc<dyn event_bus::EventTransport>, String> {
+    settings.event_bus.validate()?;
+    let explicit = settings.event_bus.connection.trim();
+    match settings.event_bus.provider {
+        event_bus::EventProvider::Redis => {
+            let connection = if explicit.is_empty() {
+                &settings.cache.connection
+            } else {
+                explicit
+            };
+            if connection.trim().is_empty() {
+                return Err("事件 Redis 连接未配置".to_string());
+            }
+            Ok(Arc::new(event_bus_redis::RedisEventTransport::new(
+                connection,
+                &settings.event_bus.scope,
+            )?))
+        }
+        event_bus::EventProvider::Database => {
+            let connection = if explicit.is_empty() {
+                &settings.database.connection
+            } else {
+                explicit
+            };
+            let options = webapi_core::startup::WebApiStartup::build_postgres_connect_options(
+                connection,
+                &settings.host.database_pool,
+            );
+            Ok(Arc::new(event_bus_database::DatabaseEventTransport::new(
+                options,
+                &settings.event_bus.scope,
+                identifiers.clone(),
+            )))
+        }
     }
 }

@@ -1,0 +1,104 @@
+{
+  "format": 1,
+  "target": "log",
+  "migration_id": "20261107141851_align_source_log_indexes",
+  "model": {
+    "tables": {
+      "\"Log\"": {
+        "schema": null,
+        "name": "Log",
+        "columns": [
+          {
+            "name": "Id",
+            "sql_type": "bigint",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "Project",
+            "sql_type": "text",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "MachineName",
+            "sql_type": "text",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "Level",
+            "sql_type": "text",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "Category",
+            "sql_type": "text",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "Content",
+            "sql_type": "text",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "CreateTime",
+            "sql_type": "timestamp with time zone",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          },
+          {
+            "name": "DeleteTime",
+            "sql_type": "timestamp with time zone",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": null
+          }
+        ],
+        "primary_key": [
+          "Id"
+        ],
+        "foreign_keys": {},
+        "indexes": {
+          "IX_Log_CreateTime": "CREATE INDEX \"IX_Log_CreateTime\" ON \"Log\" (\"CreateTime\")",
+          "IX_Log_DeleteTime": "CREATE INDEX \"IX_Log_DeleteTime\" ON \"Log\" (\"DeleteTime\")"
+        },
+        "partition": {
+          "schema": null,
+          "table": "Log",
+          "key_column": "Id",
+          "interval": 1,
+          "unit": "Month"
+        },
+        "comment": null
+      }
+    },
+    "extensions": []
+  }
+}

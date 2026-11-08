@@ -1,0 +1,10 @@
+[
+  {
+    "kind": "Sql",
+    "value": "CREATE INDEX \"IX_Log_Category_CreateTime_NotDeleted\" ON \"Log\" (\"Category\", \"CreateTime\") WHERE \"DeleteTime\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "CREATE INDEX \"IX_Log_Project_CreateTime_NotDeleted\" ON \"Log\" (\"Project\", \"CreateTime\") WHERE \"DeleteTime\" IS NULL"
+  }
+]

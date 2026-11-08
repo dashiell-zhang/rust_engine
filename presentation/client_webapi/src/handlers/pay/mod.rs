@@ -1,15 +1,16 @@
 use std::{collections::HashMap, sync::Arc};
+use webapi_support::WebApiApplicationExt;
 
 use application_model::pay::models::{CreateWxPayJsapiQuery, PaymentOrderQuery, WxPayNotifyDto};
 use axum::{
-    Form,
     extract::State,
-    http::{HeaderMap, StatusCode, header::CONTENT_TYPE},
+    http::{HeaderMap, StatusCode},
     response::{IntoResponse, Response},
 };
-use common::app_error::AppError as ServiceError;
-use webapi_core::extract::{Json, Query};
-use webapi_core::{auth::UserContext, error::AppError};
+use webapi_core::error::AppError;
+use webapi_core::extract::{FormFields, Json, JsonWithBody, Query};
+use webapi_core::request_context::RequestContext;
+use webapi_core::text_response::Text;
 
 use crate::state::AppState;
 
@@ -24,34 +25,29 @@ use crate::state::AppState;
     responses(
         (status = 200, description = "创建成功", body = String),
         (status = 400, description = "订单或配置无效"),
-        (status = 401, description = "未授权"),
+        (status = 204, description = "订单、状态或创建配置不满足条件"),
         (status = 500, description = "服务器内部错误"),
     ),
-    security(("bearer_auth" = [])),
     tag = "支付"
 )]
 pub async fn create_alipay_pc(
     State(app_state): State<Arc<AppState>>,
-    user_ctx: UserContext,
+    request_context: RequestContext,
     Query(query): Query<PaymentOrderQuery>,
 ) -> Result<Response, AppError> {
     let service = app_state.services().pay();
 
     // 支付宝异步通知固定回调到当前宿主公开地址
-    let notify_url = format!(
-        "{}/Pay/AliPayNotify",
-        app_state
-            .settings
-            .file
-            .public_base_url
-            .trim_end_matches('/')
-    );
+    let notify_url = format!("{}/Pay/AliPayNotify", request_context.base_url());
 
     match service
-        .create_alipay_pc(&query.order_no, &notify_url, None, &user_ctx.current_user())
+        .create_alipay_pc(&query.order_no, &notify_url, None)
         .await
     {
-        Ok(result) => Ok((StatusCode::OK, result).into_response()),
+        Ok(Some(result)) => {
+            Ok((StatusCode::OK, webapi_core::text_response::Text(result)).into_response())
+        }
+        Ok(None) => Ok(StatusCode::NO_CONTENT.into_response()),
         Err(error) => Err(error.into()),
     }
 }
@@ -66,40 +62,29 @@ pub async fn create_alipay_pc(
     responses(
         (status = 200, description = "创建成功", body = String),
         (status = 400, description = "订单或配置无效"),
-        (status = 401, description = "未授权"),
+        (status = 204, description = "订单、状态或创建配置不满足条件"),
         (status = 500, description = "服务器内部错误"),
     ),
-    security(("bearer_auth" = [])),
     tag = "支付"
 )]
 pub async fn create_alipay_h5(
     State(app_state): State<Arc<AppState>>,
-    user_ctx: UserContext,
+    request_context: RequestContext,
     Query(query): Query<PaymentOrderQuery>,
 ) -> Result<Response, AppError> {
     let service = app_state.services().pay();
 
     // 支付宝异步通知固定回调到当前宿主公开地址
-    let notify_url = format!(
-        "{}/Pay/AliPayNotify",
-        app_state
-            .settings
-            .file
-            .public_base_url
-            .trim_end_matches('/')
-    );
+    let notify_url = format!("{}/Pay/AliPayNotify", request_context.base_url());
 
     match service
-        .create_alipay_h5(
-            &query.order_no,
-            &notify_url,
-            None,
-            None,
-            &user_ctx.current_user(),
-        )
+        .create_alipay_h5(&query.order_no, &notify_url, None, None)
         .await
     {
-        Ok(result) => Ok((StatusCode::OK, result).into_response()),
+        Ok(Some(result)) => {
+            Ok((StatusCode::OK, webapi_core::text_response::Text(result)).into_response())
+        }
+        Ok(None) => Ok(StatusCode::NO_CONTENT.into_response()),
         Err(error) => Err(error.into()),
     }
 }
@@ -114,34 +99,29 @@ pub async fn create_alipay_h5(
     responses(
         (status = 200, description = "创建成功，返回 trade_no", body = String),
         (status = 400, description = "订单、绑定关系或配置无效"),
-        (status = 401, description = "未授权"),
+        (status = 204, description = "订单、买家绑定或创建配置不存在"),
         (status = 500, description = "服务器内部错误"),
     ),
-    security(("bearer_auth" = [])),
     tag = "支付"
 )]
 pub async fn create_alipay_mini_app(
     State(app_state): State<Arc<AppState>>,
-    user_ctx: UserContext,
+    request_context: RequestContext,
     Query(query): Query<PaymentOrderQuery>,
 ) -> Result<Response, AppError> {
     let service = app_state.services().pay();
 
     // 支付宝异步通知固定回调到当前宿主公开地址
-    let notify_url = format!(
-        "{}/Pay/AliPayNotify",
-        app_state
-            .settings
-            .file
-            .public_base_url
-            .trim_end_matches('/')
-    );
+    let notify_url = format!("{}/api/Pay/AliPayNotify", request_context.base_url());
 
     match service
-        .create_alipay_mini_app(&query.order_no, &notify_url, &user_ctx.current_user())
+        .create_alipay_mini_app(&query.order_no, &notify_url)
         .await
     {
-        Ok(result) => Ok((StatusCode::OK, result).into_response()),
+        Ok(Some(result)) => {
+            Ok((StatusCode::OK, webapi_core::text_response::Text(result)).into_response())
+        }
+        Ok(None) => Ok(StatusCode::NO_CONTENT.into_response()),
         Err(error) => Err(error.into()),
     }
 }
@@ -156,24 +136,20 @@ pub async fn create_alipay_mini_app(
     responses(
         (status = 200, description = "处理完成，返回支付宝要求的 success 文本", body = String),
         (status = 400, description = "通知参数无效"),
-        (status = 401, description = "签名校验失败"),
+        (status = 204, description = "未产生业务确认结果"),
         (status = 500, description = "服务器内部错误"),
     ),
     tag = "支付"
 )]
 pub async fn alipay_notify(
     State(app_state): State<Arc<AppState>>,
-    Form(parameters): Form<HashMap<String, String>>,
+    FormFields(parameters): FormFields,
 ) -> Result<Response, AppError> {
     let service = app_state.services().pay();
 
     match service.process_alipay_notify(parameters).await {
-        Ok(message) => Ok((
-            StatusCode::OK,
-            [(CONTENT_TYPE, "text/plain; charset=utf-8")],
-            message,
-        )
-            .into_response()),
+        Ok(Some(message)) => Ok(Text(message).into_response()),
+        Ok(None) => Ok(StatusCode::NO_CONTENT.into_response()),
         Err(error) => Err(error.into()),
     }
 }
@@ -188,39 +164,27 @@ pub async fn alipay_notify(
     responses(
         (status = 200, description = "创建成功", body = application_model::pay::models::WxPayJsapiDto),
         (status = 400, description = "订单或配置无效"),
-        (status = 401, description = "未授权"),
+        (status = 204, description = "订单或创建配置不存在"),
         (status = 500, description = "服务器内部错误"),
     ),
-    security(("bearer_auth" = [])),
     tag = "支付"
 )]
 pub async fn create_wx_pay_jsapi(
     State(app_state): State<Arc<AppState>>,
-    user_ctx: UserContext,
+    request_context: RequestContext,
     Query(query): Query<CreateWxPayJsapiQuery>,
 ) -> Result<Response, AppError> {
     let service = app_state.services().pay();
 
     // 通知地址不携带商户号后缀，由 Service 层在末尾追加
-    let notify_url = format!(
-        "{}/Pay/WeiXinPayNotify/",
-        app_state
-            .settings
-            .file
-            .public_base_url
-            .trim_end_matches('/')
-    );
+    let notify_url = format!("{}/Pay/WeiXinPayNotify/", request_context.base_url());
 
     match service
-        .create_wx_pay_jsapi(
-            &query.order_no,
-            &query.open_id,
-            &notify_url,
-            &user_ctx.current_user(),
-        )
+        .create_wx_pay_jsapi(&query.order_no, &query.open_id, &notify_url)
         .await
     {
-        Ok(result) => Ok((StatusCode::OK, Json(result)).into_response()),
+        Ok(Some(result)) => Ok((StatusCode::OK, Json(result)).into_response()),
+        Ok(None) => Ok(StatusCode::NO_CONTENT.into_response()),
         Err(error) => Err(error.into()),
     }
 }
@@ -235,34 +199,27 @@ pub async fn create_wx_pay_jsapi(
     responses(
         (status = 200, description = "创建成功", body = application_model::pay::models::WxPayAppDto),
         (status = 400, description = "订单或配置无效"),
-        (status = 401, description = "未授权"),
+        (status = 204, description = "订单或创建配置不存在"),
         (status = 500, description = "服务器内部错误"),
     ),
-    security(("bearer_auth" = [])),
     tag = "支付"
 )]
 pub async fn create_wx_pay_app(
     State(app_state): State<Arc<AppState>>,
-    user_ctx: UserContext,
+    request_context: RequestContext,
     Query(query): Query<PaymentOrderQuery>,
 ) -> Result<Response, AppError> {
     let service = app_state.services().pay();
 
     // 通知地址不携带商户号后缀，由 Service 层在末尾追加
-    let notify_url = format!(
-        "{}/Pay/WeiXinPayNotify/",
-        app_state
-            .settings
-            .file
-            .public_base_url
-            .trim_end_matches('/')
-    );
+    let notify_url = format!("{}/Pay/WeiXinPayNotify/", request_context.base_url());
 
     match service
-        .create_wx_pay_app(&query.order_no, &notify_url, &user_ctx.current_user())
+        .create_wx_pay_app(&query.order_no, &notify_url)
         .await
     {
-        Ok(result) => Ok((StatusCode::OK, Json(result)).into_response()),
+        Ok(Some(result)) => Ok((StatusCode::OK, Json(result)).into_response()),
+        Ok(None) => Ok(StatusCode::NO_CONTENT.into_response()),
         Err(error) => Err(error.into()),
     }
 }
@@ -277,41 +234,30 @@ pub async fn create_wx_pay_app(
     responses(
         (status = 200, description = "创建成功，返回 H5 支付链接", body = String),
         (status = 400, description = "订单或配置无效"),
-        (status = 401, description = "未授权"),
+        (status = 204, description = "订单或创建配置不存在"),
         (status = 500, description = "服务器内部错误"),
     ),
-    security(("bearer_auth" = [])),
     tag = "支付"
 )]
 pub async fn create_wx_pay_h5(
     State(app_state): State<Arc<AppState>>,
-    user_ctx: UserContext,
-    headers: HeaderMap,
+    request_context: RequestContext,
     Query(query): Query<PaymentOrderQuery>,
 ) -> Result<Response, AppError> {
     let service = app_state.services().pay();
-    let client_ip = extract_client_ip(&headers);
+    let client_ip = request_context.client_ip()?;
 
     // 通知地址不携带商户号后缀，由 Service 层在末尾追加
-    let notify_url = format!(
-        "{}/Pay/WeiXinPayNotify/",
-        app_state
-            .settings
-            .file
-            .public_base_url
-            .trim_end_matches('/')
-    );
+    let notify_url = format!("{}/Pay/WeiXinPayNotify/", request_context.base_url());
 
     match service
-        .create_wx_pay_h5(
-            &query.order_no,
-            &notify_url,
-            &client_ip,
-            &user_ctx.current_user(),
-        )
+        .create_wx_pay_h5(&query.order_no, &notify_url, client_ip)
         .await
     {
-        Ok(result) => Ok((StatusCode::OK, result).into_response()),
+        Ok(Some(result)) => {
+            Ok((StatusCode::OK, webapi_core::text_response::Text(result)).into_response())
+        }
+        Ok(None) => Ok(StatusCode::NO_CONTENT.into_response()),
         Err(error) => Err(error.into()),
     }
 }
@@ -326,34 +272,26 @@ pub async fn create_wx_pay_h5(
     responses(
         (status = 200, description = "创建成功，返回二维码链接", body = String),
         (status = 400, description = "订单或配置无效"),
-        (status = 401, description = "未授权"),
+        (status = 204, description = "订单或创建配置不存在"),
         (status = 500, description = "服务器内部错误"),
     ),
-    security(("bearer_auth" = [])),
     tag = "支付"
 )]
 pub async fn create_wx_pay_pc(
     State(app_state): State<Arc<AppState>>,
-    user_ctx: UserContext,
+    request_context: RequestContext,
     Query(query): Query<PaymentOrderQuery>,
 ) -> Result<Response, AppError> {
     let service = app_state.services().pay();
 
     // 通知地址不携带商户号后缀，由 Service 层在末尾追加
-    let notify_url = format!(
-        "{}/Pay/WeiXinPayNotify/",
-        app_state
-            .settings
-            .file
-            .public_base_url
-            .trim_end_matches('/')
-    );
+    let notify_url = format!("{}/Pay/WeiXinPayNotify/", request_context.base_url());
 
-    match service
-        .create_wx_pay_pc(&query.order_no, &notify_url, &user_ctx.current_user())
-        .await
-    {
-        Ok(result) => Ok((StatusCode::OK, result).into_response()),
+    match service.create_wx_pay_pc(&query.order_no, &notify_url).await {
+        Ok(Some(result)) => {
+            Ok((StatusCode::OK, webapi_core::text_response::Text(result)).into_response())
+        }
+        Ok(None) => Ok(StatusCode::NO_CONTENT.into_response()),
         Err(error) => Err(error.into()),
     }
 }
@@ -380,39 +318,31 @@ pub async fn wx_pay_notify(
     State(app_state): State<Arc<AppState>>,
     axum::extract::Path(mch_id): axum::extract::Path<String>,
     headers: HeaderMap,
-    body: String,
+    JsonWithBody {
+        value: notify_dto,
+        body,
+    }: JsonWithBody<WxPayNotifyDto>,
 ) -> Result<Response, AppError> {
-    // 先反序列化通知体，再将原始 body 字符串传给 Service 层做签名验证
-    let notify_dto: WxPayNotifyDto = serde_json::from_str(&body).map_err(|error| {
-        AppError::from(ServiceError::bad_request(format!(
-            "微信支付回调 JSON 格式无效: {error}"
-        )))
-    })?;
-
-    // 将 HeaderMap 转换为普通 HashMap，便于 Service 层不依赖 axum 类型
+    // 与 StringValues.ToString 一致，重复请求头按出现顺序合并。
     let headers_map: HashMap<String, String> = headers
-        .iter()
-        .filter_map(|(name, value)| {
-            value
-                .to_str()
-                .ok()
-                .map(|v| (name.to_string(), v.to_string()))
+        .keys()
+        .map(|name| {
+            let value = headers
+                .get_all(name)
+                .iter()
+                .filter_map(|value| value.to_str().ok())
+                .collect::<Vec<_>>()
+                .join(",");
+            (name.to_string(), value)
         })
         .collect();
 
     let service = app_state.services().pay();
 
-    // 服务层异常时降级为 FAIL 响应，与 NetEngine 一样交由 501 状态触发微信重试
+    // 服务层统一捕获处理异常，失败描述不包含内部错误或通知正文。
     let result = service
         .process_wx_pay_notify(&mch_id, notify_dto, &headers_map, &body)
-        .await
-        .unwrap_or_else(|error| {
-            tracing::error!(target: "pay.wx_pay.notify", mch_id = %mch_id, error = %error.message(), "处理微信支付回调异常");
-            application_model::pay::models::WxPayNotifyRetDto {
-                code: "FAIL".to_string(),
-                message: Some(error.message().to_string()),
-            }
-        });
+        .await?;
 
     let status_code = if result.code == "SUCCESS" {
         StatusCode::OK
@@ -421,27 +351,4 @@ pub async fn wx_pay_notify(
     };
 
     Ok((status_code, Json(result)).into_response())
-}
-
-/// 从请求头中提取客户端 IP
-fn extract_client_ip(headers: &HeaderMap) -> String {
-    if let Some(forwarded_for) = headers.get("x-forwarded-for")
-        && let Ok(value) = forwarded_for.to_str()
-    {
-        let ip = value.split(',').next().unwrap_or("").trim();
-        if !ip.is_empty() {
-            return ip.to_string();
-        }
-    }
-
-    if let Some(real_ip) = headers.get("x-real-ip")
-        && let Ok(value) = real_ip.to_str()
-    {
-        let ip = value.trim();
-        if !ip.is_empty() {
-            return ip.to_string();
-        }
-    }
-
-    "unknown".to_string()
 }

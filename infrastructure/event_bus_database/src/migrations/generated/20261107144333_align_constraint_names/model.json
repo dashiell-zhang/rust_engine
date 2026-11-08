@@ -1,0 +1,164 @@
+{
+  "format": 1,
+  "target": "event-bus",
+  "migration_id": "20261107144333_align_constraint_names",
+  "model": {
+    "tables": {
+      "\"EventBusMessage\"": {
+        "schema": null,
+        "name": "EventBusMessage",
+        "columns": [
+          {
+            "name": "Id",
+            "sql_type": "bigint",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "主键标识ID"
+          },
+          {
+            "name": "Scope",
+            "sql_type": "varchar(200)",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "所属广播范围"
+          },
+          {
+            "name": "Position",
+            "sql_type": "bigint",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "范围内遵循提交顺序的读取位置"
+          },
+          {
+            "name": "EventId",
+            "sql_type": "uuid",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "广播事件标识"
+          },
+          {
+            "name": "EventName",
+            "sql_type": "varchar(1024)",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "共享事件类型的完整名称"
+          },
+          {
+            "name": "Payload",
+            "sql_type": "text",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "使用统一约定序列化的事件参数"
+          },
+          {
+            "name": "CreateTime",
+            "sql_type": "timestamp with time zone",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "创建时间"
+          },
+          {
+            "name": "DeleteTime",
+            "sql_type": "timestamp with time zone",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "删除时间，不为 null 时表示已软删除"
+          }
+        ],
+        "primary_key": [
+          "Id"
+        ],
+        "primary_key_name": "PK_EventBusMessage",
+        "foreign_keys": {},
+        "indexes": {
+          "IX_EventBusMessage_CreateTime": "CREATE INDEX \"IX_EventBusMessage_CreateTime\" ON \"EventBusMessage\" (\"CreateTime\")",
+          "IX_EventBusMessage_DeleteTime": "CREATE INDEX \"IX_EventBusMessage_DeleteTime\" ON \"EventBusMessage\" (\"DeleteTime\")",
+          "IX_EventBusMessage_Scope_CreateTime": "CREATE INDEX \"IX_EventBusMessage_Scope_CreateTime\" ON \"EventBusMessage\" (\"Scope\", \"CreateTime\")",
+          "IX_EventBusMessage_Scope_Position": "CREATE UNIQUE INDEX \"IX_EventBusMessage_Scope_Position\" ON \"EventBusMessage\" (\"Scope\", \"Position\")"
+        },
+        "partition": null,
+        "comment": "保存可由所有订阅实例独立读取的广播事件"
+      },
+      "\"EventBusStream\"": {
+        "schema": null,
+        "name": "EventBusStream",
+        "columns": [
+          {
+            "name": "Id",
+            "sql_type": "bigint",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "主键标识ID"
+          },
+          {
+            "name": "Scope",
+            "sql_type": "varchar(200)",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "互通实例共用的广播范围"
+          },
+          {
+            "name": "Position",
+            "sql_type": "bigint",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "当前已经提交的最大事件位置"
+          },
+          {
+            "name": "CreateTime",
+            "sql_type": "timestamp with time zone",
+            "nullable": false,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "创建时间"
+          },
+          {
+            "name": "DeleteTime",
+            "sql_type": "timestamp with time zone",
+            "nullable": true,
+            "default": null,
+            "auto_increment": false,
+            "unique": false,
+            "comment": "删除时间，不为 null 时表示已软删除"
+          }
+        ],
+        "primary_key": [
+          "Id"
+        ],
+        "primary_key_name": "PK_EventBusStream",
+        "foreign_keys": {},
+        "indexes": {
+          "IX_EventBusStream_CreateTime": "CREATE INDEX \"IX_EventBusStream_CreateTime\" ON \"EventBusStream\" (\"CreateTime\")",
+          "IX_EventBusStream_DeleteTime": "CREATE INDEX \"IX_EventBusStream_DeleteTime\" ON \"EventBusStream\" (\"DeleteTime\")",
+          "IX_EventBusStream_Scope": "CREATE UNIQUE INDEX \"IX_EventBusStream_Scope\" ON \"EventBusStream\" (\"Scope\")"
+        },
+        "partition": null,
+        "comment": "通过提交顺序维护广播范围的最新位置"
+      }
+    },
+    "extensions": []
+  }
+}

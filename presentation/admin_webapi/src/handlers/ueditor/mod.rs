@@ -1,12 +1,10 @@
 use application_interface::context::CurrentUser;
-use application_model::file::models::{RemoteUploadFileDto, UploadFileDto};
+use application_model::file::models::UploadFileDto;
 use axum::{
-    body::to_bytes,
-    extract::{FromRequest, Multipart, Request, State},
-    http::header,
+    extract::{Request, State},
     response::{IntoResponse, Response},
 };
-use base64::{Engine as _, engine::general_purpose};
+use base64::{Engine as _, alphabet, engine::general_purpose};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::{
@@ -14,36 +12,30 @@ use std::{
     sync::Arc,
 };
 use tokio::fs;
-use tokio::io::AsyncWriteExt;
-use webapi_core::body_limit::DEFAULT_BUFFERED_BODY_LIMIT_BYTES;
 use webapi_core::extract::{Json, Query};
 use webapi_core::{auth::UserContext, error::AppError};
+use webapi_support::WebApiApplicationExt;
 
 use crate::state::AppState;
+
+mod crawler;
+mod form;
 
 /// UEditor 协议处理器
 /// 文章上传业务域
 const ARTICLE_BUSINESS: &str = "Article";
 /// UEditor 默认上传字段名
 const DEFAULT_UPLOAD_FIELD_NAME: &str = "upfile";
-/// UEditor 历史前端在配置缺失时可能退化成 undefined 字段名
-const FALLBACK_BASE64_FIELD_NAME: &str = "undefined";
 /// UEditor 图片最大上传大小
-const IMAGE_MAX_SIZE: usize = 10 * 1024 * 1024;
+const IMAGE_MAX_SIZE: usize = i32::MAX as usize;
 /// UEditor 涂鸦最大上传大小
-const SCRAWL_MAX_SIZE: usize = 5 * 1024 * 1024;
+const SCRAWL_MAX_SIZE: usize = i32::MAX as usize;
 /// UEditor 文件最大上传大小
-const FILE_MAX_SIZE: usize = 50 * 1024 * 1024;
+const FILE_MAX_SIZE: usize = i32::MAX as usize;
 /// UEditor 视频最大上传大小
-const VIDEO_MAX_SIZE: usize = 200 * 1024 * 1024;
-/// UEditor 请求体最大上传大小
-pub const MAX_UEDITOR_UPLOAD_BODY_BYTES: usize = VIDEO_MAX_SIZE;
-/// UEditor 远程抓图表单最大大小
-const CRAWL_FORM_MAX_SIZE: usize = 64 * 1024;
-/// UEditor 远程抓图最大数量
-const MAX_CRAWL_IMAGE_COUNT: usize = 20;
+const VIDEO_MAX_SIZE: usize = i32::MAX as usize;
 /// UEditor 图片允许扩展名
-const IMAGE_ALLOW_FILES: &[&str] = &[".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp"];
+const IMAGE_ALLOW_FILES: &[&str] = &[".png", ".jpg", ".jpeg", ".gif", ".bmp"];
 /// UEditor 涂鸦允许扩展名
 const SCRAWL_ALLOW_FILES: &[&str] = &[".png"];
 /// UEditor 视频允许扩展名
@@ -53,9 +45,10 @@ const VIDEO_ALLOW_FILES: &[&str] = &[
 ];
 /// UEditor 文件允许扩展名
 const FILE_ALLOW_FILES: &[&str] = &[
-    ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp", ".rar", ".zip", ".tar", ".gz", ".7z", ".bz2",
-    ".cab", ".iso", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx", ".pdf", ".txt", ".md",
-    ".xml", ".mp4", ".mp3", ".wav",
+    ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".flv", ".swf", ".mkv", ".avi", ".rm", ".rmvb",
+    ".mpeg", ".mpg", ".ogg", ".ogv", ".mov", ".wmv", ".mp4", ".webm", ".mp3", ".wav", ".mid",
+    ".rar", ".zip", ".tar", ".gz", ".7z", ".bz2", ".cab", ".iso", ".doc", ".docx", ".xls", ".xlsx",
+    ".ppt", ".pptx", ".pdf", ".txt", ".md", ".xml",
 ];
 
 /// UEditor 上传规格
@@ -75,20 +68,14 @@ struct UeditorUploadSpec {
 /// UEditor 动作查询参数
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[derive(common::json_helper::input::QueryModel)]
 pub struct UeditorActionQuery {
-    /// UEditor 协议动作名
-    pub action: Option<String>,
-
     /// 本次文章编辑上传批次标识
-    pub upload_key: Option<i64>,
-}
-
-/// UEditor 远程抓图表单
-#[derive(Deserialize)]
-struct UeditorCrawlForm {
-    /// 待抓取的远程图片地址
-    #[serde(rename = "source[]", default)]
-    source: Vec<String>,
+    #[serde(
+        default,
+        deserialize_with = "common::json_helper::deserialize_optional_query_scalar"
+    )]
+    pub upload_key: Option<String>,
 }
 
 /// UEditor 上传响应
@@ -98,14 +85,15 @@ struct UeditorUploadResponse {
     /// 协议状态
     state: String,
     /// 资源地址
-    url: String,
+    url: Option<String>,
     /// 展示标题
-    title: String,
+    title: Option<String>,
     /// 原始文件名
-    original: String,
+    original: Option<String>,
 
     /// 统一文件 ID
-    file_id: String,
+    file_id: Option<String>,
+    error: Option<String>,
 }
 
 /// UEditor 远程抓图单项响应
@@ -117,10 +105,9 @@ struct UeditorCrawlerItem {
     /// 源地址
     source: String,
     /// 存储后的访问地址
-    url: String,
+    url: Option<String>,
 
     /// 统一文件 ID
-    #[serde(skip_serializing_if = "Option::is_none")]
     file_id: Option<String>,
 }
 
@@ -136,11 +123,23 @@ pub async fn process_request(
     Query(query): Query<UeditorActionQuery>,
     request: Request,
 ) -> Result<Response, AppError> {
-    if matches!(query.action.as_deref(), Some("config")) {
-        return Ok(get_ueditor_config(State(app_state)).await.into_response());
-    }
-
-    upload_ueditor_resource(State(app_state), user_ctx, Query(query), request).await
+    // action 来自原始查询集合，按 StringValues 合并，空项不增加逗号。
+    let action = common::string_helper::join_string_values(
+        serde_urlencoded::from_str::<Vec<(String, String)>>(
+            request.uri().query().unwrap_or_default(),
+        )
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|(key, _)| key.eq_ignore_ascii_case("action"))
+        .map(|(_, value)| value),
+    );
+    let response = if action == "config" {
+        get_ueditor_config(State(app_state)).await.into_response()
+    } else {
+        upload_ueditor_resource(State(app_state), user_ctx, Query(query), action, request).await?
+    };
+    // 源 Action 返回包含 JSON 文本的字符串，由字符串格式化器输出。
+    Ok(webapi_core::text_response::from_response(response).await)
 }
 
 /// 处理 UEditor 上传协议请求
@@ -148,27 +147,27 @@ pub async fn upload_ueditor_resource(
     State(app_state): State<Arc<AppState>>,
     user_ctx: UserContext,
     Query(query): Query<UeditorActionQuery>,
+    action: String,
     request: Request,
 ) -> Result<Response, AppError> {
     let current_user = user_ctx.current_user();
-    let content_type = request
-        .headers()
-        .get(header::CONTENT_TYPE)
-        .and_then(|value| value.to_str().ok())
-        .unwrap_or_default();
-    // UEditor 通过 action 参数在单一路由下分发多种协议动作
-    let action = query
-        .action
+    // 源控制器直接比较 Query StringValues，不推断、裁剪或转换 action。
+    let Some(upload_key) = query
+        .upload_key
         .as_deref()
-        .map(str::trim)
-        .filter(|item| !item.is_empty())
-        .or_else(|| infer_ueditor_action(content_type));
-    let Some(upload_key) = query.upload_key.filter(|upload_key| *upload_key > 0) else {
+        .and_then(|value| {
+            value
+                .trim_matches(|c: char| c.is_ascii_whitespace())
+                .parse::<i64>()
+                .ok()
+        })
+        .filter(|value| *value > 0)
+    else {
         return Ok(ueditor_state_response("uploadKey 参数为空或格式不正确"));
     };
 
-    match action {
-        Some("uploadimage") => {
+    match action.as_str() {
+        "uploadimage" => {
             handle_multipart_upload_request(
                 app_state,
                 current_user,
@@ -178,7 +177,7 @@ pub async fn upload_ueditor_resource(
             )
             .await
         }
-        Some("uploadscrawl") => {
+        "uploadscrawl" => {
             handle_base64_upload_request(
                 app_state,
                 current_user,
@@ -188,7 +187,7 @@ pub async fn upload_ueditor_resource(
             )
             .await
         }
-        Some("uploadvideo") => {
+        "uploadvideo" => {
             handle_multipart_upload_request(
                 app_state,
                 current_user,
@@ -198,7 +197,7 @@ pub async fn upload_ueditor_resource(
             )
             .await
         }
-        Some("uploadfile") => {
+        "uploadfile" => {
             handle_multipart_upload_request(
                 app_state,
                 current_user,
@@ -208,11 +207,11 @@ pub async fn upload_ueditor_resource(
             )
             .await
         }
-        Some("crawlimage") | Some("catchimage") => {
+        "catchimage" => {
             handle_crawl_image_request(app_state, current_user, request, upload_key).await
         }
         _ => Ok(ueditor_state_response(
-            "action 参数为空或者 action 不被支持。",
+            "action 参数为空或者 action 不被支持",
         )),
     }
 }
@@ -225,100 +224,36 @@ async fn handle_multipart_upload_request(
     upload_key: i64,
     upload_spec: UeditorUploadSpec,
 ) -> Result<Response, AppError> {
-    let mut multipart = match Multipart::from_request(request, &app_state).await {
-        Ok(multipart) => multipart,
-        Err(error) => return Ok(ueditor_state_response(format!("读取上传表单失败: {error}"))),
+    let form = match form::read(request, &app_state, Some(upload_spec.field_name)).await {
+        Ok(form) => form,
+        Err(error) => {
+            return Ok(upload_error(
+                "文件访问出错，请检查写入权限",
+                Some(error),
+                None,
+            ));
+        }
     };
-
-    let temp_dir = Path::new(&app_state.settings.file.root_path).join("temps");
-    if let Err(error) = fs::create_dir_all(&temp_dir).await {
-        return Ok(ueditor_state_response(format!("创建临时目录失败: {error}")));
-    }
-
-    let mut file_name = None;
-    let mut temp_file_path = None;
-    let mut file_length = 0_usize;
-
-    // 仅提取 UEditor 约定的 upfile 字段 其他表单字段直接忽略
-    while let Some(mut field) = match multipart.next_field().await {
-        Ok(field) => field,
-        Err(error) => return Ok(ueditor_state_response(format!("读取上传字段失败: {error}"))),
-    } {
-        if field.name() != Some(upload_spec.field_name) {
-            continue;
-        }
-
-        let current_file_name = field
-            .file_name()
-            .map(str::to_string)
-            .unwrap_or_else(|| upload_spec.default_file_name.to_string());
-        let temp_path = build_temp_upload_path(&temp_dir, &current_file_name);
-        let mut temp_file = match fs::File::create(&temp_path).await {
-            Ok(temp_file) => temp_file,
-            Err(error) => return Ok(ueditor_state_response(format!("创建临时文件失败: {error}"))),
-        };
-        let mut current_length = 0_usize;
-
-        while let Some(chunk) = match field.chunk().await {
-            Ok(chunk) => chunk,
-            Err(error) => {
-                cleanup_temp_file(&temp_path).await;
-                return Ok(ueditor_state_response(format!(
-                    "读取上传文件内容失败: {error}"
-                )));
-            }
-        } {
-            current_length += chunk.len();
-            if current_length > upload_spec.max_size {
-                cleanup_temp_file(&temp_path).await;
-                return Ok(ueditor_state_response("文件大小超出服务器限制"));
-            }
-
-            if let Err(error) = temp_file.write_all(&chunk).await {
-                cleanup_temp_file(&temp_path).await;
-                return Ok(ueditor_state_response(format!("写入临时文件失败: {error}")));
-            }
-        }
-
-        if let Err(error) = temp_file.flush().await {
-            cleanup_temp_file(&temp_path).await;
-            return Ok(ueditor_state_response(format!("刷新临时文件失败: {error}")));
-        }
-
-        file_name = Some(current_file_name);
-        temp_file_path = Some(temp_path);
-        file_length = current_length;
-        break;
-    }
-
-    let file_name = file_name.unwrap_or_else(|| upload_spec.default_file_name.to_string());
-    let Some(temp_file_path) = temp_file_path else {
-        return Ok(ueditor_state_response(format!(
-            "缺少 {} 文件字段",
-            upload_spec.field_name
-        )));
+    let Some(file) = form.file.filter(|file| file.length > 0) else {
+        return Ok(upload_error(
+            "上传请求不正确",
+            Some("上传文件为空".into()),
+            None,
+        ));
     };
-
-    if file_length == 0 {
-        cleanup_temp_file(&temp_file_path).await;
-        return Ok(ueditor_state_response("请勿上传空文件"));
-    }
-
     if let Err(message) = validate_ueditor_upload(
-        &file_name,
-        file_length,
+        &file.name,
+        file.length,
         upload_spec.allow_extensions,
         upload_spec.max_size,
     ) {
-        cleanup_temp_file(&temp_file_path).await;
-        return Ok(ueditor_state_response(message));
+        return Ok(upload_error(message, None, None));
     }
-
     persist_upload_file_from_temp(
         app_state,
         current_user,
-        file_name,
-        temp_file_path,
+        file.name,
+        file.temp.path().to_path_buf(),
         upload_key,
         upload_spec.sign,
     )
@@ -333,57 +268,51 @@ async fn handle_base64_upload_request(
     upload_key: i64,
     upload_spec: UeditorUploadSpec,
 ) -> Result<Response, AppError> {
-    let bytes = match to_bytes(request.into_body(), DEFAULT_BUFFERED_BODY_LIMIT_BYTES).await {
-        Ok(bytes) => bytes,
-        Err(error) => return Ok(ueditor_state_response(format!("读取上传表单失败: {error}"))),
-    };
-    let raw_value = serde_urlencoded::from_bytes::<Vec<(String, String)>>(&bytes)
-        .ok()
-        .and_then(|pairs| {
-            pairs.into_iter().find_map(|(key, value)| {
-                if key == upload_spec.field_name || key == FALLBACK_BASE64_FIELD_NAME {
-                    Some(value)
-                } else {
-                    None
-                }
-            })
-        });
-
-    let Some(raw_value) = raw_value else {
-        return Ok(ueditor_state_response(format!(
-            "缺少 {} 文件字段",
-            upload_spec.field_name
-        )));
-    };
-
-    let payload = normalize_base64_payload(&raw_value);
-    let decoded = match general_purpose::STANDARD.decode(payload.as_bytes()) {
-        Ok(bytes) => bytes,
+    let form = match form::read(request, &app_state, None).await {
+        Ok(form) => form,
         Err(error) => {
-            return Ok(ueditor_state_response(format!(
-                "解析 Base64 图片失败: {error}"
-            )));
+            return Ok(upload_error(
+                "文件访问出错，请检查写入权限",
+                Some(error),
+                None,
+            ));
         }
     };
-
-    if decoded.is_empty() {
-        return Ok(ueditor_state_response("请勿上传空文件"));
+    let raw_value = common::string_helper::join_string_values(form.values(upload_spec.field_name));
+    if raw_value.chars().all(char::is_whitespace) {
+        return Ok(upload_error(
+            "上传请求不正确",
+            Some("上传内容为空".into()),
+            None,
+        ));
     }
-
-    if let Err(message) = validate_ueditor_upload(
-        upload_spec.default_file_name,
-        decoded.len(),
-        upload_spec.allow_extensions,
-        upload_spec.max_size,
-    ) {
-        return Ok(ueditor_state_response(message));
+    // Convert.FromBase64String 只忽略空格、Tab、CR、LF，允许未使用的尾位非零。
+    let payload: Vec<u8> = raw_value
+        .bytes()
+        .filter(|value| !matches!(value, b' ' | b'\t' | b'\r' | b'\n'))
+        .collect();
+    let decoder = general_purpose::GeneralPurpose::new(
+        &alphabet::STANDARD,
+        general_purpose::GeneralPurposeConfig::new().with_decode_allow_trailing_bits(true),
+    );
+    let decoded = match decoder.decode(&payload) {
+        Ok(bytes) => bytes,
+        Err(_) => {
+            return Ok(upload_error(
+                "上传请求不正确",
+                Some("Base64 文件内容格式不正确".into()),
+                None,
+            ));
+        }
+    };
+    if decoded.len() > upload_spec.max_size {
+        return Ok(upload_error("文件大小超出服务器限制", None, None));
     }
-
     persist_upload_file_from_bytes(
         app_state,
         current_user,
         upload_spec.default_file_name.to_string(),
-        decoded.as_slice(),
+        &decoded,
         upload_key,
         upload_spec.sign,
     )
@@ -399,19 +328,23 @@ async fn persist_upload_file_from_bytes(
     upload_key: i64,
     sign: &str,
 ) -> Result<Response, AppError> {
-    let temp_dir = std::path::Path::new(&app_state.settings.file.root_path).join("temps");
-    fs::create_dir_all(&temp_dir).await.map_err(|error| {
-        AppError::from(application_service::error::AppError::internal(format!(
-            "创建临时目录失败: {error}"
-        )))
-    })?;
-    let temp_file_name = format!("{}_{}", uuid::Uuid::new_v4(), file_name);
-    let temp_file_path = temp_dir.join(temp_file_name);
-    fs::write(&temp_file_path, &bytes).await.map_err(|error| {
-        AppError::from(application_service::error::AppError::internal(format!(
-            "写入临时文件失败: {error}"
-        )))
-    })?;
+    let temp_dir = Path::new(&app_state.settings.file.root_path).join("temps");
+    if let Err(error) = fs::create_dir_all(&temp_dir).await {
+        return Ok(upload_error(
+            "文件访问出错，请检查写入权限",
+            Some(error.to_string()),
+            None,
+        ));
+    }
+    let temp_file_path = build_temp_upload_path(&temp_dir, &file_name);
+    let _temp_guard = common::io_helper::TemporaryFileGuard::new(&temp_file_path);
+    if let Err(error) = fs::write(&temp_file_path, bytes).await {
+        return Ok(upload_error(
+            "文件访问出错，请检查写入权限",
+            Some(error.to_string()),
+            Some(file_name),
+        ));
+    }
 
     persist_upload_file_from_temp(
         app_state,
@@ -433,7 +366,7 @@ async fn persist_upload_file_from_temp(
     upload_key: i64,
     sign: &str,
 ) -> Result<Response, AppError> {
-    let service = app_state.file();
+    let service = app_state.services().file();
     // 复用现有文件服务 保持上传记录 URL 生成与审计行为一致
     let result = service
         .upload_file(
@@ -451,20 +384,55 @@ async fn persist_upload_file_from_temp(
 
     cleanup_temp_file(&temp_file_path).await;
 
-    let file_id = result.map_err(AppError::from)?;
-    let file_url = service
-        .get_file_relative_path(parse_file_id(&file_id)?)
-        .await
-        .map_err(AppError::from)?;
-
+    let file_id = match result {
+        Ok(file_id) => file_id,
+        Err(error) => {
+            return Ok(upload_error(
+                "文件访问出错，请检查写入权限",
+                Some(error.message().to_string()),
+                Some(file_name),
+            ));
+        }
+    };
+    let file_url = match service.get_file_url(parse_file_id(&file_id)?, false).await {
+        Ok(url) => url,
+        Err(error) => {
+            return Ok(upload_error(
+                "文件访问出错，请检查写入权限",
+                Some(error.message().to_string()),
+                Some(file_name),
+            ));
+        }
+    };
     Ok(Json(UeditorUploadResponse {
-        state: "SUCCESS".to_string(),
-        url: file_url,
-        title: file_name.clone(),
-        original: file_name,
-        file_id,
+        state: "SUCCESS".into(),
+        url: Some(normalize_ueditor_url(
+            file_url,
+            &app_state.settings.file.public_base_url,
+        )),
+        title: Some(file_name.clone()),
+        original: Some(file_name),
+        file_id: Some(file_id),
+        error: None,
     })
     .into_response())
+}
+
+/// 保留协议失败响应的全部字段，区分尚未保存与已进入保存阶段。
+fn upload_error(
+    state: impl Into<String>,
+    error: Option<String>,
+    original: Option<String>,
+) -> Response {
+    Json(UeditorUploadResponse {
+        state: state.into(),
+        url: None,
+        title: original.clone(),
+        original,
+        file_id: None,
+        error,
+    })
+    .into_response()
 }
 
 async fn cleanup_temp_file(path: &Path) {
@@ -472,11 +440,7 @@ async fn cleanup_temp_file(path: &Path) {
 }
 
 fn build_temp_upload_path(temp_dir: &Path, file_name: &str) -> PathBuf {
-    let extension = Path::new(file_name)
-        .extension()
-        .and_then(|item| item.to_str())
-        .map(|item| format!(".{item}"))
-        .unwrap_or_default();
+    let extension = common::io_helper::file_extension(file_name).to_ascii_lowercase();
 
     temp_dir.join(format!("{}{}", uuid::Uuid::new_v4(), extension))
 }
@@ -488,80 +452,21 @@ async fn handle_crawl_image_request(
     request: Request,
     upload_key: i64,
 ) -> Result<Response, AppError> {
-    let bytes = to_bytes(request.into_body(), CRAWL_FORM_MAX_SIZE)
+    let form = form::read(request, &app_state, None)
         .await
-        .map_err(|error| {
-            AppError::from(application_service::error::AppError::bad_request(format!(
-                "读取抓图请求体失败: {error}"
-            )))
-        })?;
-    let form = serde_urlencoded::from_bytes::<UeditorCrawlForm>(&bytes).map_err(|error| {
-        AppError::from(application_service::error::AppError::bad_request(format!(
-            "解析抓图参数失败: {error}"
-        )))
-    })?;
+        .map_err(|error| AppError::from(application_interface::error::AppError::internal(error)))?;
+    let sources = form.values("source[]");
 
-    if form.source.is_empty() {
+    if sources.is_empty() {
         return Ok(Json(json!({
             "state": "参数错误：没有指定抓取源",
         }))
         .into_response());
     }
 
-    let service = app_state.file();
-    let mut items = Vec::new();
-
-    // 抓图数量做上限裁剪 避免单次请求无限放大后端开销
-    for source in form.source.into_iter().take(MAX_CRAWL_IMAGE_COUNT) {
-        let file_name = match resolve_remote_image_file_name(&source) {
-            Ok(file_name) => file_name,
-            Err(message) => {
-                items.push(UeditorCrawlerItem {
-                    state: message,
-                    source,
-                    url: String::new(),
-                    file_id: None,
-                });
-                continue;
-            }
-        };
-        let result = service
-            .remote_upload_image_file(
-                RemoteUploadFileDto {
-                    business: ARTICLE_BUSINESS.to_string(),
-                    key: Some(upload_key),
-                    sign: "content-remote-image".to_string(),
-                    is_public_read: true,
-                    file_name,
-                    url: source.clone(),
-                },
-                &current_user,
-            )
-            .await;
-
-        match result {
-            Ok(file_id) => {
-                let url = service
-                    .get_file_relative_path(parse_file_id(&file_id)?)
-                    .await
-                    .map_err(AppError::from)?;
-
-                items.push(UeditorCrawlerItem {
-                    state: "SUCCESS".to_string(),
-                    source,
-                    url,
-                    file_id: Some(file_id),
-                });
-            }
-            Err(error) => {
-                items.push(UeditorCrawlerItem {
-                    state: error.message().to_string(),
-                    source,
-                    url: String::new(),
-                    file_id: None,
-                });
-            }
-        }
+    let mut items = Vec::with_capacity(sources.len());
+    for source in sources {
+        items.push(crawler::fetch(&app_state, &current_user, source, upload_key).await);
     }
 
     Ok(Json(json!({
@@ -569,6 +474,23 @@ async fn handle_crawl_image_request(
         "list": items,
     }))
     .into_response())
+}
+
+/// 返回可与 UEditor 配置前缀直接拼接的资源地址。
+fn normalize_ueditor_url(url: String, prefix: &str) -> String {
+    if prefix.trim().is_empty()
+        || !url
+            .get(..prefix.len())
+            .is_some_and(|value| value.eq_ignore_ascii_case(prefix))
+    {
+        return url;
+    }
+    let relative = url[prefix.len()..].trim_start_matches('/');
+    if prefix.ends_with('/') {
+        relative.to_string()
+    } else {
+        format!("/{relative}")
+    }
 }
 
 /// 构建 UEditor 配置响应
@@ -624,11 +546,7 @@ fn validate_ueditor_upload(
     max_size: usize,
 ) -> Result<(), String> {
     // 扩展名统一转成小写后再校验 兼容前端上传时的大小写差异
-    let extension = Path::new(file_name)
-        .extension()
-        .and_then(|item| item.to_str())
-        .map(|item| format!(".{}", item.to_ascii_lowercase()))
-        .ok_or_else(|| "上传文件缺少扩展名".to_string())?;
+    let extension = common::io_helper::file_extension(file_name).to_ascii_lowercase();
 
     if !allow_extensions.contains(&extension.as_str()) {
         return Err("不允许的文件格式".to_string());
@@ -639,44 +557,6 @@ fn validate_ueditor_upload(
     }
 
     Ok(())
-}
-
-/// 解析并校验远程图片原始文件名
-fn resolve_remote_image_file_name(source: &str) -> Result<String, String> {
-    let file_name = source
-        .split(['?', '#'])
-        .next()
-        .and_then(|path| path.rsplit('/').next())
-        .filter(|file_name| !file_name.trim().is_empty())
-        .ok_or_else(|| "远程图片地址缺少文件名".to_string())?
-        .to_string();
-
-    validate_ueditor_upload(&file_name, 0, IMAGE_ALLOW_FILES, IMAGE_MAX_SIZE)?;
-
-    Ok(file_name)
-}
-
-/// 根据请求头推断 UEditor 动作
-fn infer_ueditor_action(content_type: &str) -> Option<&'static str> {
-    if content_type
-        .to_ascii_lowercase()
-        .starts_with("application/x-www-form-urlencoded")
-    {
-        return Some("uploadscrawl");
-    }
-
-    None
-}
-
-/// 归一化 Base64 数据 去掉 data URL 头部
-fn normalize_base64_payload(payload: &str) -> &str {
-    if let Some((_, value)) = payload.split_once(',')
-        && payload.starts_with("data:")
-    {
-        return value;
-    }
-
-    payload
 }
 
 /// 构造 UEditor 统一状态响应
@@ -734,7 +614,7 @@ fn file_upload_spec() -> UeditorUploadSpec {
 /// 将文件 ID 字符串解析为整数
 fn parse_file_id(file_id: &str) -> Result<i64, AppError> {
     file_id.parse::<i64>().map_err(|error| {
-        AppError::from(application_service::error::AppError::internal(format!(
+        AppError::from(application_interface::error::AppError::internal(format!(
             "解析文件 ID 失败: {error}"
         )))
     })

@@ -4,12 +4,17 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+cancellation = { path = "../../infrastructure/cancellation" }
+chrono = "0.4.45"
+futures-util = "0.3.34"
+tokio-util = { version = "0.7.20", features = ["rt"] }
+event_bus = { path = "../../infrastructure/event_bus" }
 distributed_lock = { path = "../../infrastructure/distributed_lock" }
-hybrid_cache = { path = "../../infrastructure/hybrid_cache" }
-serde = { version = "1.0", features = ["derive"] }
-serde_json = { version = "1.0", features = ["arbitrary_precision"] }
+distributed_cache = { path = "../../infrastructure/distributed_cache" }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = { version = "1.0.154", features = ["arbitrary_precision"] }
 source_generator_core = { path = "../source_generator_core" }
-sha2 = "0.11.0"
-tokio = { version = "1", features = ["time"] }
-tracing = "0.1"
-uuid = { version = "1", features = ["v7"] }
+sha2 = "0.11.1"
+tokio = { version = "1.54.1", features = ["time"] }
+tracing = "0.1.44"
+uuid = { version = "1.29.0", features = ["v7"] }

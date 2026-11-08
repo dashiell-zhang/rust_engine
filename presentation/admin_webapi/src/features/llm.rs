@@ -8,9 +8,9 @@ use crate::{
     openapi::llm::LlmApiDoc,
     state::AppState,
 };
-use axum::Router;
 use std::sync::Arc;
 use utoipa::{OpenApi, openapi::OpenApi as OpenApiDocument};
+use webapi_core::routes::WebApiRoutes as Router;
 
 use super::{WebApiFeature, WebApiRoutePermission};
 
@@ -30,7 +30,7 @@ impl WebApiFeature for LlmFeature {
             .route(
                 "/LlmModel/GetLlmModelList",
                 protect_method_router(
-                    axum::routing::get(get_llm_model_list),
+                    webapi_core::routes::get(get_llm_model_list),
                     app_state.clone(),
                     permission_module.clone(),
                     "/LlmModel/GetLlmModelList",
@@ -40,7 +40,7 @@ impl WebApiFeature for LlmFeature {
             .route(
                 "/LlmModel/GetLlmModelSelect",
                 protect_method_router(
-                    axum::routing::get(get_llm_model_select),
+                    webapi_core::routes::get(get_llm_model_select),
                     app_state.clone(),
                     permission_module.clone(),
                     "/LlmModel/GetLlmModelSelect",
@@ -50,7 +50,7 @@ impl WebApiFeature for LlmFeature {
             .route(
                 "/LlmModel/CreateLlmModel",
                 protect_method_router(
-                    axum::routing::post(create_llm_model),
+                    webapi_core::routes::post(create_llm_model).json_body("createLlmModel"),
                     app_state.clone(),
                     permission_module.clone(),
                     "/LlmModel/CreateLlmModel",
@@ -60,7 +60,7 @@ impl WebApiFeature for LlmFeature {
             .route(
                 "/LlmModel/UpdateLlmModel",
                 protect_method_router(
-                    axum::routing::post(update_llm_model),
+                    webapi_core::routes::post(update_llm_model).json_body("updateLlmModel"),
                     app_state.clone(),
                     permission_module.clone(),
                     "/LlmModel/UpdateLlmModel",
@@ -70,7 +70,7 @@ impl WebApiFeature for LlmFeature {
             .route(
                 "/LlmModel/DeleteLlmModel",
                 protect_method_router(
-                    axum::routing::delete(delete_llm_model),
+                    webapi_core::routes::delete(delete_llm_model),
                     app_state.clone(),
                     permission_module.clone(),
                     "/LlmModel/DeleteLlmModel",
@@ -80,7 +80,7 @@ impl WebApiFeature for LlmFeature {
             .route(
                 "/Operations/GetLlmAppList",
                 protect_method_router(
-                    axum::routing::get(get_llm_app_list),
+                    webapi_core::routes::get(get_llm_app_list),
                     app_state.clone(),
                     permission_module.clone(),
                     "/Operations/GetLlmAppList",
@@ -90,7 +90,7 @@ impl WebApiFeature for LlmFeature {
             .route(
                 "/Operations/CreateLlmApp",
                 protect_method_router(
-                    axum::routing::post(create_llm_app),
+                    webapi_core::routes::post(create_llm_app).json_body("createLlmApp"),
                     app_state.clone(),
                     permission_module.clone(),
                     "/Operations/CreateLlmApp",
@@ -100,7 +100,7 @@ impl WebApiFeature for LlmFeature {
             .route(
                 "/Operations/UpdateLlmApp",
                 protect_method_router(
-                    axum::routing::post(update_llm_app),
+                    webapi_core::routes::post(update_llm_app).json_body("updateLlmApp"),
                     app_state.clone(),
                     permission_module.clone(),
                     "/Operations/UpdateLlmApp",
@@ -110,7 +110,7 @@ impl WebApiFeature for LlmFeature {
             .route(
                 "/Operations/DeleteLlmApp",
                 protect_method_router(
-                    axum::routing::delete(delete_llm_app),
+                    webapi_core::routes::delete(delete_llm_app),
                     app_state.clone(),
                     permission_module.clone(),
                     "/Operations/DeleteLlmApp",
@@ -120,7 +120,7 @@ impl WebApiFeature for LlmFeature {
             .route(
                 "/Operations/TestLlmApp",
                 protect_method_router(
-                    axum::routing::post(test_llm_app),
+                    webapi_core::routes::post(test_llm_app).json_body("request"),
                     app_state.clone(),
                     permission_module.clone(),
                     "/Operations/TestLlmApp",
@@ -130,7 +130,7 @@ impl WebApiFeature for LlmFeature {
             .route(
                 "/Operations/GetLlmConversationList",
                 protect_method_router(
-                    axum::routing::get(get_llm_conversation_list),
+                    webapi_core::routes::get(get_llm_conversation_list),
                     app_state,
                     permission_module,
                     "/Operations/GetLlmConversationList",
@@ -185,11 +185,11 @@ impl WebApiFeature for LlmFeature {
             },
             WebApiRoutePermission {
                 route: "/Operations/TestLlmApp",
-                remark: "测试 LLM 应用配置",
+                remark: "LLM 调用测试",
             },
             WebApiRoutePermission {
                 route: "/Operations/GetLlmConversationList",
-                remark: "获取 LLM 对话记录列表",
+                remark: "获取 LLM 调用日志列表",
             },
         ]
     }

@@ -9,5 +9,5 @@ mod guard;
 mod lock;
 
 pub use error::LockError;
-pub use guard::LockGuard;
+pub use guard::{LockGuard, ReleaseCompletion};
 pub use lock::DistributedLock;

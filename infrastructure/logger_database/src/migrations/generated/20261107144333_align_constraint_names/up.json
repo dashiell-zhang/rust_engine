@@ -1,0 +1,6 @@
+[
+  {
+    "kind": "Sql",
+    "value": "ALTER TABLE \"Log\" RENAME CONSTRAINT \"Log_pkey\" TO \"PK_Log\""
+  }
+]

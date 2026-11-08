@@ -1,5 +1,4 @@
 use crate::{rate_limit::RateLimitSettings, startup::HostSettings};
-use config::{Config, Environment, File};
 use identifier_generator::IdentifierGeneratorSettings;
 use logger::LoggerSettings;
 use serde::Deserialize;
@@ -111,10 +110,6 @@ pub struct FileSettings {
     #[serde(default)]
     pub public_base_url: String,
 
-    /// 普通文件上传最大字节数
-    #[serde(default = "default_file_max_upload_bytes")]
-    pub max_upload_bytes: usize,
-
     /// 阿里云 OSS 配置
     #[serde(default)]
     pub aliyun_oss: AliyunOssFileStorageSettings,
@@ -204,30 +199,6 @@ pub struct CorsSettings {
     pub allowed_origin_list: Vec<String>,
 }
 
-/// 短信验证码配置
-#[derive(Deserialize, Clone)]
-pub struct SmsVerifySettings {
-    /// 验证码缓存秒数
-    #[serde(default = "default_sms_verify_code_ttl_seconds")]
-    pub code_ttl_seconds: u64,
-
-    /// 重发限制秒数
-    #[serde(default = "default_sms_verify_resend_interval_seconds")]
-    pub resend_interval_seconds: u64,
-
-    /// 投递的队列任务名称
-    #[serde(default = "default_sms_verify_queue_task_name")]
-    pub queue_task_name: String,
-
-    /// 默认短信签名
-    #[serde(default)]
-    pub sign_name: String,
-
-    /// 默认短信模板编号
-    #[serde(default)]
-    pub template_code: String,
-}
-
 /// 邮件消息配置
 #[derive(Deserialize, Clone, Default)]
 pub struct MessageSettings {
@@ -269,12 +240,18 @@ pub struct Settings {
     pub database: DatabaseSettings,
     /// JWT 配置
     pub jwt: JwtSettings,
+    /// 按需启用的请求字段解密配置
+    #[serde(default)]
+    pub rsa: Option<crate::rsa_decrypt::RsaSettings>,
     /// 锁配置
     #[serde(default)]
     pub lock: LockSettings,
     /// 日志配置
     #[serde(default)]
     pub logger: LoggerSettings,
+    /// 跨进程广播配置
+    #[serde(default)]
+    pub event_bus: event_bus::EventBusOptions,
     /// 文件配置
     #[serde(default)]
     pub file: FileSettings,
@@ -287,15 +264,15 @@ pub struct Settings {
     /// 标识生成器配置
     #[serde(default)]
     pub identifier_generator: IdentifierGeneratorSettings,
-    /// 短信验证码配置
-    #[serde(default)]
-    pub sms_verify: SmsVerifySettings,
     /// 邮件消息配置
     #[serde(default)]
     pub message: MessageSettings,
     /// 限流配置
     #[serde(default)]
     pub rate_limit: RateLimitSettings,
+    /// 运行入口负责解析的命名 HTTP 客户端配置。
+    #[serde(default)]
+    pub http_clients: std::collections::HashMap<String, serde_json::Value>,
 }
 
 /// 原始全局应用配置
@@ -311,6 +288,9 @@ struct RawSettings {
     pub database: DatabaseSettings,
     /// JWT 配置
     pub jwt: JwtSettings,
+    /// 按需启用的请求字段解密配置
+    #[serde(default)]
+    pub rsa: Option<crate::rsa_decrypt::RsaSettings>,
     /// 锁配置
     pub lock: Option<LockSettings>,
     /// 旧版 Redis 锁配置
@@ -319,6 +299,9 @@ struct RawSettings {
     /// 日志配置
     #[serde(default)]
     pub logger: LoggerSettings,
+    /// 跨进程广播配置
+    #[serde(default)]
+    pub event_bus: event_bus::EventBusOptions,
     /// 文件配置
     #[serde(default)]
     pub file: FileSettings,
@@ -330,15 +313,15 @@ struct RawSettings {
     /// 标识生成器配置
     #[serde(default)]
     pub identifier_generator: IdentifierGeneratorSettings,
-    /// 短信验证码配置
-    #[serde(default)]
-    pub sms_verify: SmsVerifySettings,
     /// 邮件消息配置
     #[serde(default)]
     pub message: MessageSettings,
     /// 限流配置
     #[serde(default)]
     pub rate_limit: RateLimitSettings,
+    /// 运行入口负责解析的命名 HTTP 客户端配置。
+    #[serde(default)]
+    pub http_clients: std::collections::HashMap<String, serde_json::Value>,
 }
 
 impl Default for LockSettings {
@@ -359,7 +342,6 @@ impl Default for FileSettings {
             component: default_file_storage_component(),
             root_path: default_file_root_path(),
             public_base_url: String::new(),
-            max_upload_bytes: default_file_max_upload_bytes(),
             aliyun_oss: AliyunOssFileStorageSettings::default(),
             tencent_cos: TencentCosFileStorageSettings::default(),
         }
@@ -414,19 +396,6 @@ impl Default for CorsSettings {
     }
 }
 
-impl Default for SmsVerifySettings {
-    /// 创建默认短信验证码配置
-    fn default() -> Self {
-        Self {
-            code_ttl_seconds: default_sms_verify_code_ttl_seconds(),
-            resend_interval_seconds: default_sms_verify_resend_interval_seconds(),
-            queue_task_name: default_sms_verify_queue_task_name(),
-            sign_name: String::new(),
-            template_code: String::new(),
-        }
-    }
-}
-
 impl Default for SmtpSettings {
     /// 创建默认 SMTP 配置
     fn default() -> Self {
@@ -445,7 +414,7 @@ impl Settings {
     /// 配置文件路径优先级
     /// 1. 环境变量 `APP_CONFIG_PATH` 指定的路径
     /// 2. 宿主档案指定的默认路径（适配从 workspace 根目录运行）
-    /// 3. 若存在 `APP_ENVIRONMENT`，会追加加载 `appsettings.{环境名}.toml`
+    /// 3. 按共享宿主环境追加加载 `appsettings.{环境名}.toml`，默认环境为 Production
     ///
     /// 所有配置项均可通过 `APP__节名__键名` 格式的环境变量覆盖 例如
     /// `APP__DATABASE__CONNECTION=postgres://...`
@@ -454,17 +423,11 @@ impl Settings {
         let config_path = std::env::var("APP_CONFIG_PATH")
             .unwrap_or_else(|_| profile.default_config_path.to_string());
 
-        let mut builder = Config::builder().add_source(File::with_name(&config_path));
-
-        if let Some(environment_name) = resolve_config_environment() {
-            let environment_config_path = format!("{config_path}.{environment_name}");
-            builder = builder.add_source(File::with_name(&environment_config_path).required(false));
-        }
-
-        let raw_settings: RawSettings = builder
-            .add_source(Environment::with_prefix("APP").separator("__"))
-            .build()
-            .expect("配置文件加载失败，请检查 appsettings.toml 是否存在")
+        let environment_name = crate::environment::name();
+        let (configuration, reload_source) =
+            logger::load_host_configuration(&config_path, Some(environment_name))
+                .expect("配置文件加载失败，请检查 appsettings.toml 是否存在");
+        let raw_settings: RawSettings = configuration
             .try_deserialize()
             .expect("配置文件解析失败，请检查字段格式是否正确");
 
@@ -491,16 +454,20 @@ impl Settings {
             permission_module: raw_settings.permission_module,
             database: raw_settings.database,
             jwt: raw_settings.jwt,
+            rsa: raw_settings.rsa,
             lock,
             logger: raw_settings.logger,
+            event_bus: raw_settings.event_bus,
             file: raw_settings.file,
             cache: raw_settings.cache.unwrap_or_default(),
             cors: raw_settings.cors,
             identifier_generator: raw_settings.identifier_generator,
-            sms_verify: raw_settings.sms_verify,
             message: raw_settings.message,
             rate_limit: raw_settings.rate_limit,
+            http_clients: raw_settings.http_clients,
         };
+
+        settings.logger.set_filter_reload_source(reload_source);
 
         // 这些默认值依赖宿主档案 因此统一在最终阶段补齐
         if settings.logger.project.trim().is_empty() {
@@ -542,21 +509,9 @@ fn default_file_root_path() -> String {
     "data/files".to_string()
 }
 
-/// 获取默认普通文件上传最大字节数
-fn default_file_max_upload_bytes() -> usize {
-    50 * 1024 * 1024
-}
-
 /// 获取默认文件存储组件类型
 fn default_file_storage_component() -> FileStorageComponent {
     FileStorageComponent::Local
-}
-
-fn resolve_config_environment() -> Option<String> {
-    std::env::var("APP_ENVIRONMENT")
-        .ok()
-        .map(|value| value.trim().to_string())
-        .filter(|value| !value.is_empty())
 }
 
 /// 获取默认缓存组件类型
@@ -571,22 +526,7 @@ fn default_cache_prefix() -> String {
 
 /// 获取默认允许的跨域来源列表
 fn default_cors_allowed_origin_list() -> Vec<String> {
-    vec!["*".to_string()]
-}
-
-/// 获取默认验证码缓存秒数
-fn default_sms_verify_code_ttl_seconds() -> u64 {
-    300
-}
-
-/// 获取默认验证码重发限制秒数
-fn default_sms_verify_resend_interval_seconds() -> u64 {
-    60
-}
-
-/// 获取默认验证码队列任务名称
-fn default_sms_verify_queue_task_name() -> String {
-    "System.Queue.SendSms".to_string()
+    vec!["*.xxx.com".to_string()]
 }
 
 /// 获取默认 SMTP 端口

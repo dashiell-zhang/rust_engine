@@ -1,391 +1,372 @@
-use std::fmt::Write;
-use std::time::{Duration, SystemTime};
+use std::{
+    collections::BTreeMap,
+    fmt::Write,
+    path::Path,
+    sync::{
+        Arc,
+        atomic::{AtomicI64, Ordering},
+    },
+    time::Duration,
+};
 
-use application_interface::storage::AppFileStorage;
+use application_interface::{http_client::HttpClientFactory, storage::AppFileStorage};
 use async_trait::async_trait;
-use base64::{Engine as _, engine::general_purpose::STANDARD};
-use chrono::Utc;
+use chrono::{DateTime, Datelike, TimeDelta, Timelike, Utc};
 use common::app_error::AppError;
+use common::date_time_helper::{time_span_from_ticks, time_span_ticks};
 use hmac::{Hmac, KeyInit, Mac};
-use reqwest::header::{AUTHORIZATION, CONTENT_LENGTH, CONTENT_TYPE, DATE, HeaderMap, HeaderValue};
-use reqwest::{Body, Client, Method, StatusCode};
-use sha1::Sha1;
-use tokio::fs;
-use tokio::io::AsyncWriteExt;
-use tokio_util::io::ReaderStream;
+use reqwest::{Method, StatusCode};
+use sha2::{Digest, Sha256};
 
-/// HMAC-SHA1 签名器类型别名
-type HmacSha1 = Hmac<Sha1>;
+mod content_type;
+mod download;
+mod integrity;
+mod request;
+mod service_error;
+mod upload;
 
-/// 阿里云 OSS 文件存储配置
+use upload::UploadSource;
+
+type HmacSha256 = Hmac<Sha256>;
+const UNSIGNED_PAYLOAD: &str = "UNSIGNED-PAYLOAD";
+const READ_WRITE_TIMEOUT: Duration = Duration::from_secs(20);
+const DOWNLOAD_ATTEMPTS: usize = 3;
+
+/// 阿里云 OSS 文件存储配置。
 #[derive(Clone)]
 pub struct AliyunOssFileStorageSettings {
-    /// OSS 存储区域
+    /// OSS 存储区域。
     pub region: String,
-
-    /// 是否使用内网节点
+    /// 是否使用内网节点。
     pub use_internal_endpoint: bool,
-
-    /// AccessKeyId
+    /// 访问凭据标识。
     pub access_key_id: String,
-
-    /// AccessKeySecret
+    /// 访问凭据密钥。
     pub access_key_secret: String,
-
-    /// 存储桶名称
+    /// 存储桶名称。
     pub bucket_name: String,
-
-    /// 访问地址前缀
+    /// 对外访问前缀，按配置原文拼接对象路径及查询串。
     pub url: String,
 }
 
-/// 阿里云 OSS 文件存储
+/// OSS V4 存储适配器，连接池由宿主共享。
 pub struct AliyunOssFileStorage {
-    /// 请求客户端
-    client: Client,
-
-    /// 存储配置
+    http_clients: Arc<HttpClientFactory>,
     settings: AliyunOssFileStorageSettings,
-
-    /// OSS 直连基地址
     endpoint_url: String,
+    clock_offset: AtomicI64,
 }
 
 impl AliyunOssFileStorage {
-    /// 创建阿里云 OSS 文件存储
-    pub fn new(settings: AliyunOssFileStorageSettings) -> Result<Self, AppError> {
-        validate_settings(&settings)?;
-
+    /// 使用宿主工厂装配存储，不创建独立的长期 HTTP 客户端。
+    pub fn new(
+        settings: AliyunOssFileStorageSettings,
+        http_clients: Arc<HttpClientFactory>,
+    ) -> Result<Self, AppError> {
+        // SDK 在真正调用时校验桶、对象、端点和凭据，构造组件不提前失败。
+        let internal = if settings.use_internal_endpoint {
+            "-internal"
+        } else {
+            ""
+        };
+        let endpoint_url = format!(
+            "https://{}.oss-{}{internal}.aliyuncs.com",
+            settings.bucket_name, settings.region
+        );
         Ok(Self {
-            client: Client::new(),
-            endpoint_url: build_endpoint_url(&settings),
             settings,
+            http_clients,
+            endpoint_url,
+            clock_offset: AtomicI64::new(0),
         })
     }
 
-    /// 规范化对象路径
-    fn normalize_object_key(
-        &self,
-        remote_path: &str,
-        file_name: Option<&str>,
-    ) -> Result<String, AppError> {
-        let normalized = remote_path.trim().replace('\\', "/");
-
-        if normalized
-            .split('/')
-            .filter(|segment| !segment.is_empty())
-            .any(|segment| segment == "." || segment == "..")
+    fn validate_operation(&self, object_key: &str) -> Result<(), AppError> {
+        let bucket = &self.settings.bucket_name;
+        if !(3..=64).contains(&bucket.len())
+            || bucket.starts_with('-')
+            || bucket.ends_with('-')
+            || !valid_endpoint_name(bucket)
         {
-            return Err(AppError::bad_request("文件路径非法"));
+            return Err(AppError::internal("阿里云 OSS 存储桶名称无效"));
         }
-
-        let object_key = if let Some(file_name) = file_name {
-            let safe_name = std::path::Path::new(file_name.trim())
-                .file_name()
-                .and_then(|item| item.to_str())
-                .filter(|item| !item.is_empty())
-                .ok_or_else(|| AppError::bad_request("文件名非法"))?;
-
-            if normalized.is_empty() {
-                safe_name.to_string()
-            } else {
-                format!("{}/{}", normalized.trim_matches('/'), safe_name)
-            }
-        } else {
-            normalized.trim_matches('/').to_string()
-        };
-
-        if object_key.is_empty() {
-            return Err(AppError::bad_request("文件路径非法"));
+        // C# String.Length 按 UTF-16 码元计数，不按 UTF-8 字节数限制中文对象名。
+        if !(1..=1024).contains(&object_key.encode_utf16().count()) {
+            return Err(AppError::internal("阿里云 OSS 对象名称长度无效"));
         }
-
-        Ok(object_key)
+        if !valid_endpoint_name(&self.settings.region) {
+            return Err(AppError::internal("阿里云 OSS 区域端点无效"));
+        }
+        if self.settings.access_key_id.is_empty() || self.settings.access_key_secret.is_empty() {
+            return Err(AppError::internal("阿里云 OSS 访问凭据为空"));
+        }
+        Ok(())
     }
 
-    /// 构建对象访问地址
-    fn object_url(&self, object_key: &str) -> String {
-        format!(
-            "{}/{}",
-            self.endpoint_url.trim_end_matches('/'),
-            encode_object_key(object_key)
-        )
+    /// 资源签名保留桶名和原始对象键，只有 URI 编码改变字节表示。
+    fn canonical_uri(&self, object_key: &str) -> String {
+        encode_path(&format!("/{}/{}", self.settings.bucket_name, object_key))
     }
 
-    /// 构建授权请求
+    /// 与 OSS V4 相同的日期、区域及产品密钥派生。
+    fn signature(
+        &self,
+        time: DateTime<Utc>,
+        canonical_request: &str,
+    ) -> Result<(String, String), AppError> {
+        let date = time.format("%Y%m%d").to_string();
+        let scope = format!("{date}/{}/oss/aliyun_v4_request", self.settings.region);
+        let string_to_sign = format!(
+            "OSS4-HMAC-SHA256\n{}\n{scope}\n{}",
+            time.format("%Y%m%dT%H%M%SZ"),
+            hex(&Sha256::digest(canonical_request.as_bytes()))
+        );
+        let mut key = format!("aliyun_v4{}", self.settings.access_key_secret).into_bytes();
+        for part in [
+            &date,
+            &self.settings.region,
+            "oss",
+            "aliyun_v4_request",
+            &string_to_sign,
+        ] {
+            key = hmac_sha256(&key, part)?;
+        }
+        Ok((scope, hex(&key)))
+    }
+
+    /// 签入 content-type 和全部 x-oss 头，ACL 随上传请求一起认证。
     fn build_request(
         &self,
         method: Method,
         object_key: &str,
-        content_length: Option<u64>,
+        mut headers: BTreeMap<&str, String>,
+        clock_offset: i64,
     ) -> Result<reqwest::RequestBuilder, AppError> {
-        let date = Utc::now().format("%a, %d %b %Y %H:%M:%S GMT").to_string();
-        let canonical_resource = format!("/{}/{}", self.settings.bucket_name, object_key);
-        let content_type = if content_length.is_some() {
-            "application/octet-stream"
-        } else {
-            ""
-        };
-        let string_to_sign = format!(
-            "{}\n\n{}\n{}\n{}",
+        self.validate_operation(object_key)?;
+        let now = signing_time(clock_offset)?;
+        headers.insert("x-oss-content-sha256", UNSIGNED_PAYLOAD.to_owned());
+        headers.insert("x-oss-date", now.format("%Y%m%dT%H%M%SZ").to_string());
+        let canonical_headers = headers
+            .iter()
+            .filter(|(key, _)| {
+                key.starts_with("x-oss-") || **key == "content-type" || **key == "content-md5"
+            })
+            .map(|(key, value)| format!("{key}:{}\n", value.trim()))
+            .collect::<String>();
+        let canonical = format!(
+            "{}\n{}\n\n{canonical_headers}\n\n{UNSIGNED_PAYLOAD}",
             method.as_str(),
-            content_type,
-            date,
-            canonical_resource
+            self.canonical_uri(object_key)
         );
-        let signature = sign(&self.settings.access_key_secret, &string_to_sign)?;
-        let authorization = format!("OSS {}:{}", self.settings.access_key_id, signature);
-
-        let mut headers = HeaderMap::new();
-        headers.insert(DATE, header_value(&date)?);
-        headers.insert(AUTHORIZATION, header_value(&authorization)?);
-
-        if let Some(content_length) = content_length {
-            headers.insert(
-                CONTENT_TYPE,
-                HeaderValue::from_static("application/octet-stream"),
+        let (scope, signature) = self.signature(now, &canonical)?;
+        // 请求层分别控制 SDK 读写期限和宿主 HttpClient 的整体期限。
+        let mut request = self
+            .http_clients
+            .streaming_client()
+            .request(
+                method,
+                format!("{}/{}", self.endpoint_url, encode_path(object_key)),
+            )
+            .header("date", now.format("%a, %d %b %Y %H:%M:%S GMT").to_string())
+            .header(
+                "authorization",
+                format!(
+                    "OSS4-HMAC-SHA256 Credential={}/{scope},Signature={signature}",
+                    self.settings.access_key_id
+                ),
             );
-            headers.insert(
-                CONTENT_LENGTH,
-                header_value(content_length.to_string().as_str())?,
-            );
+        for (name, value) in headers {
+            request = request.header(name, value);
         }
-
-        Ok(self
-            .client
-            .request(method, self.object_url(object_key))
-            .headers(headers))
+        Ok(request)
     }
 }
 
 #[async_trait]
 impl AppFileStorage for AliyunOssFileStorage {
-    /// 上传文件
+    /// 远程目录与本地文件名构成对象键；file_name 仅用于下载响应头。
     async fn file_upload(
         &self,
         local_path: &str,
         remote_path: &str,
-        _is_public_read: bool,
+        is_public_read: bool,
         file_name: Option<&str>,
     ) -> Result<bool, AppError> {
-        let object_key = self.normalize_object_key(
-            remote_path,
-            Some(file_name.unwrap_or_else(|| {
-                std::path::Path::new(local_path)
-                    .file_name()
-                    .and_then(|item| item.to_str())
-                    .unwrap_or_default()
-            })),
-        )?;
-        let file = fs::File::open(local_path)
-            .await
-            .map_err(|error| AppError::internal(format!("打开本地文件失败: {error}")))?;
-        let file_length = file
-            .metadata()
-            .await
-            .map_err(|error| AppError::internal(format!("读取本地文件信息失败: {error}")))?
-            .len();
-        let stream = ReaderStream::new(file);
-        let response = self
-            .build_request(Method::PUT, &object_key, Some(file_length))?
-            .body(Body::wrap_stream(stream))
-            .send()
-            .await
-            .map_err(|error| AppError::internal(format!("阿里云 OSS 上传失败: {error}")))?;
-
-        Ok(response.status().is_success())
-    }
-
-    /// 下载文件
-    async fn file_download(&self, remote_path: &str, local_path: &str) -> Result<bool, AppError> {
-        let object_key = self.normalize_object_key(remote_path, None)?;
-        let mut response = self
-            .build_request(Method::GET, &object_key, None)?
-            .send()
-            .await
-            .map_err(|error| AppError::internal(format!("阿里云 OSS 下载失败: {error}")))?;
-
-        if response.status() == StatusCode::NOT_FOUND {
-            return Ok(false);
-        }
-
-        if !response.status().is_success() {
-            return Ok(false);
-        }
-
-        if let Some(parent) = std::path::Path::new(local_path).parent() {
-            fs::create_dir_all(parent)
-                .await
-                .map_err(|error| AppError::internal(format!("创建文件目录失败: {error}")))?;
-        }
-
-        let mut file = fs::File::create(local_path)
-            .await
-            .map_err(|error| AppError::internal(format!("创建本地文件失败: {error}")))?;
-
-        while let Some(chunk) = response
-            .chunk()
-            .await
-            .map_err(|error| AppError::internal(format!("阿里云 OSS 读取响应失败: {error}")))?
-        {
-            file.write_all(&chunk)
-                .await
-                .map_err(|error| AppError::internal(format!("写入本地文件失败: {error}")))?;
-        }
-
-        file.flush()
-            .await
-            .map_err(|error| AppError::internal(format!("刷新本地文件失败: {error}")))?;
-
-        Ok(true)
-    }
-
-    /// 删除文件
-    async fn file_delete(&self, remote_path: &str) -> Result<bool, AppError> {
-        let object_key = self.normalize_object_key(remote_path, None)?;
-        let response = self
-            .build_request(Method::DELETE, &object_key, None)?
-            .send()
-            .await
-            .map_err(|error| AppError::internal(format!("阿里云 OSS 删除失败: {error}")))?;
-
-        Ok(response.status() == StatusCode::NO_CONTENT || response.status() == StatusCode::OK)
-    }
-
-    /// 获取文件临时访问地址
-    fn get_file_url(&self, remote_path: &str, expiry: Duration, is_inline: bool) -> Option<String> {
-        let object_key = self.normalize_object_key(remote_path, None).ok()?;
-        let expires_at = SystemTime::now().checked_add(expiry)?;
-        let expires_unix = expires_at
-            .duration_since(SystemTime::UNIX_EPOCH)
-            .ok()?
-            .as_secs();
-        let canonical_resource = format!("/{}/{}", self.settings.bucket_name, object_key);
-        let response_disposition = if is_inline {
-            Some("inline".to_string())
-        } else {
-            None
-        };
-
-        let string_to_sign = format!(
-            "GET\n\n\n{}\n{}{}",
-            expires_unix,
-            canonical_resource,
-            response_disposition
-                .as_ref()
-                .map_or(String::new(), |value| {
-                    format!("?response-content-disposition={value}")
-                })
-        );
-        let signature = sign(&self.settings.access_key_secret, &string_to_sign).ok()?;
-        let mut url = format!(
-            "{}{}/{}?OSSAccessKeyId={}&Expires={}&Signature={}",
-            self.settings.url.trim_end_matches('/'),
-            if self.settings.url.ends_with('/') {
-                ""
-            } else {
-                "/"
-            },
-            encode_object_key(&object_key),
-            self.settings.access_key_id,
-            expires_unix,
-            urlencoding::encode(&signature)
-        );
-
-        if let Some(value) = response_disposition {
-            let _ = write!(
-                url,
-                "&response-content-disposition={}",
-                urlencoding::encode(&value)
+        let basename = Path::new(local_path)
+            .file_name()
+            .and_then(|name| name.to_str())
+            .ok_or_else(|| AppError::internal("本地文件名无效"))?;
+        let object_key = Path::new(remote_path)
+            .join(basename)
+            .to_string_lossy()
+            .replace('\\', "/");
+        let source = UploadSource::open(local_path).await?;
+        let mut headers = BTreeMap::from([
+            (
+                "content-type",
+                content_type::for_object(&object_key).to_owned(),
+            ),
+            ("content-length", source.length.to_string()),
+            (
+                "x-oss-object-acl",
+                if is_public_read {
+                    "public-read"
+                } else {
+                    "private"
+                }
+                .to_owned(),
+            ),
+        ]);
+        if let Some(name) = file_name {
+            headers.insert(
+                "content-disposition",
+                format!("attachment;filename*=UTF-8''{}", encode(name)),
             );
         }
-
-        Some(url)
-    }
-}
-
-/// 校验 OSS 配置
-fn validate_settings(settings: &AliyunOssFileStorageSettings) -> Result<(), AppError> {
-    if settings.bucket_name.trim().is_empty() {
-        return Err(AppError::internal(
-            "阿里云 OSS bucket_name 未配置，请检查 [file.aliyun_oss].bucket_name",
-        ));
+        let response = self
+            .execute_request(Method::PUT, &object_key, headers, Some(&source))
+            .await?;
+        Ok(response.status == StatusCode::OK)
     }
 
-    if settings.access_key_id.trim().is_empty() {
-        return Err(AppError::internal(
-            "阿里云 OSS access_key_id 未配置，请检查 [file.aliyun_oss].access_key_id",
-        ));
-    }
-
-    if settings.access_key_secret.trim().is_empty() {
-        return Err(AppError::internal(
-            "阿里云 OSS access_key_secret 未配置，请检查 [file.aliyun_oss].access_key_secret",
-        ));
-    }
-
-    if settings.region.trim().is_empty() {
-        return Err(AppError::internal(
-            "阿里云 OSS region 未配置，请检查 [file.aliyun_oss].region",
-        ));
-    }
-
-    if settings.url.trim().is_empty() {
-        return Err(AppError::internal(
-            "文件访问地址未配置，请检查 [file].public_base_url",
-        ));
-    }
-
-    Ok(())
-}
-
-/// 构建 OSS 直连地址
-fn build_endpoint_url(settings: &AliyunOssFileStorageSettings) -> String {
-    let internal_segment = if settings.use_internal_endpoint {
-        "-internal"
-    } else {
-        ""
-    };
-
-    format!(
-        "https://{}.oss-{}{}.aliyuncs.com",
-        settings.bucket_name.trim(),
-        settings.region.trim(),
-        internal_segment
-    )
-}
-
-/// 生成签名
-fn sign(secret: &str, string_to_sign: &str) -> Result<String, AppError> {
-    let mut mac = HmacSha1::new_from_slice(secret.as_bytes())
-        .map_err(|error| AppError::internal(format!("阿里云 OSS 签名初始化失败: {error}")))?;
-    mac.update(string_to_sign.as_bytes());
-    Ok(STANDARD.encode(mac.finalize().into_bytes()))
-}
-
-/// 构建 HeaderValue
-fn header_value(value: &str) -> Result<HeaderValue, AppError> {
-    HeaderValue::from_str(value)
-        .map_err(|error| AppError::internal(format!("构建请求头失败: {error}")))
-}
-
-/// 编码对象路径
-fn encode_object_key(object_key: &str) -> String {
-    let mut output = String::with_capacity(object_key.len());
-
-    for (index, segment) in object_key.split('/').enumerate() {
-        if index > 0 {
-            output.push('/');
-        }
-
-        for byte in segment.as_bytes() {
-            let ch = *byte as char;
-            if ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | '.' | '~') {
-                output.push(ch);
-            } else {
-                let _ = write!(output, "%{byte:02X}");
+    /// 下载至指定文件；父目录由调用方负责提供。
+    async fn file_download(&self, remote_path: &str, local_path: &str) -> Result<bool, AppError> {
+        for attempt in 1..=DOWNLOAD_ATTEMPTS {
+            let response = self
+                .execute_request(Method::GET, remote_path, BTreeMap::new(), None)
+                .await?;
+            match download::write_response(response, local_path).await {
+                Ok(result) => return Ok(result),
+                Err(error) if attempt == DOWNLOAD_ATTEMPTS => return Err(error),
+                // SDK 的文件拷贝层立即重新下载，不拼接残片或沿用失败的摘要。
+                Err(_) => {}
             }
         }
+        unreachable!("下载次数固定大于零，末次失败直接返回")
     }
 
+    /// 保留源组件对删除响应 200 的判断，不把 204 改为 true。
+    async fn file_delete(&self, remote_path: &str) -> Result<bool, AppError> {
+        let response = self
+            .execute_request(Method::DELETE, remote_path, BTreeMap::new(), None)
+            .await?;
+        Ok(response.status == StatusCode::OK)
+    }
+
+    /// 生成 OSS V4 临时地址，再按源组件替换为配置中的访问前缀。
+    fn get_file_url(
+        &self,
+        remote_path: &str,
+        expiry: TimeDelta,
+        is_inline: bool,
+    ) -> Result<Option<String>, AppError> {
+        let expiration = time_span_ticks(expiry)
+            .and_then(|ticks| utc_now().checked_add_signed(time_span_from_ticks(ticks)))
+            .filter(|value| (1..=9999).contains(&value.year()))
+            .ok_or_else(|| AppError::internal("阿里云 OSS 签名过期时间超出范围"))?;
+        self.validate_operation(remote_path)?;
+        let clock_offset = self.clock_offset.load(Ordering::Relaxed);
+        let now = signing_time(clock_offset)?;
+        let scope = format!(
+            "{}/{}/oss/aliyun_v4_request",
+            now.format("%Y%m%d"),
+            self.settings.region
+        );
+        let mut parameters = BTreeMap::from([
+            ("x-oss-signature-version", "OSS4-HMAC-SHA256".to_owned()),
+            ("x-oss-date", now.format("%Y%m%dT%H%M%SZ").to_string()),
+            (
+                "x-oss-expires",
+                (expiration - now).num_seconds().to_string(),
+            ),
+            (
+                "x-oss-credential",
+                format!("{}/{scope}", self.settings.access_key_id),
+            ),
+        ]);
+        if is_inline {
+            parameters.insert("response-content-disposition", "inline".to_owned());
+        }
+        let query = parameters
+            .iter()
+            .map(|(name, value)| format!("{}={}", encode(name), encode(value)))
+            .collect::<Vec<_>>()
+            .join("&");
+        let canonical = format!(
+            "GET\n{}\n{query}\n\n\n{UNSIGNED_PAYLOAD}",
+            self.canonical_uri(remote_path)
+        );
+        let (_, signature) = self.signature(now, &canonical)?;
+        if expiration - utc_now() > chrono::TimeDelta::days(7) {
+            return Err(AppError::internal("阿里云 OSS 临时地址有效期不能超过七天"));
+        }
+        let url = reqwest::Url::parse(&format!(
+            "{}/{}?{query}&x-oss-signature={signature}",
+            self.endpoint_url,
+            encode_path(remote_path)
+        ))
+        .map_err(|_| AppError::internal("阿里云 OSS 临时地址无效"))?;
+        Ok(Some(format!(
+            "{}{}?{}",
+            self.settings.url,
+            url.path()
+                .strip_prefix('/')
+                .ok_or_else(|| AppError::internal("阿里云 OSS 临时地址路径无效"))?,
+            url.query()
+                .ok_or_else(|| AppError::internal("阿里云 OSS 临时地址缺少签名"))?
+        )))
+    }
+}
+
+/// 源 SDK 的名称规则为小写 ASCII 字母、数字和连字符。
+fn valid_endpoint_name(value: &str) -> bool {
+    !value.is_empty()
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-')
+}
+
+/// DateTime 使用 100ns 精度，签名时刻与过期时刻分别读取。
+fn utc_now() -> DateTime<Utc> {
+    let now = Utc::now();
+    now.with_nanosecond(now.nanosecond() / 100 * 100)
+        .expect("截断后的纳秒仍在有效范围")
+}
+
+fn signing_time(offset: i64) -> Result<DateTime<Utc>, AppError> {
+    chrono::TimeDelta::try_seconds(offset)
+        .and_then(|offset| utc_now().checked_add_signed(offset))
+        .filter(|value| (1..=9999).contains(&value.year()))
+        .ok_or_else(|| AppError::internal("阿里云 OSS 签名时刻超出范围"))
+}
+
+/// 百分号编码对象键，保留路径分隔符。
+fn encode_path(value: &str) -> String {
+    value.split('/').map(encode).collect::<Vec<_>>().join("/")
+}
+
+/// UTF-8 RFC 3986 编码。
+fn encode(value: &str) -> String {
+    let mut output = String::new();
+    for byte in value.as_bytes() {
+        if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.' | b'~') {
+            output.push(*byte as char);
+        } else {
+            let _ = write!(output, "%{byte:02X}");
+        }
+    }
     output
+}
+
+/// HMAC SHA256 原始摘要，用于逐级派生密钥。
+fn hmac_sha256(key: &[u8], value: &str) -> Result<Vec<u8>, AppError> {
+    let mut mac =
+        HmacSha256::new_from_slice(key).map_err(|_| AppError::internal("OSS 签名器初始化失败"))?;
+    mac.update(value.as_bytes());
+    Ok(mac.finalize().into_bytes().to_vec())
+}
+
+/// 小写十六进制编码。
+fn hex(value: &[u8]) -> String {
+    value.iter().map(|byte| format!("{byte:02x}")).collect()
 }

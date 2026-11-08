@@ -1,11 +1,9 @@
-use crate::{
-    features::protect_method_router,
-    handlers::ueditor::{MAX_UEDITOR_UPLOAD_BODY_BYTES, process_request},
-    state::AppState,
-};
-use axum::{Router, extract::DefaultBodyLimit};
+use crate::{handlers::ueditor::process_request, state::AppState};
+use axum::extract::DefaultBodyLimit;
 use std::sync::Arc;
 use utoipa::openapi::OpenApi as OpenApiDocument;
+use webapi_core::builder::protect_method_router;
+use webapi_core::routes::WebApiRoutes as Router;
 
 use super::{WebApiFeature, WebApiRoutePermission};
 
@@ -20,37 +18,19 @@ impl WebApiFeature for UEditorFeature {
         router: Router<Arc<AppState>>,
         app_state: Arc<AppState>,
     ) -> Router<Arc<AppState>> {
-        // 兼容历史前端对首段路径使用小写 ueditor 的调用方式
         let permission_module = app_state.settings.permission_module.clone();
-        let max_upload_bytes = app_state
-            .settings
-            .file
-            .max_upload_bytes
-            .max(MAX_UEDITOR_UPLOAD_BODY_BYTES);
 
-        router
-            .route(
+        router.route(
+            "/Ueditor/ProcessRequest",
+            protect_method_router(
+                webapi_core::routes::get(process_request).post(process_request),
+                app_state,
+                permission_module,
                 "/Ueditor/ProcessRequest",
-                protect_method_router(
-                    axum::routing::get(process_request).post(process_request),
-                    app_state.clone(),
-                    permission_module.clone(),
-                    "/Ueditor/ProcessRequest",
-                    false,
-                )
-                .layer(DefaultBodyLimit::max(max_upload_bytes)),
+                false,
             )
-            .route(
-                "/ueditor/ProcessRequest",
-                protect_method_router(
-                    axum::routing::get(process_request).post(process_request),
-                    app_state,
-                    permission_module,
-                    "/Ueditor/ProcessRequest",
-                    false,
-                )
-                .layer(DefaultBodyLimit::max(max_upload_bytes)),
-            )
+            .map(|route| route.layer(DefaultBodyLimit::disable())),
+        )
     }
 
     /// 当前特性暂不提供独立 OpenAPI 子文档
@@ -62,7 +42,7 @@ impl WebApiFeature for UEditorFeature {
     fn permission_routes(&self) -> Vec<WebApiRoutePermission> {
         vec![WebApiRoutePermission {
             route: "/Ueditor/ProcessRequest",
-            remark: "处理 UEditor 请求",
+            remark: "处理 UEditor 配置、上传和远程图片抓取请求",
         }]
     }
 }

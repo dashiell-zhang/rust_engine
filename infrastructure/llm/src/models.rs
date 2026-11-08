@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
-use serde_json::{Map, Value};
+
+/// 额外参数保留 JSON 子节点；不要在协议装配时折叠其中的重复属性。
+pub type ExtraBody = indexmap::IndexMap<String, Box<serde_json::value::RawValue>>;
 
 /// 对话消息角色
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -63,14 +65,11 @@ pub struct ChatRequest {
     /// 消息列表，按时间顺序排列
     pub messages: Vec<ChatMessage>,
 
-    /// 随机性控制（通常 0~2）
-    pub temperature: Option<f64>,
-
-    /// 最大生成 token 数
-    pub max_tokens: Option<i32>,
+    /// 终端用户标识；由调用方决定是否提供。
+    pub user: Option<String>,
 
     /// 额外请求参数
-    pub extra_body: Option<Map<String, Value>>,
+    pub extra_body: Option<ExtraBody>,
 }
 
 impl ChatRequest {
@@ -79,26 +78,19 @@ impl ChatRequest {
         Self {
             model: model.into(),
             messages,
-            temperature: None,
-            max_tokens: None,
+            user: None,
             extra_body: None,
         }
     }
 
-    /// 设置 temperature
-    pub fn with_temperature(mut self, temperature: f64) -> Self {
-        self.temperature = Some(temperature);
-        self
-    }
-
-    /// 设置最大 token 数
-    pub fn with_max_tokens(mut self, max_tokens: i32) -> Self {
-        self.max_tokens = Some(max_tokens);
+    /// 设置终端用户标识。
+    pub fn with_user(mut self, user: impl Into<String>) -> Self {
+        self.user = Some(user.into());
         self
     }
 
     /// 设置额外请求参数
-    pub fn with_extra_body(mut self, extra_body: Map<String, Value>) -> Self {
+    pub fn with_extra_body(mut self, extra_body: ExtraBody) -> Self {
         self.extra_body = Some(extra_body);
         self
     }

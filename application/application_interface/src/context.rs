@@ -59,7 +59,7 @@ pub struct PayContext<'a> {
     pub current_user: Option<CurrentUser>,
 
     /// 缓存
-    pub cache: Option<&'a dyn DistributedCache>,
+    pub cache: &'a dyn DistributedCache,
 
     /// 分布式锁
     pub distributed_lock: &'a dyn DistributedLock,
@@ -79,14 +79,7 @@ impl<'a> PayContext<'a> {
     }
 }
 
-/// 应用层当前用户上下文
-#[derive(Clone, Copy)]
-pub struct CurrentUser {
-    /// 当前用户 ID
-    pub user_id: i64,
-    /// 当前 Token ID
-    pub token_id: Option<i64>,
-}
+pub use application_model::shared::current_user::CurrentUser;
 
 /// 应用层授权上下文
 #[derive(Clone, Copy)]
@@ -107,16 +100,8 @@ pub struct AuthorizeContext<'a> {
     pub expiry_seconds: i64,
     /// JWT 编解码器
     pub jwt_codec: &'a EcJwtCodec,
-    /// 验证码缓存秒数
-    pub sms_verify_code_ttl_seconds: u64,
-    /// 验证码重发限制秒数
-    pub sms_verify_resend_interval_seconds: u64,
-    /// 短信队列任务名称
-    pub sms_queue_task_name: &'a str,
-    /// 短信签名
-    pub sms_sign_name: &'a str,
-    /// 短信模板编号
-    pub sms_template_code: &'a str,
+    /// RSA 配置中的公钥；外层 None 表示配置段不存在，内层 None 表示未配置公钥。
+    pub rsa_public_key: Option<Option<&'a str>>,
 }
 
 /// 角色模块上下文
@@ -158,15 +143,8 @@ pub struct MessageContext<'a> {
     /// 通用上下文
     pub app: AppContext<'a>,
 
-    /// 文件根目录
-    pub root_path: &'a str,
-
-    /// 附件附加根目录列表
-    /// TaskService 可配置多个宿主的本地存储根目录用于回溯附件
-    pub attachment_root_paths: Option<&'a Vec<String>>,
-
-    /// 邮件队列任务名称
-    pub email_queue_task_name: Option<&'a str>,
+    /// 宿主启动时的内容目录，不使用文件提供商的存储根目录
+    pub root_path: &'a std::path::Path,
 
     /// 文件存储（可选，仅在需要发送附件时传入）
     pub file_storage: Option<&'a dyn AppFileStorage>,

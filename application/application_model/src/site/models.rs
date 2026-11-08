@@ -55,34 +55,76 @@ pub struct ServerInfoDto {
 /// 字段全部使用可选值以支持局部更新
 #[derive(Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
+#[derive(common::json_helper::input::JsonModel)]
+#[json(type_name = "Application.Model.Site.Site.SiteDto")]
 pub struct EditSiteDto {
     /// 站点地址
+    #[serde(
+        default,
+        deserialize_with = "common::json_helper::deserialize_optional_json_scalar"
+    )]
     pub web_url: Option<String>,
 
     /// 管理员名称
+    #[serde(
+        default,
+        deserialize_with = "common::json_helper::deserialize_optional_json_scalar"
+    )]
     pub manager_name: Option<String>,
 
     /// 管理员地址
+    #[serde(
+        default,
+        deserialize_with = "common::json_helper::deserialize_optional_json_scalar"
+    )]
     pub manager_address: Option<String>,
 
     /// 管理员电话
+    #[serde(
+        default,
+        deserialize_with = "common::json_helper::deserialize_optional_json_scalar"
+    )]
     pub manager_phone: Option<String>,
 
     /// 管理员邮箱
+    #[serde(
+        default,
+        deserialize_with = "common::json_helper::deserialize_optional_json_scalar"
+    )]
     pub manager_email: Option<String>,
 
     /// 备案号
+    #[serde(
+        default,
+        deserialize_with = "common::json_helper::deserialize_optional_json_scalar"
+    )]
     pub record_number: Option<String>,
 
     /// SEO 标题
+    #[serde(
+        default,
+        deserialize_with = "common::json_helper::deserialize_optional_json_scalar"
+    )]
     pub seo_title: Option<String>,
 
     /// SEO 关键字
+    #[serde(
+        default,
+        deserialize_with = "common::json_helper::deserialize_optional_json_scalar"
+    )]
     pub seo_keywords: Option<String>,
 
     /// SEO 描述
+    #[serde(
+        default,
+        deserialize_with = "common::json_helper::deserialize_optional_json_scalar"
+    )]
     pub seo_description: Option<String>,
 
     /// 页脚代码
+    #[serde(
+        default,
+        deserialize_with = "common::json_helper::deserialize_optional_json_scalar"
+    )]
     pub foot_code: Option<String>,
 }

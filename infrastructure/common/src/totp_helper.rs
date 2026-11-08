@@ -3,7 +3,8 @@ use sha1::Sha1;
 use sha2::{Sha256, Sha512};
 
 /// 支持的哈希算法类型
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, crate::data_helper::DataEnum)]
+#[repr(i32)]
 pub enum Algo {
     /// SHA1
     Sha1,
@@ -22,7 +23,7 @@ pub const DEFAULT_SECRET_BYTES: usize = 20;
 pub const DEFAULT_DIGITS: u32 = 6;
 
 /// 默认时间步长
-pub const DEFAULT_PERIOD: u64 = 30;
+pub const DEFAULT_PERIOD: i32 = 30;
 
 /// 生成随机 Base32 编码密钥
 pub fn generate_base32_secret(secret_bytes: usize) -> Result<String, String> {
@@ -41,11 +42,11 @@ pub fn build_otpauth_url(
     account_name: &str,
     base32_secret: &str,
     digits: u32,
-    period: u64,
+    period: i32,
     algo: Algo,
 ) -> Result<String, String> {
     validate_digits(digits)?;
-    if period == 0 {
+    if period <= 0 {
         return Err("时间步长必须大于 0".to_string());
     }
 
@@ -64,21 +65,21 @@ pub fn build_otpauth_url(
     ))
 }
 
-/// 生成当前 TOTP 验证码
+/// 生成指定 Unix 秒数对应的 TOTP 验证码，支持 Unix 纪元之前的时间。
 pub fn generate_code(
     base32_secret: &str,
-    unix_seconds: u64,
+    unix_seconds: i64,
     digits: u32,
-    period: u64,
+    period: i32,
     algo: Algo,
 ) -> Result<String, String> {
     validate_digits(digits)?;
-    if period == 0 {
+    if period <= 0 {
         return Err("时间步长必须大于 0".to_string());
     }
 
     let key = decode_secret(base32_secret)?;
-    let counter = unix_seconds / period;
+    let counter = unix_seconds / i64::from(period);
     compute_hotp(&key, counter, digits, algo)
 }
 
@@ -86,21 +87,18 @@ pub fn generate_code(
 pub fn verify_code(
     base32_secret: &str,
     code: &str,
-    unix_seconds: u64,
-    allowed_drift: i64,
+    unix_seconds: i64,
+    allowed_drift: i32,
     digits: u32,
-    period: u64,
+    period: i32,
     algo: Algo,
 ) -> Result<bool, String> {
     validate_digits(digits)?;
-    if period == 0 {
+    if period <= 0 {
         return Err("时间步长必须大于 0".to_string());
     }
     if allowed_drift < 0 {
         return Err("允许漂移窗口不能小于 0".to_string());
-    }
-    if allowed_drift > 10 {
-        return Err("允许漂移窗口不能大于 10".to_string());
     }
 
     if code.len() != digits as usize || !code.chars().all(|item| item.is_ascii_digit()) {
@@ -108,15 +106,12 @@ pub fn verify_code(
     }
 
     let key = decode_secret(base32_secret)?;
-    let center = (unix_seconds / period) as i64;
+    let center = unix_seconds / i64::from(period);
+    let allowed_drift = i64::from(allowed_drift);
 
     for drift in -allowed_drift..=allowed_drift {
-        let counter = center + drift;
-        if counter < 0 {
-            continue;
-        }
-
-        let candidate = compute_hotp(&key, counter as u64, digits, algo)?;
+        // 与源实现的 unchecked(long) 一致，保留负计数器的二进制补码。
+        let candidate = compute_hotp(&key, center.wrapping_add(drift), digits, algo)?;
         if fixed_time_equals(&candidate, code) {
             return Ok(true);
         }
@@ -126,7 +121,7 @@ pub fn verify_code(
 }
 
 /// 计算 HOTP
-fn compute_hotp(key: &[u8], counter: u64, digits: u32, algo: Algo) -> Result<String, String> {
+fn compute_hotp(key: &[u8], counter: i64, digits: u32, algo: Algo) -> Result<String, String> {
     let counter_bytes = counter.to_be_bytes();
     let mac = match algo {
         Algo::Sha1 => {

@@ -1,0 +1,38 @@
+[
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON TABLE \"Log\" IS E'日志实体'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"Log\".\"Id\" IS E'日志主键'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"Log\".\"Project\" IS E'项目标识'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"Log\".\"MachineName\" IS E'机器名称'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"Log\".\"Level\" IS E'日志级别'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"Log\".\"Category\" IS E'日志分类'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"Log\".\"Content\" IS E'日志内容'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"Log\".\"CreateTime\" IS E'创建时间'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"Log\".\"DeleteTime\" IS E'删除时间'"
+  }
+]

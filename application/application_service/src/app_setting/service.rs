@@ -2,9 +2,10 @@ use chrono::Utc;
 use distributed_lock::LockError;
 use repository::app_setting;
 use repository::extensions::SoftDeleteQueryExt;
+use repository_core::versioned::VersionedActiveModel;
 use sea_orm::{
-    ActiveModelTrait, ActiveValue::Set, ColumnTrait, EntityTrait, IntoActiveModel, QueryFilter,
-    QueryOrder, QuerySelect,
+    ActiveValue::Set, ColumnTrait, EntityTrait, IntoActiveModel, QueryFilter, QueryOrder,
+    QuerySelect,
 };
 use serde_json::json;
 use std::collections::HashMap;
@@ -82,23 +83,7 @@ impl<'a> AppSettingService<'a> {
 
     /// 获取指定字典分组下的键值对列表
     pub async fn get_value_list(&self, group_id: i64) -> Result<HashMap<String, String>, AppError> {
-        // 字典数据统一存放在 Dictionary 模块下 由 group_id 区分不同字典组
-        let list = app_setting::Entity::find()
-            .filter(app_setting::Column::Module.eq("Dictionary"))
-            .filter(app_setting::Column::GroupId.eq(group_id))
-            .not_deleted(app_setting::Column::DeleteTime)
-            .order_by_asc(app_setting::Column::Key)
-            .all(self.context.app.db)
-            .await
-            .map_err(to_app_error)?;
-
-        // 直接转换为键值对字典 供前端下拉选项等场景直接消费
-        let mut result = HashMap::with_capacity(list.len());
-        for item in list {
-            result.insert(item.key, item.value);
-        }
-
-        Ok(result)
+        read_value_list(self.context.app.db, group_id).await
     }
 
     /// 写入配置项，存在则更新值，不存在则创建
@@ -159,7 +144,7 @@ impl<'a> AppSettingService<'a> {
                     active.group_id = Set(Some(group_id));
                 }
                 let updated = active
-                    .update(&tx)
+                    .update_versioned(&tx)
                     .await
                     .map_err(|error| AppError::internal(format!("更新配置项失败: {error}")))?;
 
@@ -201,6 +186,7 @@ impl<'a> AppSettingService<'a> {
                 });
 
                 app_setting::ActiveModel {
+                    row_version: Default::default(),
                     id: Set(setting_id),
                     module: Set(module),
                     group_id: Set(group_id),
@@ -209,7 +195,7 @@ impl<'a> AppSettingService<'a> {
                     create_time: Set(Utc::now().into()),
                     delete_time: Set(None),
                 }
-                .insert(&tx)
+                .insert_versioned(&tx)
                 .await
                 .map_err(|error| AppError::internal(format!("创建配置项失败: {error}")))?;
 
@@ -272,7 +258,7 @@ impl<'a> AppSettingService<'a> {
         let mut active = model.into_active_model();
         active.delete_time = Set(Some(Utc::now().into()));
         active
-            .update(&tx)
+            .update_versioned(&tx)
             .await
             .map_err(|error| AppError::internal(format!("删除配置项失败: {error}")))?;
 
@@ -335,4 +321,30 @@ fn build_app_setting_dto(model: app_setting::Model) -> AppSettingDto {
 /// 转换数据库异常
 fn to_app_error(error: sea_orm::DbErr) -> AppError {
     AppError::internal(error.to_string())
+}
+
+/// 基础查询与配置服务共用字典读取，禁止静默覆盖重复键。
+pub(crate) async fn read_value_list<C: sea_orm::ConnectionTrait>(
+    db: &C,
+    group_id: i64,
+) -> Result<HashMap<String, String>, AppError> {
+    // 字典数据统一存放在 Dictionary 模块下 由 group_id 区分不同字典组
+    let list = app_setting::Entity::find()
+        .filter(app_setting::Column::Module.eq("Dictionary"))
+        .filter(app_setting::Column::GroupId.eq(group_id))
+        .not_deleted(app_setting::Column::DeleteTime)
+        .order_by_asc(app_setting::Column::Key)
+        .all(db)
+        .await
+        .map_err(to_app_error)?;
+
+    // 直接转换为键值对字典 供前端下拉选项等场景直接消费
+    let mut result = HashMap::with_capacity(list.len());
+    for item in list {
+        if result.insert(item.key, item.value).is_some() {
+            return Err(AppError::internal("字典分组包含重复的键"));
+        }
+    }
+
+    Ok(result)
 }

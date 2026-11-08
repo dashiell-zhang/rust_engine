@@ -1,0 +1,38 @@
+[
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON TABLE \"Log\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"Log\".\"Id\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"Log\".\"Project\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"Log\".\"MachineName\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"Log\".\"Level\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"Log\".\"Category\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"Log\".\"Content\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"Log\".\"CreateTime\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"Log\".\"DeleteTime\" IS NULL"
+  }
+]

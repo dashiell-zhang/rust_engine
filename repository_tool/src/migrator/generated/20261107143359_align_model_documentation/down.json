@@ -1,0 +1,1126 @@
+[
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON TABLE \"AppSetting\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"AppSetting\".\"Id\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"AppSetting\".\"Module\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"AppSetting\".\"GroupId\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"AppSetting\".\"Key\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"AppSetting\".\"Value\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"AppSetting\".\"CreateTime\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"AppSetting\".\"DeleteTime\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON TABLE \"Article\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"Article\".\"Id\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"Article\".\"CategoryId\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"Article\".\"Title\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"Article\".\"Content\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"Article\".\"IsRecommend\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"Article\".\"IsDisplay\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"Article\".\"Sort\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"Article\".\"ClickCount\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"Article\".\"Digest\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"Article\".\"CreateTime\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"Article\".\"DeleteTime\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"Article\".\"CreateUserId\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"Article\".\"DeleteUserId\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON TABLE \"Category\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"Category\".\"Id\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"Category\".\"Name\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"Category\".\"Sort\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"Category\".\"ParentId\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"Category\".\"Remark\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"Category\".\"CreateTime\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"Category\".\"DeleteTime\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"Category\".\"CreateUserId\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"Category\".\"DeleteUserId\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON TABLE \"DataUpdateLog\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"DataUpdateLog\".\"Id\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"DataUpdateLog\".\"Table\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"DataUpdateLog\".\"TableId\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"DataUpdateLog\".\"Content\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"DataUpdateLog\".\"ActionUserId\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"DataUpdateLog\".\"IpAddress\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"DataUpdateLog\".\"DeviceMark\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"DataUpdateLog\".\"CreateTime\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"DataUpdateLog\".\"DeleteTime\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON TABLE \"Function\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"Function\".\"Id\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"Function\".\"Name\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"Function\".\"Sign\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"Function\".\"Remark\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"Function\".\"ParentId\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"Function\".\"Type\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"Function\".\"CreateTime\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"Function\".\"DeleteTime\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON TABLE \"FunctionAuthorize\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"FunctionAuthorize\".\"Id\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"FunctionAuthorize\".\"FunctionId\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"FunctionAuthorize\".\"RoleId\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"FunctionAuthorize\".\"UserId\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"FunctionAuthorize\".\"CreateTime\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"FunctionAuthorize\".\"DeleteTime\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"FunctionAuthorize\".\"UpdateTime\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"FunctionAuthorize\".\"CreateUserId\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"FunctionAuthorize\".\"UpdateUserId\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"FunctionAuthorize\".\"DeleteUserId\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON TABLE \"FunctionRoute\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"FunctionRoute\".\"Id\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"FunctionRoute\".\"FunctionId\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"FunctionRoute\".\"Module\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"FunctionRoute\".\"Route\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"FunctionRoute\".\"Remark\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"FunctionRoute\".\"CreateTime\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"FunctionRoute\".\"DeleteTime\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON TABLE \"Link\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"Link\".\"Id\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"Link\".\"Name\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"Link\".\"Url\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"Link\".\"Sort\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"Link\".\"Remark\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"Link\".\"CreateTime\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"Link\".\"DeleteTime\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"Link\".\"CreateUserId\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"Link\".\"DeleteUserId\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON TABLE \"LlmApp\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"LlmApp\".\"Id\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"LlmApp\".\"Code\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"LlmApp\".\"Name\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"LlmApp\".\"LlmModelId\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"LlmApp\".\"SystemPromptTemplate\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"LlmApp\".\"PromptTemplate\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"LlmApp\".\"ExtraBodyJson\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"LlmApp\".\"IsEnable\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"LlmApp\".\"Remark\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"LlmApp\".\"CreateTime\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"LlmApp\".\"DeleteTime\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"LlmApp\".\"UpdateTime\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"LlmApp\".\"CreateUserId\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"LlmApp\".\"UpdateUserId\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"LlmApp\".\"DeleteUserId\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON TABLE \"LlmConversation\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"LlmConversation\".\"Id\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"LlmConversation\".\"LlmAppId\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"LlmConversation\".\"SystemContent\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"LlmConversation\".\"UserContent\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"LlmConversation\".\"AssistantContent\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"LlmConversation\".\"CreateUserId\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"LlmConversation\".\"DeleteUserId\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"LlmConversation\".\"CreateTime\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"LlmConversation\".\"DeleteTime\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON TABLE \"LlmModel\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"LlmModel\".\"Id\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"LlmModel\".\"Name\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"LlmModel\".\"ModelId\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"LlmModel\".\"Endpoint\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"LlmModel\".\"ApiKey\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"LlmModel\".\"ProtocolType\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"LlmModel\".\"IsEnable\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"LlmModel\".\"Remark\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"LlmModel\".\"CreateTime\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"LlmModel\".\"DeleteTime\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"LlmModel\".\"UpdateTime\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"LlmModel\".\"CreateUserId\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"LlmModel\".\"UpdateUserId\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"LlmModel\".\"DeleteUserId\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON TABLE \"Order\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"Order\".\"Id\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"Order\".\"OrderNo\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"Order\".\"Type\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"Order\".\"Price\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"Order\".\"SerialNo\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"Order\".\"State\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"Order\".\"PayType\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"Order\".\"PayState\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"Order\".\"PayTime\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"Order\".\"PayPrice\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"Order\".\"CreateTime\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"Order\".\"DeleteTime\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"Order\".\"UpdateTime\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"Order\".\"CreateUserId\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"Order\".\"UpdateUserId\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"Order\".\"DeleteUserId\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON TABLE \"OrderDetail\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"OrderDetail\".\"Id\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"OrderDetail\".\"OrderId\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"OrderDetail\".\"ProductId\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"OrderDetail\".\"Number\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"OrderDetail\".\"CreateTime\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"OrderDetail\".\"DeleteTime\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON TABLE \"Product\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"Product\".\"Id\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"Product\".\"SKU\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"Product\".\"Name\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"Product\".\"Price\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"Product\".\"Detail\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"Product\".\"CreateTime\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"Product\".\"DeleteTime\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"Product\".\"UpdateTime\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"Product\".\"CreateUserId\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"Product\".\"UpdateUserId\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"Product\".\"DeleteUserId\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON TABLE \"QueueTask\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"QueueTask\".\"Id\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"QueueTask\".\"Name\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"QueueTask\".\"Parameter\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"QueueTask\".\"Status\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"QueueTask\".\"Count\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"QueueTask\".\"FirstTime\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"QueueTask\".\"LastTime\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"QueueTask\".\"SuccessTime\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"QueueTask\".\"CreateTime\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"QueueTask\".\"DeleteTime\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"QueueTask\".\"PlanTime\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"QueueTask\".\"WorkerId\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"QueueTask\".\"LeaseExpireTime\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"QueueTask\".\"CallbackName\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"QueueTask\".\"CallbackParameter\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"QueueTask\".\"ChildSuccessTime\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"QueueTask\".\"ParentTaskId\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON TABLE \"RegionArea\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"RegionArea\".\"Id\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"RegionArea\".\"Area\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"RegionArea\".\"CityId\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"RegionArea\".\"CreateTime\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"RegionArea\".\"DeleteTime\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON TABLE \"RegionCity\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"RegionCity\".\"Id\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"RegionCity\".\"City\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"RegionCity\".\"ProvinceId\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"RegionCity\".\"CreateTime\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"RegionCity\".\"DeleteTime\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON TABLE \"RegionProvince\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"RegionProvince\".\"Id\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"RegionProvince\".\"Province\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"RegionProvince\".\"CreateTime\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"RegionProvince\".\"DeleteTime\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON TABLE \"RegionTown\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"RegionTown\".\"Id\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"RegionTown\".\"Town\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"RegionTown\".\"AreaId\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"RegionTown\".\"CreateTime\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"RegionTown\".\"DeleteTime\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON TABLE \"Role\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"Role\".\"Id\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"Role\".\"Name\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"Role\".\"Remark\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"Role\".\"CreateTime\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"Role\".\"DeleteTime\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"Role\".\"Code\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON TABLE \"StoredFile\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"StoredFile\".\"Id\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"StoredFile\".\"Name\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"StoredFile\".\"Path\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"StoredFile\".\"Table\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"StoredFile\".\"TableId\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"StoredFile\".\"Sign\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"StoredFile\".\"Sort\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"StoredFile\".\"CreateTime\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"StoredFile\".\"DeleteTime\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"StoredFile\".\"CreateUserId\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"StoredFile\".\"DeleteUserId\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"StoredFile\".\"Length\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"StoredFile\".\"IsPublicRead\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON TABLE \"TaskSetting\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"TaskSetting\".\"Id\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"TaskSetting\".\"Name\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"TaskSetting\".\"Category\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"TaskSetting\".\"Semaphore\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"TaskSetting\".\"Cron\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"TaskSetting\".\"Remark\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"TaskSetting\".\"CreateTime\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"TaskSetting\".\"DeleteTime\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"TaskSetting\".\"UpdateTime\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"TaskSetting\".\"CreateUserId\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"TaskSetting\".\"UpdateUserId\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"TaskSetting\".\"DeleteUserId\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"TaskSetting\".\"IsEnable\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"TaskSetting\".\"Parameter\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON TABLE \"User\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"User\".\"Id\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"User\".\"UserName\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"User\".\"Name\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"User\".\"Phone\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"User\".\"Email\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"User\".\"Password\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"User\".\"CreateTime\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"User\".\"DeleteTime\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"User\".\"UpdateTime\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"User\".\"CreateUserId\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"User\".\"UpdateUserId\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"User\".\"DeleteUserId\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON TABLE \"UserBindExternal\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"UserBindExternal\".\"Id\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"UserBindExternal\".\"UserId\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"UserBindExternal\".\"AppName\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"UserBindExternal\".\"AppId\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"UserBindExternal\".\"OpenId\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"UserBindExternal\".\"CreateTime\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"UserBindExternal\".\"DeleteTime\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON TABLE \"UserInfo\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"UserInfo\".\"Id\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"UserInfo\".\"UserId\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"UserInfo\".\"RegionAreaId\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"UserInfo\".\"Address\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"UserInfo\".\"Sex\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"UserInfo\".\"UpdateUserId\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"UserInfo\".\"CreateTime\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"UserInfo\".\"DeleteTime\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"UserInfo\".\"UpdateTime\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON TABLE \"UserRole\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"UserRole\".\"Id\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"UserRole\".\"RoleId\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"UserRole\".\"UserId\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"UserRole\".\"CreateTime\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"UserRole\".\"DeleteTime\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"UserRole\".\"UpdateTime\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"UserRole\".\"CreateUserId\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"UserRole\".\"UpdateUserId\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"UserRole\".\"DeleteUserId\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON TABLE \"UserToken\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"UserToken\".\"Id\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"UserToken\".\"UserId\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"UserToken\".\"LastId\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"UserToken\".\"CreateTime\" IS NULL"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"UserToken\".\"DeleteTime\" IS NULL"
+  }
+]

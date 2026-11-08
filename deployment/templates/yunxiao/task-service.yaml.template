@@ -1,0 +1,72 @@
+sources:
+  repo_0:
+    type: codeup
+    name: {{YunXiao.Codeup.Name}}
+    endpoint: {{YunXiao.Codeup.Endpoint}}
+    branch: {{YunXiao.Codeup.Branch}}
+    certificate:
+      type: serviceConnection
+      serviceConnection: {{YunXiao.Codeup.ServiceConnection}}
+defaultWorkspace: repo_0
+stages:
+  stage_0:
+    name: 构建
+    jobs:
+      job_0:
+        name: 构建 Linux 发布包
+        runsOn:
+          group: public/cn-hangzhou
+          labels: linux,amd64
+          container: rust:latest
+          instanceType: DEFAULT
+        timeoutMinutes: 30
+        steps:
+          step_0:
+            name: 编译并准备配置
+            step: Command
+            with:
+              run: |-
+                set -eu
+                apt-get update
+                apt-get install -y --no-install-recommends pkg-config libssl-dev ca-certificates clang libclang-dev python3 ninja-build libfontconfig1-dev fonts-dejavu-core
+                sh deployment/build-release.sh task_service
+              givenExecShell: sh
+              ifGivenShell: true
+              executeUser: root
+          step_1:
+            name: 上传制品
+            step: ArtifactUpload
+            with:
+              uploadType: flowPublic
+              artifact: app_${PIPELINE_ID}
+              version: ${DATETIME}
+              filePath:
+              - dist/task_service
+              includePathInArtifact: false
+        driven: auto
+        plugins: []
+  stage_1:
+    name: 部署
+    jobs:
+      job_0:
+        name: 部署
+        component: VMDeploy
+        driven: auto
+        with:
+          downloadArtifact: true
+          artifact: $[stages.stage_0.job_0.step_1.artifacts.app_${PIPELINE_ID}]
+          useEncode: false
+          pauseStrategy: firstBatchPause
+          machineGroup: {{YunXiao.MachineGroup}}
+          run: |-
+            set -eu
+            mkdir -p {{DeployRoot}}/taskservice
+            systemctl stop {{ProjectNameLower}}-task-service.service
+            tar -xzf /var/appdata/flow/{{ProjectNameLower}}-task-service.tgz -C {{DeployRoot}}/taskservice/
+            chmod 755 {{DeployRoot}}/taskservice/task_service
+            systemctl start {{ProjectNameLower}}-task-service.service
+            rm /var/appdata/flow/{{ProjectNameLower}}-task-service.tgz
+          artifactDownloadPath: /var/appdata/flow/{{ProjectNameLower}}-task-service.tgz
+          executeUser: root
+          batchNumber: 2
+        plugins: []

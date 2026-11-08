@@ -1,267 +1,218 @@
+use crate::payload::Payload;
 use async_trait::async_trait;
-use futures_util::StreamExt;
-use futures_util::stream::BoxStream;
-use serde::{Deserialize, Serialize};
-use serde_json::{Map, Value};
-
-use crate::LLM_REQUEST_TIMEOUT;
-use crate::client::LlmClient;
-use crate::error::LlmError;
-use crate::models::{
-    ChatChoice, ChatMessage, ChatRequest, ChatResponse, ChatRole, ChatStreamChoiceDelta,
-    ChatStreamChunk, ChatStreamDelta, Usage,
-};
+use futures_util::{StreamExt, stream::BoxStream};
+use serde_json::{Value, json};
+use source_generator_core::ProtocolModel;
 
 use super::settings::OpenAiCompatibleSettings;
+use crate::{LLM_REQUEST_TIMEOUT, LlmClient, LlmError, models::*};
 
-/// 基于 OpenAI 兼容协议的 LLM 客户端
+/// OpenAI Chat Completions 兼容协议客户端。
 pub struct OpenAiCompatibleClient {
-    /// 底层 HTTP 客户端，复用连接池以减少握手开销
     http_client: reqwest::Client,
-
-    /// 协议连接配置，包含端点与密钥
     settings: OpenAiCompatibleSettings,
+    provider_name: String,
 }
 
 impl OpenAiCompatibleClient {
-    /// 创建 OpenAI 兼容客户端
-    ///
-    /// 使用宿主提供的共享 HTTP 客户端创建协议客户端
     pub fn new(http_client: reqwest::Client, settings: OpenAiCompatibleSettings) -> Self {
         Self {
             http_client,
             settings,
+            provider_name: "LLM".into(),
         }
     }
 
-    /// 拼接 chat completions 接口完整地址
-    fn chat_url(&self) -> String {
-        if let Some(endpoint) = &self.settings.endpoint {
-            return endpoint.trim().to_string();
-        }
+    /// 动态模型工厂使用模型标识作为提供商诊断名称。
+    pub fn with_provider_name(mut self, name: impl Into<String>) -> Self {
+        self.provider_name = name.into();
+        self
+    }
 
-        format!(
-            "{}/chat/completions",
-            self.settings.base_url.trim_end_matches('/')
-        )
+    fn chat_url(&self) -> String {
+        self.settings
+            .endpoint
+            .as_ref()
+            .map(|endpoint| endpoint.trim().to_owned())
+            .unwrap_or_else(|| {
+                format!(
+                    "{}/chat/completions",
+                    self.settings.base_url.trim_end_matches('/')
+                )
+            })
+    }
+
+    fn validate(&self, request: &ChatRequest) -> Result<(), LlmError> {
+        let endpoint = self
+            .settings
+            .endpoint
+            .as_deref()
+            .unwrap_or(&self.settings.base_url);
+        if endpoint.trim().is_empty() || self.settings.api_key.trim().is_empty() {
+            return Err(LlmError::InvalidRequest(
+                "LLM endpoint and api key are required".into(),
+            ));
+        }
+        if request.model.trim().is_empty() {
+            return Err(LlmError::InvalidRequest("LLM model is required".into()));
+        }
+        Ok(())
     }
 }
 
 #[async_trait]
 impl LlmClient for OpenAiCompatibleClient {
-    /// 对话（非流式），等待模型完整返回后统一解析响应体
     async fn chat(&self, request: ChatRequest) -> Result<ChatResponse, LlmError> {
-        let body = WireRequestBody::from_request(&request, false);
-
+        self.validate(&request)?;
+        let body = build_payload(&request, false)?;
         let response = self
             .http_client
             .post(self.chat_url())
             .timeout(LLM_REQUEST_TIMEOUT)
             .bearer_auth(&self.settings.api_key)
             .json(&body)
+            .header(reqwest::header::CONTENT_TYPE, crate::JSON_CONTENT_TYPE)
             .send()
             .await?;
-
-        if !response.status().is_success() {
-            let status = response.status().as_u16();
-            let message = response.text().await.unwrap_or_default();
-            return Err(LlmError::ApiError { status, message });
-        }
-
-        let wire: WireResponse = response.json().await?;
-
-        Ok(wire.into_chat_response())
+        let wire: WireResponse = crate::http_response::read_json(
+            response,
+            &format!("{} response is empty.", self.provider_name),
+        )
+        .await?;
+        Ok(ChatResponse {
+            id: wire.id,
+            model: wire.model.unwrap_or_default(),
+            choices: wire
+                .choices
+                .unwrap_or_default()
+                .into_iter()
+                .map(|choice| {
+                    let choice = crate::wire::require_object(choice)?;
+                    let message = choice.message.unwrap_or_default();
+                    Ok(ChatChoice {
+                        index: choice.index,
+                        message: ChatMessage {
+                            role: parse_role(message.role.as_deref()),
+                            content: message.content.unwrap_or_default(),
+                        },
+                        finish_reason: choice.finish_reason,
+                    })
+                })
+                .collect::<Result<_, LlmError>>()?,
+            usage: wire.usage.map(WireUsage::into_usage),
+        })
     }
 
-    /// 对话（流式），逐行解析 SSE 响应并按分片 yield
     fn chat_stream(
         &self,
         request: ChatRequest,
     ) -> BoxStream<'_, Result<ChatStreamChunk, LlmError>> {
         Box::pin(async_stream::try_stream! {
-            let body = WireRequestBody::from_request(&request, true);
-
-            let response = self.http_client
-                .post(self.chat_url())
-                .timeout(LLM_REQUEST_TIMEOUT)
-                .bearer_auth(&self.settings.api_key)
-                .json(&body)
-                .send()
-                .await?;
-
-            if !response.status().is_success() {
-                let status = response.status().as_u16();
-                let message = response.text().await.unwrap_or_default();
-                Err(LlmError::ApiError { status, message })?;
-                return;
-            }
-
-            let mut stream = response.bytes_stream();
-
-            // 用于跨 chunk 拼接不完整行的缓冲区
-            let mut buffer = String::new();
-            let mut completion_emitted = false;
-
-            while let Some(chunk) = stream.next().await {
-                let chunk = chunk.map_err(|e| LlmError::Http(e.to_string()))?;
-                buffer.push_str(&String::from_utf8_lossy(&chunk));
-
-                // 每次尽可能消费缓冲区中的完整行
-                while let Some(pos) = buffer.find('\n') {
-
-                    // 去掉行尾的 \r（兼容 \r\n 行尾）
-                    let line = buffer[..pos].trim_end_matches('\r').to_string();
-                    buffer = buffer[pos + 1..].to_string();
-
-                    // SSE 数据行以 "data: " 开头
-                    let Some(data) = line.strip_prefix("data: ") else { continue };
-                    let data = data.trim();
-
-                    // 流结束标记
-                    if data == "[DONE]" {
-                        if !completion_emitted {
-                            yield ChatStreamChunk {
-                                id: None,
-                                model: request.model.clone(),
-                                choices: vec![ChatStreamChoiceDelta {
-                                    index: 0,
-                                    delta: ChatStreamDelta {
-                                        role: None,
-                                        content: None,
-                                    },
-                                    finish_reason: Some("done".to_string()),
-                                }],
-                                usage: None,
-                            };
-                        }
-                        return;
-                    }
-
-                    if data.is_empty() {
-                        continue;
-                    }
-
-                    let wire: WireStreamChunk = serde_json::from_str(data)
-                        .map_err(|e| LlmError::StreamParse(format!("无法解析 SSE chunk: {e}, 原始数据: {data}")))?;
-
-                    let chunk = wire.into_chat_stream_chunk();
-                    completion_emitted |= chunk
-                        .choices
-                        .iter()
-                        .any(|choice| choice.finish_reason.is_some());
-                    yield chunk;
+            self.validate(&request)?;
+            let body = build_payload(&request, true)?;
+            let response = crate::streaming::send(self.http_client.post(self.chat_url())
+                .bearer_auth(&self.settings.api_key).json(&body)
+                .header(reqwest::header::CONTENT_TYPE, crate::JSON_CONTENT_TYPE)).await?;
+            crate::http_response::ensure_success(&response)?;
+            let mut lines = crate::streaming::lines(response);
+            while let Some(line) = lines.next().await {
+                let line = line?;
+                let Some(data) = line.strip_prefix("data:") else { continue };
+                let data = data.trim();
+                if data.is_empty() { continue; }
+                if data.eq_ignore_ascii_case("[DONE]") { return; }
+                let wire: Option<WireStreamChunk> = crate::wire::from_slice(data.as_bytes())
+                    .map_err(|_| LlmError::StreamParse(format!("{} stream returned invalid JSON.", self.provider_name)))?;
+                let wire = wire.ok_or_else(|| LlmError::StreamParse(format!("{} stream returned an empty JSON payload.", self.provider_name)))?;
+                if let Some(error) = wire.error {
+                    Err(LlmError::StreamParse(error_message(error, &self.provider_name)))?;
                 }
+                yield ChatStreamChunk {
+                    id: wire.id, model: wire.model.unwrap_or_else(|| request.model.clone()),
+                    choices: wire.choices.unwrap_or_default().into_iter().map(|choice| {
+                        let choice = crate::wire::require_object(choice)?;
+                        let delta = choice.delta.unwrap_or_default();
+                        Ok(ChatStreamChoiceDelta { index: choice.index, delta: ChatStreamDelta {
+                            role: delta.role.as_deref().filter(|role| !role.trim().is_empty())
+                                .map(|role| parse_role(Some(role))), content: delta.content,
+                        }, finish_reason: choice.finish_reason })
+                    }).collect::<Result<_, LlmError>>()?,
+                    usage: wire.usage.map(WireUsage::into_usage),
+                };
             }
         })
     }
 }
 
-// ===== 内部 Wire Format 类型 =====
-// 以下类型仅用于与 OpenAI 兼容接口的 JSON 序列化/反序列化，不对外暴露
-
-/// OpenAI 兼容接口的请求体
-#[derive(Serialize)]
-struct WireRequestBody {
-    /// 模型名称
-    model: String,
-
-    /// 消息列表
-    messages: Vec<WireMessage>,
-
-    /// 温度参数，为 None 时不序列化，由 Provider 使用默认值
-    #[serde(skip_serializing_if = "Option::is_none")]
-    temperature: Option<f64>,
-
-    /// 最大生成 token 数，为 None 时不序列化
-    #[serde(skip_serializing_if = "Option::is_none")]
-    max_tokens: Option<i32>,
-
-    /// 是否启用流式返回
-    stream: bool,
-
-    /// 透传到根对象的额外参数
-    #[serde(flatten)]
-    extra_body: Map<String, Value>,
-}
-
-impl WireRequestBody {
-    /// 从公开请求模型构建 wire 请求体
-    fn from_request(request: &ChatRequest, stream: bool) -> Self {
-        let mut extra_body = request.extra_body.clone().unwrap_or_default();
-        for reserved in ["model", "messages", "temperature", "max_tokens", "stream"] {
-            extra_body.remove(reserved);
-        }
-
-        Self {
-            model: request.model.clone(),
-            messages: request
+fn build_payload(request: &ChatRequest, stream: bool) -> Result<Payload, LlmError> {
+    let mut payload = Payload::new();
+    payload.insert("model".into(), json!(request.model));
+    payload.insert(
+        "messages".into(),
+        Value::Array(
+            request
                 .messages
                 .iter()
-                .map(WireMessage::from_chat_message)
+                .map(|message| json!({"role": message.role, "content": message.content}))
                 .collect(),
-            temperature: request.temperature,
-            max_tokens: request.max_tokens,
-            stream,
-            extra_body,
-        }
+        ),
+    );
+    payload.insert("stream".into(), json!(stream));
+    if let Some(user) = request.user.as_ref().filter(|user| !user.trim().is_empty()) {
+        payload.insert("user".into(), json!(user));
+    }
+    if let Some(extra) = &request.extra_body {
+        payload.merge_extra(extra)?;
+    }
+    Ok(payload)
+}
+
+fn parse_role(role: Option<&str>) -> ChatRole {
+    match role.unwrap_or_default().to_ascii_lowercase().as_str() {
+        "system" => ChatRole::System,
+        "user" => ChatRole::User,
+        "tool" => ChatRole::Tool,
+        _ => ChatRole::Assistant,
     }
 }
 
-/// 请求与非流式响应中通用的消息结构
-#[derive(Serialize, Deserialize)]
+fn error_message(error: crate::wire::ErrorValue, provider_name: &str) -> String {
+    if let Some(message) = error.as_str() {
+        return message.to_owned();
+    }
+    let message = error.string_property("message");
+    let mut details = Vec::new();
+    for key in ["code", "type"] {
+        if let Some(value) = error
+            .string_property(key)
+            .filter(|value| !value.trim().is_empty())
+            && !details.contains(&value)
+        {
+            details.push(value);
+        }
+    }
+    match (message, details.is_empty()) {
+        (Some(message), true) => message.to_owned(),
+        (Some(message), false) if !message.trim().is_empty() => {
+            format!("{message} ({})", details.join(", "))
+        }
+        (_, false) => details.join(", "),
+        _ => format!("{provider_name} stream returned an error."),
+    }
+}
+
+#[derive(Default, ProtocolModel)]
 struct WireMessage {
-    /// 消息角色字符串，如 system / user / assistant
-    role: String,
-
-    /// 消息文本内容
-    content: String,
+    role: Option<String>,
+    content: Option<String>,
 }
-
-impl WireMessage {
-    /// 将公开消息模型转换为 wire 消息
-    fn from_chat_message(msg: &ChatMessage) -> Self {
-        let role = match msg.role {
-            ChatRole::System => "system",
-            ChatRole::User => "user",
-            ChatRole::Assistant => "assistant",
-            ChatRole::Tool => "tool",
-        };
-        Self {
-            role: role.to_string(),
-            content: msg.content.clone(),
-        }
-    }
-
-    /// 将 wire 消息转换为公开消息模型，未知 role 统一映射为 User
-    fn into_chat_message(self) -> ChatMessage {
-        let role = match self.role.as_str() {
-            "system" => ChatRole::System,
-            "assistant" => ChatRole::Assistant,
-            "tool" => ChatRole::Tool,
-            _ => ChatRole::User,
-        };
-        ChatMessage {
-            role,
-            content: self.content,
-        }
-    }
-}
-
-/// 响应中的 Token 用量统计
-#[derive(Deserialize)]
+#[derive(ProtocolModel)]
 struct WireUsage {
-    /// 输入提示词消耗的 token 数
     prompt_tokens: Option<i32>,
-
-    /// 模型生成内容消耗的 token 数
     completion_tokens: Option<i32>,
-
-    /// 总 token 数
     total_tokens: Option<i32>,
 }
-
 impl WireUsage {
-    /// 转换为公开用量模型
     fn into_usage(self) -> Usage {
         Usage {
             prompt_tokens: self.prompt_tokens,
@@ -270,141 +221,32 @@ impl WireUsage {
         }
     }
 }
-
-/// 非流式响应中的单个候选结果
-#[derive(Deserialize)]
+#[derive(ProtocolModel)]
 struct WireChoice {
-    /// 候选序号，通常为 0
+    #[serde(default)]
     index: i32,
-
-    /// 模型生成的消息
-    message: WireMessage,
-
-    /// 生成结束原因，如 stop / length
+    message: Option<WireMessage>,
     finish_reason: Option<String>,
 }
-
-impl WireChoice {
-    /// 转换为公开候选结果模型
-    fn into_chat_choice(self) -> ChatChoice {
-        ChatChoice {
-            index: self.index,
-            message: self.message.into_chat_message(),
-            finish_reason: self.finish_reason,
-        }
-    }
-}
-
-/// 非流式响应体
-#[derive(Deserialize)]
+#[derive(ProtocolModel)]
 struct WireResponse {
-    /// 请求/响应的唯一标识
     id: Option<String>,
-
-    /// 实际使用的模型名称
-    model: String,
-
-    /// 候选结果列表
-    choices: Vec<WireChoice>,
-
-    /// Token 用量统计
+    model: Option<String>,
+    choices: Option<Vec<Option<WireChoice>>>,
     usage: Option<WireUsage>,
 }
-
-impl WireResponse {
-    /// 转换为公开响应模型
-    fn into_chat_response(self) -> ChatResponse {
-        ChatResponse {
-            id: self.id,
-            model: self.model,
-            choices: self
-                .choices
-                .into_iter()
-                .map(|c| c.into_chat_choice())
-                .collect(),
-            usage: self.usage.map(|u| u.into_usage()),
-        }
-    }
-}
-
-/// 流式响应中的增量内容片段
-#[derive(Deserialize)]
-struct WireDelta {
-    /// 部分 Provider 在首个 chunk 中携带 role 字段
-    role: Option<String>,
-
-    /// 本次新增的文本片段，末尾 chunk 通常为 None
-    content: Option<String>,
-}
-
-impl WireDelta {
-    /// 转换为公开流式增量模型，未知 role 统一映射为 User
-    fn into_chat_stream_delta(self) -> ChatStreamDelta {
-        let role = self.role.as_deref().map(|r| match r {
-            "system" => ChatRole::System,
-            "assistant" => ChatRole::Assistant,
-            "tool" => ChatRole::Tool,
-            _ => ChatRole::User,
-        });
-        ChatStreamDelta {
-            role,
-            content: self.content,
-        }
-    }
-}
-
-/// 流式响应中的单个候选增量
-#[derive(Deserialize)]
+#[derive(ProtocolModel)]
 struct WireStreamChoice {
-    /// 候选序号，通常为 0
+    #[serde(default)]
     index: i32,
-
-    /// 本次增量内容
-    delta: WireDelta,
-
-    /// 生成结束原因，仅在流末尾 chunk 中出现
+    delta: Option<WireMessage>,
     finish_reason: Option<String>,
 }
-
-impl WireStreamChoice {
-    /// 转换为公开流式候选增量模型
-    fn into_chat_stream_choice_delta(self) -> ChatStreamChoiceDelta {
-        ChatStreamChoiceDelta {
-            index: self.index,
-            delta: self.delta.into_chat_stream_delta(),
-            finish_reason: self.finish_reason,
-        }
-    }
-}
-
-/// 流式响应的单个 SSE 分片体
-#[derive(Deserialize)]
+#[derive(ProtocolModel)]
 struct WireStreamChunk {
-    /// 请求/响应的唯一标识
     id: Option<String>,
-
-    /// 实际使用的模型名称
-    model: String,
-
-    /// 增量候选列表
-    choices: Vec<WireStreamChoice>,
-
-    /// 部分 Provider 在流末尾 chunk 中附带用量统计
+    model: Option<String>,
+    choices: Option<Vec<Option<WireStreamChoice>>>,
     usage: Option<WireUsage>,
-}
-
-impl WireStreamChunk {
-    /// 转换为公开流式分片模型
-    fn into_chat_stream_chunk(self) -> ChatStreamChunk {
-        ChatStreamChunk {
-            id: self.id,
-            model: self.model,
-            choices: self
-                .choices
-                .into_iter()
-                .map(|c| c.into_chat_stream_choice_delta())
-                .collect(),
-            usage: self.usage.map(|u| u.into_usage()),
-        }
-    }
+    error: Option<crate::wire::ErrorValue>,
 }

@@ -1,7 +1,10 @@
 use crate::*;
 
+/// 方法行为共用的默认租约秒数。
+pub const DEFAULT_METHOD_LOCK_LEASE_SECONDS: u64 = 60;
+
 /// 缓存防击穿锁的默认有效期秒数
-pub const DEFAULT_CACHEABLE_LOCK_EXPIRY_SECONDS: u64 = 60;
+pub const DEFAULT_CACHEABLE_LOCK_EXPIRY_SECONDS: u64 = DEFAULT_METHOD_LOCK_LEASE_SECONDS;
 
 /// 并发限制默认不使用参数生成锁键
 pub const DEFAULT_CONCURRENCY_LIMIT_USE_PARAMETER: bool = false;

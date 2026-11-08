@@ -55,6 +55,9 @@ pub(crate) struct ServiceFactoryRegistration {
 
     /// 返回的服务类型
     service_type: Type,
+
+    /// 对调用方公开的动态服务契约，省略时返回实现类型。
+    contract_type: Option<Type>,
 }
 
 impl Parse for ServiceFactoryInput {
@@ -196,9 +199,24 @@ impl Parse for ServiceFactoryRegistration {
         let method_name = input.parse::<Ident>()?;
         input.parse::<Token![:]>()?;
 
+        let service_type = input.parse::<Type>()?;
+        let contract_type = if input.peek(Token![=>]) {
+            input.parse::<Token![=>]>()?;
+            let contract = input.parse::<Type>()?;
+            if !matches!(contract, Type::TraitObject(_)) {
+                return Err(syn::Error::new_spanned(
+                    contract,
+                    "服务契约应为 dyn Trait，可显式声明借用生命周期",
+                ));
+            }
+            Some(contract)
+        } else {
+            None
+        };
         Ok(Self {
             method_name,
-            service_type: input.parse::<Type>()?,
+            service_type,
+            contract_type,
         })
     }
 }
@@ -223,13 +241,15 @@ pub(crate) fn expand_service_factory(input: ServiceFactoryInput) -> syn::Result<
         let registrations = group.registrations.into_iter().map(|registration| {
             let method_name = registration.method_name;
             let service_type = registration.service_type;
+            let (return_type, constructor) =
+                service_factory_return(&service_type, registration.contract_type);
             let context_expr = context_expr.clone();
             let doc_text = format!("创建 {} 应用服务", method_name);
 
             quote! {
                 #[doc = #doc_text]
-                pub fn #method_name(&self) -> #service_type {
-                    <#service_type>::new(#context_expr)
+                pub fn #method_name(&self) -> #return_type {
+                    #constructor(<#service_type>::new(#context_expr))
                 }
             }
         });
@@ -260,13 +280,15 @@ pub(crate) fn expand_direct_service_factory(
         group.registrations.into_iter().map(move |registration| {
             let method_name = registration.method_name;
             let service_type = registration.service_type;
+            let (return_type, constructor) =
+                service_factory_return(&service_type, registration.contract_type);
             let context_expr = context_expr.clone();
             let doc_text = format!("创建 {} 应用服务", method_name);
 
             quote! {
                 #[doc = #doc_text]
-                pub fn #method_name(&self) -> #service_type {
-                    <#service_type>::new(#context_expr)
+                pub fn #method_name(&self) -> #return_type {
+                    #constructor(<#service_type>::new(#context_expr))
                 }
             }
         })
@@ -278,4 +300,17 @@ pub(crate) fn expand_direct_service_factory(
         }
     }
     .into())
+}
+
+fn service_factory_return(
+    service: &Type,
+    contract: Option<Type>,
+) -> (proc_macro2::TokenStream, proc_macro2::TokenStream) {
+    match contract {
+        Some(contract) => (
+            quote!(::std::boxed::Box<#contract>),
+            quote!(::std::boxed::Box::new),
+        ),
+        None => (quote!(#service), quote!(::std::convert::identity)),
+    }
 }

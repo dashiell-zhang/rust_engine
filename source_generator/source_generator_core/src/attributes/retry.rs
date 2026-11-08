@@ -8,6 +8,12 @@ pub(crate) struct RetryArgs {
     /// 每次重试前的等待配置
     delay: RetryDelay,
 
+    /// 可选的调用方取消令牌表达式。
+    cancellation: Option<Expr>,
+
+    /// 自定义错误类型的取消判定；缺省使用公共取消契约。
+    is_cancelled: Option<Expr>,
+
     /// 显式稳定方法作用域
     key_scope: Option<syn::LitStr>,
 
@@ -40,6 +46,10 @@ impl Default for RetryArgs {
             max_retries: None,
 
             delay: RetryDelay::Default,
+
+            cancellation: None,
+
+            is_cancelled: None,
 
             key_scope: None,
 
@@ -89,6 +99,28 @@ impl Parse for RetryArgs {
                 .to_string();
 
             match name.as_str() {
+                "cancellation" => {
+                    if args.cancellation.is_some() {
+                        return Err(syn::Error::new_spanned(
+                            meta.path(),
+                            "参数 cancellation 不能重复配置",
+                        ));
+                    }
+                    args.cancellation =
+                        Some(require_name_value(meta, "cancellation")?.value.clone());
+                }
+
+                "is_cancelled" => {
+                    if args.is_cancelled.is_some() {
+                        return Err(syn::Error::new_spanned(
+                            meta.path(),
+                            "参数 is_cancelled 不能重复配置",
+                        ));
+                    }
+                    args.is_cancelled =
+                        Some(require_name_value(meta, "is_cancelled")?.value.clone());
+                }
+
                 "max_retries" => {
                     if has_max_retries {
                         return Err(syn::Error::new_spanned(
@@ -144,7 +176,7 @@ impl Parse for RetryArgs {
                         return Err(syn::Error::new_spanned(
                             meta.path(),
                             format!(
-                                "未知参数 `{other}`，支持 max_retries / delay_seconds / delay_ms / key_scope / key_types(...) / key_consts(...) / key_include_self"
+                                "未知参数 `{other}`，支持 max_retries / delay_seconds / delay_ms / cancellation / is_cancelled / key_scope / key_types(...) / key_consts(...) / key_include_self"
                             ),
                         ));
                     }
@@ -245,6 +277,29 @@ pub(crate) fn expand_retry(args: RetryArgs, mut input: ItemFn) -> syn::Result<To
         }
     };
 
+    let is_cancelled = args.is_cancelled.map_or_else(
+        || quote! { #runtime::CancellationError::is_cancelled(&__err) },
+        |predicate| quote! { (#predicate)(&__err) },
+    );
+
+    let (cancellation_setup, cancellation_check, retry_wait) = match args.cancellation {
+        Some(token) => (
+            quote! { let __retry_cancellation: &#runtime::CancellationToken = &(#token); },
+            quote! { #runtime::check_retry_cancellation(__retry_cancellation)?; },
+            quote! {
+                #runtime::retry_sleep_with_cancellation(
+                    __retry_delay_ms,
+                    __retry_cancellation,
+                ).await?;
+            },
+        ),
+        None => (
+            quote! {},
+            quote! {},
+            quote! { #runtime::retry_sleep(__retry_delay_ms).await; },
+        ),
+    };
+
     let expanded: TokenStream2 = quote! {
 
 
@@ -267,6 +322,8 @@ pub(crate) fn expand_retry(args: RetryArgs, mut input: ItemFn) -> syn::Result<To
                 return #retry_body().await;
 
             }
+
+            #cancellation_setup
 
 
             // 记录已经执行的重试次数，首次执行前为 0
@@ -300,6 +357,11 @@ pub(crate) fn expand_retry(args: RetryArgs, mut input: ItemFn) -> syn::Result<To
 
                     ::core::result::Result::Err(__err) => {
 
+                        // 取消直接返回原错误，不产生重试或耗尽日志。
+                        if #is_cancelled {
+                            return ::core::result::Result::Err(__err);
+                        }
+
                         let __retry_context = __retry_context.get_or_insert_with(|| {
 
                             (#method_key, #runtime::new_trace_id())
@@ -324,6 +386,9 @@ pub(crate) fn expand_retry(args: RetryArgs, mut input: ItemFn) -> syn::Result<To
 
                         }
 
+                        // 与源管道相同：仅在仍允许下一次尝试时观察令牌。
+                        #cancellation_check
+
                         __retry_count += 1;
 
                         #runtime::log_retry_scheduled_debug(
@@ -342,7 +407,7 @@ pub(crate) fn expand_retry(args: RetryArgs, mut input: ItemFn) -> syn::Result<To
 
                         // 等待指定间隔后进行下一次重试，delay_ms 为 0 时直接跳过
 
-                        #runtime::retry_sleep(__retry_delay_ms).await;
+                        #retry_wait
 
                     }
 

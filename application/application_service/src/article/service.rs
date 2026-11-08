@@ -1,4 +1,6 @@
 use repository::extensions::SoftDeleteQueryExt;
+use repository_core::pagination::SignedPage;
+use repository_core::versioned::VersionedActiveModel;
 use std::cmp::Ordering;
 use std::future::Future;
 use std::pin::Pin;
@@ -6,8 +8,8 @@ use std::pin::Pin;
 use async_recursion::async_recursion;
 use repository::{article, category};
 use sea_orm::{
-    ActiveModelTrait, ColumnTrait, ConnectionTrait, EntityTrait, ExprTrait, IntoActiveModel,
-    PaginatorTrait, QueryFilter, QueryOrder, QuerySelect, Set, sea_query::Expr,
+    ColumnTrait, ConnectionTrait, EntityTrait, ExprTrait, IntoActiveModel, PaginatorTrait,
+    QueryFilter, QueryOrder, QuerySelect, Set, sea_query::Expr,
 };
 use serde_json::json;
 
@@ -19,8 +21,8 @@ use application_model::shared::models::PageRequestDto;
 
 use crate::user::models::PageListDto;
 use crate::write_support::{
-    apply_soft_delete_audit_fields, build_create_audit_fields, normalize_page,
-    validate_page_request, write_data_update_log, write_data_update_log_with_connection,
+    apply_soft_delete_audit_fields, build_create_audit_fields, page_offset, validate_page_request,
+    write_data_update_log, write_data_update_log_with_connection,
 };
 
 use super::models::{
@@ -57,20 +59,19 @@ impl<'a> ArticleService<'a> {
             .count(self.context.db)
             .await
             .map_err(to_app_error)?;
+        let total = repository_core::pagination::count_i32(total).map_err(to_app_error)?;
 
         if total == 0 {
             return Ok(PageListDto {
                 total: 0,
-                list: vec![],
+                list: None,
             });
         }
 
-        let page = normalize_page(params.page);
-        let skip = (page - 1) * params.page_size;
+        let skip = page_offset(params.page, params.page_size);
         let categories = query
             .order_by_desc(category::Column::Id)
-            .offset(skip)
-            .limit(params.page_size)
+            .signed_page(skip, params.page_size)
             .all(self.context.db)
             .await
             .map_err(to_app_error)?;
@@ -108,7 +109,10 @@ impl<'a> ArticleService<'a> {
             })
             .collect();
 
-        Ok(PageListDto { total, list })
+        Ok(PageListDto {
+            total,
+            list: Some(list),
+        })
     }
 
     /// 递归获取栏目树形选择列表，parent_id 为 None 时返回根节点
@@ -148,10 +152,6 @@ impl<'a> ArticleService<'a> {
 
     /// 获取单个栏目详情
     pub async fn get_category(&self, category_id: i64) -> Result<Option<CategoryDto>, AppError> {
-        if category_id <= 0 {
-            return Err(AppError::bad_request("无效的 categoryId"));
-        }
-
         let model = category::Entity::find()
             .filter(category::Column::Id.eq(category_id))
             .not_deleted(category::Column::DeleteTime)
@@ -213,6 +213,7 @@ impl<'a> ArticleService<'a> {
         });
         let audit_fields = build_create_audit_fields(current_user);
         let model = category::ActiveModel {
+            row_version: Default::default(),
             id: Set(id),
             name: Set(dto.name),
             sort: Set(dto.sort),
@@ -225,7 +226,7 @@ impl<'a> ArticleService<'a> {
         };
 
         model
-            .insert(self.context.db)
+            .insert_versioned(self.context.db)
             .await
             .map_err(|e| AppError::internal(format!("创建栏目失败: {e}")))?;
 
@@ -285,7 +286,7 @@ impl<'a> ArticleService<'a> {
         active.remark = Set(dto.remark);
 
         let updated_model = active
-            .update(self.context.db)
+            .update_versioned(self.context.db)
             .await
             .map_err(|e| AppError::internal(format!("更新栏目失败: {e}")))?;
 
@@ -315,10 +316,6 @@ impl<'a> ArticleService<'a> {
         category_id: i64,
         current_user: &CurrentUser,
     ) -> Result<bool, AppError> {
-        if category_id <= 0 {
-            return Err(AppError::bad_request("无效的 categoryId"));
-        }
-
         let model = category::Entity::find()
             .filter(category::Column::Id.eq(category_id))
             .not_deleted(category::Column::DeleteTime)
@@ -327,8 +324,30 @@ impl<'a> ArticleService<'a> {
             .map_err(to_app_error)?;
 
         let Some(model) = model else {
-            return Ok(true);
+            return Ok(false);
         };
+
+        // 与源服务一致：仅在栏目存在时检查依赖，不允许留下活跃子栏目或文章。
+        let has_child = category::Entity::find()
+            .filter(category::Column::ParentId.eq(category_id))
+            .not_deleted(category::Column::DeleteTime)
+            .count(self.context.db)
+            .await
+            .map_err(to_app_error)?
+            > 0;
+        if has_child {
+            return Err(AppError::bad_request("当前栏目下存在子栏目，无法删除"));
+        }
+        let has_article = article::Entity::find()
+            .filter(article::Column::CategoryId.eq(category_id))
+            .not_deleted(article::Column::DeleteTime)
+            .count(self.context.db)
+            .await
+            .map_err(to_app_error)?
+            > 0;
+        if has_article {
+            return Err(AppError::bad_request("当前栏目下存在文章，无法删除"));
+        }
 
         let before_log = json!({
             "id": model.id,
@@ -345,7 +364,7 @@ impl<'a> ArticleService<'a> {
         );
 
         active
-            .update(self.context.db)
+            .update_versioned(self.context.db)
             .await
             .map_err(|e| AppError::internal(format!("删除栏目失败: {e}")))?;
 
@@ -380,20 +399,19 @@ impl<'a> ArticleService<'a> {
             .count(self.context.db)
             .await
             .map_err(to_app_error)?;
+        let total = repository_core::pagination::count_i32(total).map_err(to_app_error)?;
 
         if total == 0 {
             return Ok(PageListDto {
                 total: 0,
-                list: vec![],
+                list: None,
             });
         }
 
-        let page = normalize_page(params.page);
-        let skip = (page - 1) * params.page_size;
+        let skip = page_offset(params.page, params.page_size);
         let articles = query
             .order_by_desc(article::Column::Id)
-            .offset(skip)
-            .limit(params.page_size)
+            .signed_page(skip, params.page_size)
             .all(self.context.db)
             .await
             .map_err(to_app_error)?;
@@ -434,15 +452,14 @@ impl<'a> ArticleService<'a> {
             })
             .collect();
 
-        Ok(PageListDto { total, list })
+        Ok(PageListDto {
+            total,
+            list: Some(list),
+        })
     }
 
     /// 获取单篇文章详情
     pub async fn get_article(&self, article_id: i64) -> Result<Option<ArticleDto>, AppError> {
-        if article_id <= 0 {
-            return Err(AppError::bad_request("无效的 articleId"));
-        }
-
         let model = article::Entity::find()
             .filter(article::Column::Id.eq(article_id))
             .not_deleted(article::Column::DeleteTime)
@@ -513,21 +530,20 @@ impl<'a> ArticleService<'a> {
             .count(self.context.db)
             .await
             .map_err(to_app_error)?;
+        let total = repository_core::pagination::count_i32(total).map_err(to_app_error)?;
 
         if total == 0 {
             return Ok(PageListDto {
                 total: 0,
-                list: vec![],
+                list: Some(vec![]),
             });
         }
 
-        let page = normalize_page(params.page);
-        let skip = (page - 1) * params.page_size;
+        let skip = page_offset(params.page, params.page_size);
         let articles = query
             .order_by_desc(article::Column::Sort)
             .order_by_desc(article::Column::Id)
-            .offset(skip)
-            .limit(params.page_size)
+            .signed_page(skip, params.page_size)
             .all(self.context.db)
             .await
             .map_err(to_app_error)?;
@@ -552,7 +568,10 @@ impl<'a> ArticleService<'a> {
             })
             .collect();
 
-        Ok(PageListDto { total, list })
+        Ok(PageListDto {
+            total,
+            list: Some(list),
+        })
     }
 
     /// 获取客户端文章详情，仅返回公开展示的文章
@@ -804,19 +823,19 @@ impl<'a> ArticleService<'a> {
         current_user: &CurrentUser,
     ) -> Result<String, AppError>
     where
-        C: ConnectionTrait,
+        C: ConnectionTrait + sea_orm::TransactionTrait,
     {
         if dto.title.trim().is_empty() {
             return Err(AppError::bad_request("文章标题不可以为空"));
         }
 
-        if dto.category_id <= 0 {
-            return Err(AppError::bad_request("无效的 categoryId"));
-        }
+        let category_id = dto
+            .category_id
+            .trim()
+            .parse::<i64>()
+            .map_err(|error| AppError::internal(format!("文章栏目 ID 转换失败: {error}")))?;
 
-        ensure_category_exists(db, dto.category_id).await?;
-
-        let digest = resolve_digest(dto.digest.as_deref(), dto.content.as_deref());
+        let digest = resolve_digest(dto.digest.as_deref(), dto.content.as_deref())?;
         let id = self
             .context
             .id_generator
@@ -825,7 +844,7 @@ impl<'a> ArticleService<'a> {
             .map_err(|error| AppError::internal(format!("生成文章主键失败: {error}")))?;
         let audit_after = json!({
             "id": id,
-            "category_id": dto.category_id,
+            "category_id": category_id,
             "title": dto.title,
             "digest": digest,
             "is_recommend": dto.is_recommend,
@@ -836,8 +855,9 @@ impl<'a> ArticleService<'a> {
         let audit_fields = build_create_audit_fields(current_user);
 
         let model = article::ActiveModel {
+            row_version: Default::default(),
             id: Set(id),
-            category_id: Set(dto.category_id),
+            category_id: Set(category_id),
             title: Set(dto.title),
             content: Set(dto.content),
             digest: Set(digest),
@@ -852,7 +872,7 @@ impl<'a> ArticleService<'a> {
         };
 
         model
-            .insert(db)
+            .insert_versioned(db)
             .await
             .map_err(|e| AppError::internal(format!("创建文章失败: {e}")))?;
 
@@ -891,7 +911,7 @@ impl<'a> ArticleService<'a> {
         current_user: &CurrentUser,
     ) -> Result<bool, AppError>
     where
-        C: ConnectionTrait,
+        C: ConnectionTrait + sea_orm::TransactionTrait,
     {
         if article_id <= 0 {
             return Err(AppError::bad_request("无效的 articleId"));
@@ -900,12 +920,6 @@ impl<'a> ArticleService<'a> {
         if dto.title.trim().is_empty() {
             return Err(AppError::bad_request("文章标题不可以为空"));
         }
-
-        if dto.category_id <= 0 {
-            return Err(AppError::bad_request("无效的 categoryId"));
-        }
-
-        ensure_category_exists(db, dto.category_id).await?;
 
         let model = article::Entity::find()
             .filter(article::Column::Id.eq(article_id))
@@ -918,7 +932,13 @@ impl<'a> ArticleService<'a> {
             return Err(AppError::bad_request("无效的 articleId"));
         };
 
-        let digest = resolve_digest(dto.digest.as_deref(), dto.content.as_deref());
+        let category_id = dto
+            .category_id
+            .trim()
+            .parse::<i64>()
+            .map_err(|error| AppError::internal(format!("文章栏目 ID 转换失败: {error}")))?;
+
+        let digest = resolve_digest(dto.digest.as_deref(), dto.content.as_deref())?;
 
         let before_log = json!({
             "id": model.id,
@@ -931,7 +951,7 @@ impl<'a> ArticleService<'a> {
             "click_count": model.click_count,
         });
         let mut active = model.into_active_model();
-        active.category_id = Set(dto.category_id);
+        active.category_id = Set(category_id);
         active.title = Set(dto.title);
         active.content = Set(dto.content);
         active.digest = Set(digest);
@@ -941,7 +961,7 @@ impl<'a> ArticleService<'a> {
         active.click_count = Set(dto.click_count);
 
         let updated_model = active
-            .update(db)
+            .update_versioned(db)
             .await
             .map_err(|e| AppError::internal(format!("更新文章失败: {e}")))?;
 
@@ -988,12 +1008,8 @@ impl<'a> ArticleService<'a> {
         current_user: &CurrentUser,
     ) -> Result<bool, AppError>
     where
-        C: ConnectionTrait,
+        C: ConnectionTrait + sea_orm::TransactionTrait,
     {
-        if article_id <= 0 {
-            return Err(AppError::bad_request("无效的 articleId"));
-        }
-
         let model = article::Entity::find()
             .filter(article::Column::Id.eq(article_id))
             .not_deleted(article::Column::DeleteTime)
@@ -1023,7 +1039,7 @@ impl<'a> ArticleService<'a> {
         );
 
         active
-            .update(db)
+            .update_versioned(db)
             .await
             .map_err(|e| AppError::internal(format!("删除文章失败: {e}")))?;
 
@@ -1046,25 +1062,20 @@ impl<'a> ArticleService<'a> {
     }
 }
 
-/// 从摘要字段或正文自动生成摘要，超过 255 字符时截断
-fn resolve_digest(digest: Option<&str>, content: Option<&str>) -> Option<String> {
-    let d = digest.map(str::trim).filter(|s| !s.is_empty());
-
-    if d.is_some() {
-        return d.map(str::to_owned);
+/// 仅在摘要为 null/空字符串且正文非空时自动生成，保留显式摘要的空白。
+fn resolve_digest(digest: Option<&str>, content: Option<&str>) -> Result<Option<String>, AppError> {
+    if digest.is_some_and(|text| !text.is_empty()) {
+        return Ok(digest.map(str::to_owned));
     }
-
-    let text = content
-        .map(common::string_helper::remove_html)
-        .filter(|s| !s.is_empty())?;
-
-    let truncated = if text.chars().count() > 255 {
-        text.chars().take(255).collect()
-    } else {
-        text
+    let Some(content) = content.filter(|text| !text.is_empty()) else {
+        return Ok(digest.map(str::to_owned));
     };
-
-    Some(truncated)
+    let text = common::string_helper::remove_html(content);
+    let units = text.encode_utf16().take(255).collect::<Vec<_>>();
+    // 源 string[..255] 按 UTF-16 截断；若截断代理项，Npgsql 严格编码同样会失败。
+    String::from_utf16(&units)
+        .map(Some)
+        .map_err(|_| AppError::internal("文章摘要截断产生了不完整的 UTF-16 字符"))
 }
 
 /// 按栏目 ID 批量加载栏目数据
@@ -1084,27 +1095,7 @@ async fn load_category_map(
         .map_err(to_app_error)
 }
 
-/// 确认栏目存在且未删除
-async fn ensure_category_exists<C>(db: &C, category_id: i64) -> Result<(), AppError>
-where
-    C: ConnectionTrait,
-{
-    let exists = category::Entity::find()
-        .filter(category::Column::Id.eq(category_id))
-        .not_deleted(category::Column::DeleteTime)
-        .one(db)
-        .await
-        .map_err(to_app_error)?
-        .is_some();
-
-    if exists {
-        Ok(())
-    } else {
-        Err(AppError::bad_request("指定的栏目不存在或已删除"))
-    }
-}
-
-/// 校验栏目父级，避免指向不存在、已删除、自身或后代节点
+/// 校验父栏目存在、未删除且不会形成循环引用
 async fn validate_category_parent(
     db: &sea_orm::DatabaseConnection,
     parent_id: Option<i64>,
@@ -1362,7 +1353,9 @@ mod webapi_impl {
             let mut result = ArticleService::new(self.context.app)
                 .get_article_list(params)
                 .await?;
-            self.attach_cover_image_list_batch(&mut result.list).await?;
+            if let Some(list) = result.list.as_mut() {
+                self.attach_cover_image_list_batch(list).await?;
+            }
             Ok(result)
         }
 
@@ -1386,7 +1379,6 @@ mod webapi_impl {
             upload_key: i64,
             current_user: &CurrentUser,
         ) -> Result<String, AppError> {
-            validate_upload_key(upload_key)?;
             let file_service = self
                 .file_service()
                 .ok_or_else(|| AppError::internal("文件服务未配置"))?;
@@ -1435,7 +1427,6 @@ mod webapi_impl {
             upload_key: i64,
             current_user: &CurrentUser,
         ) -> Result<bool, AppError> {
-            validate_upload_key(upload_key)?;
             let file_service = self
                 .file_service()
                 .ok_or_else(|| AppError::internal("文件服务未配置"))?;
@@ -1685,15 +1676,6 @@ mod webapi_impl {
                 }
             }
         }
-    }
-
-    /// 校验文章编辑上传批次标识
-    fn validate_upload_key(upload_key: i64) -> Result<(), AppError> {
-        if upload_key <= 0 {
-            return Err(AppError::bad_request("无效的 uploadKey"));
-        }
-
-        Ok(())
     }
 }
 

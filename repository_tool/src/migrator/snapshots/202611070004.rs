@@ -1,0 +1,22 @@
+// 已登记迁移的固定 SQL；后续模型变化必须新增迁移，不能改写此文件。
+&[
+    r#"DROP INDEX IF EXISTS "IX_Role_Code_NotDeleted""#,
+    r#"DROP INDEX IF EXISTS "IX_Function_Sign_NotDeleted""#,
+    r#"DROP INDEX IF EXISTS "IX_FunctionAuthorize_Role_Function_NotDeleted""#,
+    r#"DROP INDEX IF EXISTS "IX_FunctionAuthorize_User_Function_NotDeleted""#,
+    r#"DROP INDEX IF EXISTS "IX_FunctionRoute_Module_Route_NotDeleted""#,
+    r#"DROP INDEX IF EXISTS "IX_LlmApp_Code_NotDeleted""#,
+    r#"DROP INDEX IF EXISTS "IX_Product_SKU_NotDeleted""#,
+    r#"DROP INDEX IF EXISTS "IX_Order_OrderNo_NotDeleted""#,
+    r#"DROP INDEX IF EXISTS "IX_UserInfo_UserId_NotDeleted""#,
+    r#"CREATE INDEX IF NOT EXISTS "IX_Function_Sign" ON "Function" ("Sign")"#,
+    r#"CREATE INDEX IF NOT EXISTS "IX_FunctionAuthorize_FunctionId" ON "FunctionAuthorize" ("FunctionId")"#,
+    r#"CREATE INDEX IF NOT EXISTS "IX_FunctionAuthorize_RoleId" ON "FunctionAuthorize" ("RoleId")"#,
+    r#"CREATE INDEX IF NOT EXISTS "IX_FunctionAuthorize_UserId" ON "FunctionAuthorize" ("UserId")"#,
+    r#"CREATE INDEX IF NOT EXISTS "IX_FunctionRoute_FunctionId" ON "FunctionRoute" ("FunctionId")"#,
+    r#"CREATE INDEX IF NOT EXISTS "IX_LlmApp_Code" ON "LlmApp" ("Code")"#,
+    r#"CREATE INDEX IF NOT EXISTS "IX_Product_SKU" ON "Product" ("SKU")"#,
+    r#"CREATE INDEX IF NOT EXISTS "IX_Product_Name" ON "Product" ("Name")"#,
+    r#"CREATE INDEX IF NOT EXISTS "IX_Order_OrderNo" ON "Order" ("OrderNo")"#,
+    r#"CREATE UNIQUE INDEX IF NOT EXISTS "IX_UserInfo_UserId" ON "UserInfo" ("UserId")"#,
+]

@@ -1,9 +1,19 @@
 use sea_orm::entity::prelude::*;
 
 /// 省份字典实体
+#[repository_core::model_documentation]
 #[derive(Clone, Debug, PartialEq, DeriveEntityModel, Eq)]
 #[sea_orm(table_name = "RegionProvince")]
 pub struct Model {
+    /// PostgreSQL 系统行版本；读取为无符号事务 ID 的文本，保存时只用于并发条件。
+    #[sea_orm(
+        column_name = "xmin",
+        column_type = "Text",
+        select_as = "text",
+        save_as = "xid"
+    )]
+    pub row_version: String,
+
     /// 省份主键
     #[sea_orm(column_name = "Id", primary_key, auto_increment = false)]
     pub id: i32,
@@ -38,3 +48,5 @@ impl Related<super::region_city::Entity> for Entity {
 
 /// 默认实体行为
 impl ActiveModelBehavior for ActiveModel {}
+
+repository_core::impl_versioned_entity!(Entity, Column::RowVersion);

@@ -43,9 +43,8 @@ default = "info"
 
 [file]
 component = "local"
-root_path = "presentation/admin_webapi/storage"
-public_base_url = "http://127.0.0.1:3000"
-max_upload_bytes = 52428800
+root_path = "wwwroot"
+public_base_url = "http://127.0.0.1:3000/"
 
 [file.aliyun_oss]
 region = ""
@@ -68,12 +67,6 @@ component = "in_memory"
 connection = "redis://:123456@127.0.0.1/0"
 prefix = "admin_webapi"
 
-[sms_verify]
-code_ttl_seconds = 300
-resend_interval_seconds = 60
-queue_task_name = "System.Queue.SendSms"
-sign_name = ""
-template_code = ""
 
 [message.smtp]
 host = ""

@@ -1,0 +1,10 @@
+[
+  {
+    "kind": "Sql",
+    "value": "ALTER TABLE \"EventBusMessage\" RENAME CONSTRAINT \"EventBusMessage_pkey\" TO \"PK_EventBusMessage\""
+  },
+  {
+    "kind": "Sql",
+    "value": "ALTER TABLE \"EventBusStream\" RENAME CONSTRAINT \"EventBusStream_pkey\" TO \"PK_EventBusStream\""
+  }
+]

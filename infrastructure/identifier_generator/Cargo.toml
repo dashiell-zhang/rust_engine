@@ -4,9 +4,9 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-distributed_cache = { path = "../distributed_cache" }
-distributed_lock = { path = "../distributed_lock" }
-rand = "0.10"
-serde = { version = "1", features = ["derive"] }
-tokio = { version = "1", features = ["time", "sync", "rt"] }
+redis = { version = "1.8.1", features = ["tokio-comp", "connection-manager"] }
+uuid = { version = "1.29.0", features = ["v4"] }
+rand = "0.10.3"
+serde = { version = "1.0.229", features = ["derive"] }
+tokio = { version = "1.54.1", features = ["time", "sync", "rt"] }
 

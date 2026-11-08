@@ -1,22 +1,11 @@
 use application_interface::context::AppContext;
 use chrono::Utc;
 use common::app_error::AppError;
-use repository::function_route;
-use sea_orm::{
-    ActiveModelTrait, ActiveValue::Set, ColumnTrait, EntityTrait, IntoActiveModel, QueryFilter,
-};
-use serde_json::json;
+use repository::{extensions::SoftDeleteEntityExt, function_route};
+use repository_core::versioned::VersionedActiveModel;
+use sea_orm::{ActiveValue::Set, ColumnTrait, IntoActiveModel, QueryFilter, TransactionTrait};
 
-use crate::write_support::write_data_update_log;
-
-/// 权限路由同步数据
-pub struct PermissionRouteSyncItem<'a> {
-    /// 路由路径
-    pub route: &'a str,
-
-    /// 路由说明
-    pub remark: &'a str,
-}
+pub use application_model::authorize::models::PermissionRouteSyncItem;
 
 /// 权限路由应用服务
 pub struct PermissionRouteService<'a> {
@@ -30,7 +19,7 @@ impl<'a> PermissionRouteService<'a> {
         Self { context }
     }
 
-    /// 同步接口权限路由到数据库
+    /// 同步当前模块的有效路由；与源 SaveChanges 一样将整批写入作为一个提交单元。
     pub async fn sync_routes(
         &self,
         module_name: &str,
@@ -40,144 +29,74 @@ impl<'a> PermissionRouteService<'a> {
             return Err(AppError::bad_request("权限模块名不可以为空"));
         }
 
-        if routes.is_empty() {
-            return Ok(false);
-        }
-
-        let existing_routes = function_route::Entity::find()
+        // 源 EF 查询遵守软删除过滤；重新出现的路径创建新记录，不恢复旧功能绑定。
+        let existing_routes = function_route::Entity::find_active()
             .filter(function_route::Column::Module.eq(module_name))
             .all(self.context.db)
             .await
             .map_err(|error| AppError::internal(format!("权限路由读取失败: {error}")))?;
-
-        let route_paths = routes.iter().map(|item| item.route).collect::<Vec<_>>();
+        let transaction = self
+            .context
+            .db
+            .begin()
+            .await
+            .map_err(|error| AppError::internal(format!("开启权限路由事务失败: {error}")))?;
         let mut changed = false;
 
+        // 空清单也要软删除本模块的全部有效路由。
         for model in &existing_routes {
-            if model.delete_time.is_some() {
+            if routes.iter().any(|route| route.route == model.route) {
                 continue;
             }
-
-            if route_paths.contains(&model.route.as_str()) {
-                continue;
-            }
-
             let mut active = model.clone().into_active_model();
             active.delete_time = Set(Some(Utc::now().into()));
-            let updated = active
-                .update(self.context.db)
+            active
+                .update_versioned(&transaction)
                 .await
                 .map_err(|error| AppError::internal(format!("权限路由删除标记失败: {error}")))?;
-
-            write_data_update_log(
-                self.context,
-                "FunctionRoute",
-                updated.id,
-                "delete",
-                Some(json!({
-                    "id": model.id,
-                    "module": model.module,
-                    "route": model.route,
-                    "remark": model.remark,
-                    "delete_time": model.delete_time.map(|item| item.to_rfc3339()),
-                })),
-                Some(json!({
-                    "id": updated.id,
-                    "module": updated.module,
-                    "route": updated.route,
-                    "remark": updated.remark,
-                    "delete_time": updated.delete_time.map(|item| item.to_rfc3339()),
-                })),
-                None,
-            )
-            .await?;
             changed = true;
         }
 
         for route in routes {
-            let existing = existing_routes
+            if let Some(model) = existing_routes
                 .iter()
-                .find(|item| item.route == route.route);
-
-            if let Some(model) = existing {
-                let should_update_remark = model.remark.as_deref() != Some(route.remark);
-                let should_restore = model.delete_time.is_some();
-
-                if !should_update_remark && !should_restore {
+                .find(|model| model.route == route.route)
+            {
+                if model.remark.as_deref() == Some(route.remark) {
                     continue;
                 }
-
                 let mut active = model.clone().into_active_model();
-                active.remark = Set(Some(route.remark.to_string()));
-                active.delete_time = Set(None);
-                let updated = active
-                    .update(self.context.db)
+                active.remark = Set(Some(route.remark.to_owned()));
+                active
+                    .update_versioned(&transaction)
                     .await
                     .map_err(|error| AppError::internal(format!("权限路由更新失败: {error}")))?;
-
-                write_data_update_log(
-                    self.context,
-                    "FunctionRoute",
-                    updated.id,
-                    "update",
-                    Some(json!({
-                        "id": model.id,
-                        "module": model.module,
-                        "route": model.route,
-                        "remark": model.remark,
-                        "delete_time": model.delete_time.map(|item| item.to_rfc3339()),
-                    })),
-                    Some(json!({
-                        "id": updated.id,
-                        "module": updated.module,
-                        "route": updated.route,
-                        "remark": updated.remark,
-                        "delete_time": updated.delete_time.map(|item| item.to_rfc3339()),
-                    })),
-                    None,
-                )
-                .await?;
-                changed = true;
-                continue;
-            }
-
-            let route_id =
-                self.context.id_generator.get_id().await.map_err(|error| {
+            } else {
+                let route_id = self.context.id_generator.get_id().await.map_err(|error| {
                     AppError::internal(format!("生成权限路由主键失败: {error}"))
                 })?;
-
-            let created = function_route::ActiveModel {
-                id: Set(route_id),
-                function_id: Set(None),
-                module: Set(module_name.to_string()),
-                route: Set(route.route.to_string()),
-                remark: Set(Some(route.remark.to_string())),
-                create_time: Set(Utc::now().into()),
-                delete_time: Set(None),
+                function_route::ActiveModel {
+                    row_version: Default::default(),
+                    id: Set(route_id),
+                    function_id: Set(None),
+                    module: Set(module_name.to_owned()),
+                    route: Set(route.route.to_owned()),
+                    remark: Set(Some(route.remark.to_owned())),
+                    create_time: Set(Utc::now().into()),
+                    delete_time: Set(None),
+                }
+                .insert_versioned(&transaction)
+                .await
+                .map_err(|error| AppError::internal(format!("权限路由创建失败: {error}")))?;
             }
-            .insert(self.context.db)
-            .await
-            .map_err(|error| AppError::internal(format!("权限路由创建失败: {error}")))?;
-
-            write_data_update_log(
-                self.context,
-                "FunctionRoute",
-                created.id,
-                "create",
-                None,
-                Some(json!({
-                    "id": created.id,
-                    "module": created.module,
-                    "route": created.route,
-                    "remark": created.remark,
-                    "delete_time": created.delete_time.map(|item| item.to_rfc3339()),
-                })),
-                None,
-            )
-            .await?;
             changed = true;
         }
 
+        // 源维护方法使用普通 SaveChanges，不额外生成 DataUpdateLog。
+        transaction
+            .commit()
+            .await
+            .map_err(|error| AppError::internal(format!("提交权限路由事务失败: {error}")))?;
         Ok(changed)
     }
 }

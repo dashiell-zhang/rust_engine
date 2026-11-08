@@ -1,33 +1,27 @@
 use crate::*;
 
-/// 混合缓存引用适配接口
-pub trait AsHybridCacheRef {
-    /// 获取混合缓存引用
-    fn as_hybrid_cache_ref(&self) -> &HybridCache;
+/// 分布式缓存引用适配接口。
+pub trait AsDistributedCacheRef {
+    fn as_distributed_cache_ref(&self) -> &dyn DistributedCache;
 }
 
-impl AsHybridCacheRef for HybridCache {
-    /// 返回混合缓存自身引用
-    fn as_hybrid_cache_ref(&self) -> &HybridCache {
+impl<T: DistributedCache> AsDistributedCacheRef for T {
+    fn as_distributed_cache_ref(&self) -> &dyn DistributedCache {
         self
     }
 }
 
-impl AsHybridCacheRef for Arc<HybridCache> {
-    /// 返回 Arc 包装的混合缓存引用
-    fn as_hybrid_cache_ref(&self) -> &HybridCache {
-        self.as_ref()
+impl AsDistributedCacheRef for dyn DistributedCache {
+    fn as_distributed_cache_ref(&self) -> &dyn DistributedCache {
+        self
     }
 }
 
-impl<T> AsHybridCacheRef for &T
-where
-    T: AsHybridCacheRef + ?Sized,
-{
-    /// 透传引用包装的混合缓存引用
-    fn as_hybrid_cache_ref(&self) -> &HybridCache {
-        (*self).as_hybrid_cache_ref()
-    }
+/// 获取具体实现、Arc 或借用包装中的缓存引用。
+pub fn distributed_cache_ref<T: AsDistributedCacheRef + ?Sized>(
+    cache: &T,
+) -> &dyn DistributedCache {
+    cache.as_distributed_cache_ref()
 }
 
 /// 分布式锁引用适配接口
@@ -51,37 +45,6 @@ impl AsDistributedLockRef for dyn DistributedLock {
     fn as_distributed_lock_ref(&self) -> &dyn DistributedLock {
         self
     }
-}
-
-/// 获取混合缓存引用
-pub fn hybrid_cache_ref<T>(cache: &T) -> &HybridCache
-where
-    T: AsHybridCacheRef + ?Sized,
-{
-    cache.as_hybrid_cache_ref()
-}
-
-/// 使用返回类型自身的相等语义校验缓存值往返结果并写入缓存
-pub async fn set_cacheable_json<T>(
-    cache: &HybridCache,
-
-    key: &str,
-
-    value: &T,
-
-    ttl_seconds: u64,
-) -> Result<(), HybridCacheError>
-where
-    T: Serialize + DeserializeOwned + PartialEq,
-{
-    cache
-        .set_json_with_round_trip_validator(
-            key,
-            value,
-            ttl_seconds,
-            |original_value, round_trip_value| Ok(original_value == round_trip_value),
-        )
-        .await
 }
 
 /// 获取分布式锁引用

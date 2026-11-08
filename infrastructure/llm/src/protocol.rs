@@ -63,10 +63,13 @@ pub fn create_client(
     let protocol = config.protocol()?;
 
     match protocol {
-        LlmProtocolType::Chat => Ok(Arc::new(OpenAiCompatibleClient::new(
-            http_client,
-            OpenAiCompatibleSettings::new_endpoint(config.endpoint, config.api_key),
-        ))),
+        LlmProtocolType::Chat => Ok(Arc::new(
+            OpenAiCompatibleClient::new(
+                http_client,
+                OpenAiCompatibleSettings::new_endpoint(config.endpoint, config.api_key),
+            )
+            .with_provider_name(config.model_id),
+        )),
         LlmProtocolType::Responses => Ok(Arc::new(OpenAiResponsesClient::new(http_client, config))),
         LlmProtocolType::Anthropic => {
             Ok(Arc::new(AnthropicMessagesClient::new(http_client, config)))
@@ -85,12 +88,6 @@ fn validate_config(config: &LlmModelConfig) -> Result<(), LlmError> {
     if config.api_key.trim().is_empty() {
         return Err(LlmError::InvalidRequest(
             "LLM model api key is required".to_string(),
-        ));
-    }
-
-    if config.model_id.trim().is_empty() {
-        return Err(LlmError::InvalidRequest(
-            "LLM model id is required".to_string(),
         ));
     }
 

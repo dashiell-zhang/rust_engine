@@ -4,13 +4,16 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-tokio = { version = "1.53.1", features = ["full"] }
+event_bus = { path = "../../infrastructure/event_bus" }
+event_bus_redis = { path = "../../infrastructure/event_bus_redis" }
+event_bus_database = { path = "../../infrastructure/event_bus_database" }
+queue_task_database = { path = "../../infrastructure/queue_task_database" }
+tokio = { version = "1.54.1", features = ["full"] }
 task_service_core = { path = "../../project_core/task_service_core" }
 common = { path = "../../infrastructure/common" }
 application_service = { path = "../../application/application_service" }
 application_interface = { path = "../../application/application_interface" }
 application_service_sms = { path = "../../application/application_service_sms" }
-repository = { path = "../../repository" }
 distributed_cache = { path = "../../infrastructure/distributed_cache" }
 distributed_cache_memory = { path = "../../infrastructure/distributed_cache_memory" }
 distributed_cache_redis = { path = "../../infrastructure/distributed_cache_redis" }
@@ -27,7 +30,7 @@ sms_ali_cloud = { path = "../../infrastructure/sms_ali_cloud" }
 sms_tencent_cloud = { path = "../../infrastructure/sms_tencent_cloud" }
 source_generator_runtime = { path = "../../source_generator/source_generator_runtime" }
 
-async-trait = "0.1"
-chrono = "0.4"
-sea-orm = { version = "2.0.1", features = [ "sqlx-postgres", "runtime-tokio-rustls", "macros" ] }
+async-trait = "0.1.92"
+chrono = "0.4.45"
+sea-orm = { version = "2.0.4", features = [ "sqlx-postgres", "runtime-tokio-rustls", "macros" ] }
 tracing = "0.1.44"

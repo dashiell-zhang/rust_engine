@@ -10,8 +10,14 @@ pub mod openapi;
 /// 客户端宿主装配
 pub mod host_support;
 
+/// 客户端出站 HTTP 客户端与签名处理器。
+pub mod http_clients;
+
 /// 客户端 LLM 宿主适配
 pub mod llm_support;
+
+/// 客户端宿主演示服务。
+pub mod services;
 
 /// 复用共享宿主状态定义
 pub use webapi_core::state;
@@ -20,15 +26,20 @@ use webapi_core::host::{WebApiHostProfile, run_webapi_host};
 
 /// 客户端 WebAPI 宿主档案
 pub const CLIENT_WEBAPI_PROFILE: WebApiHostProfile = WebApiHostProfile {
+    configure_http_clients: Some(http_clients::configure),
+    application: webapi_support::application,
     host_name: "client_webapi",
     default_config_path: "presentation/client_webapi/appsettings",
-    permission_module: "client_webapi",
+    permission_module: "Client.WebAPI",
     default_lock_prefix: "client_webapi",
     default_logger_project: "client_webapi",
-    default_file_root: "presentation/client_webapi/storage",
+    default_file_root: ".",
+    check_log_read_health: false,
+    serve_web_root: false,
     build_distributed_lock: host_support::build_distributed_lock,
     build_cache: host_support::build_cache,
     build_logger_runtime: host_support::build_logger_runtime,
+    build_event_transport: host_support::build_event_transport,
     build_file_storage: host_support::build_file_storage,
     build_email_sender: host_support::build_email_sender,
 };

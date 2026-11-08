@@ -1,9 +1,10 @@
 use chrono::Utc;
 use repository::extensions::SoftDeleteQueryExt;
 use repository::{order, order_detail, product};
+use repository_core::pagination::SignedPage;
+use repository_core::versioned::VersionedActiveModel;
 use sea_orm::{
-    ActiveModelTrait, ColumnTrait, EntityTrait, IntoActiveModel, PaginatorTrait, QueryFilter,
-    QueryOrder, QuerySelect, Set,
+    ColumnTrait, EntityTrait, IntoActiveModel, PaginatorTrait, QueryFilter, QueryOrder, Set,
 };
 use serde_json::json;
 
@@ -14,7 +15,7 @@ use application_interface::{
 
 use crate::user::models::PageListDto;
 use crate::write_support::{
-    apply_soft_delete_audit_fields, apply_update_user_audit_field, normalize_page,
+    apply_soft_delete_audit_fields, apply_update_user_audit_field, page_offset,
     validate_page_request, write_data_update_log,
 };
 
@@ -74,20 +75,19 @@ impl<'a> OrderService<'a> {
             .count(self.context.db)
             .await
             .map_err(to_app_error)?;
+        let total = repository_core::pagination::count_i32(total).map_err(to_app_error)?;
 
         if total == 0 {
             return Ok(PageListDto {
                 total: 0,
-                list: vec![],
+                list: Some(vec![]),
             });
         }
 
-        let page = normalize_page(params.page);
-        let skip = (page - 1) * params.page_size;
+        let skip = page_offset(params.page, params.page_size);
         let list = query
             .order_by_desc(order::Column::Id)
-            .offset(skip)
-            .limit(params.page_size)
+            .signed_page(skip, params.page_size)
             .all(self.context.db)
             .await
             .map_err(to_app_error)?
@@ -95,7 +95,10 @@ impl<'a> OrderService<'a> {
             .map(to_order_dto)
             .collect();
 
-        Ok(PageListDto { total, list })
+        Ok(PageListDto {
+            total,
+            list: Some(list),
+        })
     }
 
     /// 获取订单及明细
@@ -186,7 +189,7 @@ impl<'a> OrderService<'a> {
         );
 
         active
-            .update(self.context.db)
+            .update_versioned(self.context.db)
             .await
             .map_err(|e| AppError::internal(format!("删除订单失败: {e}")))?;
 
@@ -250,7 +253,7 @@ impl<'a> OrderService<'a> {
         apply_update_user_audit_field(&mut active.update_user_id, current_user);
 
         let updated = active
-            .update(self.context.db)
+            .update_versioned(self.context.db)
             .await
             .map_err(|error| AppError::internal(format!("更新订单状态失败: {error}")))?;
 
@@ -295,7 +298,7 @@ impl<'a> OrderService<'a> {
         apply_update_user_audit_field(&mut active.update_user_id, current_user);
 
         let updated = active
-            .update(self.context.db)
+            .update_versioned(self.context.db)
             .await
             .map_err(|error| AppError::internal(format!("关闭订单失败: {error}")))?;
 
@@ -344,7 +347,7 @@ impl<'a> OrderService<'a> {
         apply_update_user_audit_field(&mut active.update_user_id, current_user);
 
         let updated = active
-            .update(self.context.db)
+            .update_versioned(self.context.db)
             .await
             .map_err(|error| AppError::internal(format!("标记订单退款失败: {error}")))?;
 

@@ -7,6 +7,18 @@ use std::{
 use walkdir::WalkDir;
 use zip::{CompressionMethod, ZipWriter, write::SimpleFileOptions};
 
+/// 获取包含点号的文件扩展名，保留空格；点文件和末尾点号遵守宿主 Path.GetExtension 语义。
+pub fn file_extension(file_name: &str) -> &str {
+    let name = file_name
+        .rsplit(std::path::is_separator)
+        .next()
+        .unwrap_or_default();
+    match name.rfind('.') {
+        Some(index) if index + 1 < name.len() => &name[index..],
+        _ => "",
+    }
+}
+
 /// 临时文件清理守卫
 ///
 /// 在作用域提前退出或异步 Future 被取消时同步尽力删除临时文件
@@ -196,17 +208,20 @@ pub fn decompress_zip(zip_path: impl AsRef<Path>, folder_path: impl AsRef<Path>)
 
     for index in 0..archive.len() {
         let mut entry = archive.by_index(index)?;
+        let entry_name = entry
+            .name()
+            .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
         if entry.is_symlink() {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidData,
-                format!("Zip 文件包含不允许的符号链接: {}", entry.name()),
+                format!("Zip 文件包含不允许的符号链接: {entry_name}"),
             ));
         }
 
         let enclosed_name = entry.enclosed_name().ok_or_else(|| {
             io::Error::new(
                 io::ErrorKind::InvalidData,
-                format!("Zip 文件路径无效: {}", entry.name()),
+                format!("Zip 文件路径无效: {entry_name}"),
             )
         })?;
 

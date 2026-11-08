@@ -1,6 +1,6 @@
-use axum::Router;
 use std::sync::Arc;
-use utoipa::openapi::OpenApi as OpenApiDocument;
+use utoipa::{OpenApi, openapi::OpenApi as OpenApiDocument};
+use webapi_core::routes::WebApiRoutes as Router;
 
 use crate::{
     handlers::demo::{
@@ -11,8 +11,7 @@ use crate::{
 
 use super::WebApiFeature;
 
-/// 仅在调试构建中开放的客户端演示特性
-/// 开发调试用 Demo 特性
+/// 客户端服务代理与 LLM 能力演示特性
 pub struct DemoFeature;
 
 impl WebApiFeature for DemoFeature {
@@ -24,19 +23,31 @@ impl WebApiFeature for DemoFeature {
     ) -> Router<Arc<AppState>> {
         // 这些路由用于联调验证 不进入正式权限体系
         router
-            .route("/Demo/Echo", axum::routing::get(echo))
-            .route("/Demo/Add", axum::routing::get(add))
-            .route("/Demo/Echo2", axum::routing::get(echo2))
-            .route("/Demo/Add2", axum::routing::post(add2))
-            .route("/Demo/ARef", axum::routing::get(a_ref))
-            .route("/Demo/StreamNumbers", axum::routing::get(stream_numbers))
-            .route("/Demo/StreamNumbers2", axum::routing::get(stream_numbers2))
-            .route("/Demo/TestLLM", axum::routing::get(test_llm))
-            .route("/Demo/TestLLMStream", axum::routing::get(test_llm_stream))
+            .route("/api/Demo/Echo", webapi_core::routes::get(echo))
+            .route("/api/Demo/Add", webapi_core::routes::get(add))
+            .route("/api/Demo/Echo2", webapi_core::routes::get(echo2))
+            .route(
+                "/api/Demo/Add2",
+                webapi_core::routes::post(add2).json_body("dtoArticle"),
+            )
+            .route("/api/Demo/ARef", webapi_core::routes::get(a_ref))
+            .route(
+                "/api/Demo/StreamNumbers",
+                webapi_core::routes::get(stream_numbers),
+            )
+            .route(
+                "/api/Demo/StreamNumbers2",
+                webapi_core::routes::get(stream_numbers2),
+            )
+            .route("/api/Demo/TestLLM", webapi_core::routes::get(test_llm))
+            .route(
+                "/api/Demo/TestLLMStream",
+                webapi_core::routes::get(test_llm_stream),
+            )
     }
 
-    /// 当前特性暂不提供独立 OpenAPI 子文档
+    /// 获取演示接口文档。
     fn openapi(&self) -> Option<OpenApiDocument> {
-        None
+        Some(crate::openapi::demo::DemoApiDoc::openapi())
     }
 }

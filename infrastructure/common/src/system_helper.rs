@@ -1,4 +1,10 @@
-use std::{collections::HashSet, io, net::IpAddr, path::Path, process::Output, time::Duration};
+use std::{
+    io::{self, Write},
+    net::{SocketAddr, ToSocketAddrs},
+    path::Path,
+    process::Output,
+    time::Duration,
+};
 
 #[cfg(windows)]
 use std::{
@@ -6,45 +12,75 @@ use std::{
     path::PathBuf,
 };
 
-#[cfg(windows)]
 use base64::Engine as _;
 
-use tokio::process::Command;
+use tokio::{io::AsyncReadExt, process::Command};
 
+use crate::cancellation::{CancellationToken, OperationCancelled};
 use crate::io_helper::TemporaryFileGuard;
 #[cfg(windows)]
 use crate::io_helper::replace_file;
+
+#[cfg(target_os = "linux")]
+mod linux_process_tree;
 
 /// Shell 默认执行超时时间
 const DEFAULT_SHELL_TIMEOUT: Duration = Duration::from_secs(60);
 
 /// 获取本机全部 IP
-pub fn get_all_ip_address() -> Vec<String> {
-    resolve_host_ips()
+pub fn get_all_ip_address() -> io::Result<Vec<String>> {
+    Ok(resolve_host_ips()?
+        .into_iter()
+        .map(format_host_address)
+        .collect())
 }
 
 /// 获取本机 IPv4 地址
-pub fn get_ipv4_address() -> Option<String> {
-    find_preferred_ip(resolve_host_ips(), IpAddr::is_ipv4)
+pub fn get_ipv4_address() -> io::Result<Option<String>> {
+    Ok(resolve_host_ips()?
+        .into_iter()
+        .find(SocketAddr::is_ipv4)
+        .map(format_host_address))
 }
 
 /// 获取本机 IPv6 地址
-pub fn get_ipv6_address() -> Option<String> {
-    find_preferred_ip(resolve_host_ips(), IpAddr::is_ipv6)
+pub fn get_ipv6_address() -> io::Result<Option<String>> {
+    Ok(resolve_host_ips()?
+        .into_iter()
+        .find(SocketAddr::is_ipv6)
+        .map(format_host_address))
 }
 
 /// Linux 运行 Shell 脚本
 ///
 /// 使用默认 60 秒超时，并在独立运行时线程中执行严格 Bash 脚本
 pub fn linux_shell(shell: &str) -> io::Result<String> {
-    run_shell_blocking(shell, ShellKind::Linux)
+    linux_shell_blocking_with_options(shell, DEFAULT_SHELL_TIMEOUT, &CancellationToken::new())
 }
 
 /// Windows 运行 Shell 脚本
 ///
 /// 使用默认 60 秒超时，并要求 PowerShell 7.3 及以上版本
 pub fn windows_shell(shell: &str) -> io::Result<String> {
-    run_shell_blocking(shell, ShellKind::Windows)
+    windows_shell_blocking_with_options(shell, DEFAULT_SHELL_TIMEOUT, &CancellationToken::new())
+}
+
+/// 同步运行 Bash，使用指定超时和调用方取消令牌
+pub fn linux_shell_blocking_with_options(
+    shell: &str,
+    timeout: Duration,
+    cancellation: &CancellationToken,
+) -> io::Result<String> {
+    run_shell_blocking(shell, ShellKind::Linux, timeout, cancellation)
+}
+
+/// 同步运行 PowerShell，使用指定超时和调用方取消令牌
+pub fn windows_shell_blocking_with_options(
+    shell: &str,
+    timeout: Duration,
+    cancellation: &CancellationToken,
+) -> io::Result<String> {
+    run_shell_blocking(shell, ShellKind::Windows, timeout, cancellation)
 }
 
 /// 将 Word 文档转换为 PDF
@@ -72,19 +108,18 @@ pub fn ppt_to_pdf(ppt_path: impl AsRef<Path>, pdf_path: impl AsRef<Path>) -> io:
 ///
 /// Future 被取消或提前 Drop 时会尽力终止整个进程树
 pub async fn linux_shell_with_timeout(shell: &str, timeout: Duration) -> io::Result<String> {
-    validate_shell_timeout(timeout)?;
+    linux_shell_with_options(shell, timeout, &CancellationToken::new()).await
+}
 
+/// 异步运行 Bash；取消或超时后等待子进程退出及输出排空
+pub async fn linux_shell_with_options(
+    shell: &str,
+    timeout: Duration,
+    cancellation: &CancellationToken,
+) -> io::Result<String> {
     let strict_shell = format!("shopt -s inherit_errexit\n{shell}");
-    let arguments = [
-        "--noprofile",
-        "--norc",
-        "-e",
-        "-o",
-        "pipefail",
-        "-c",
-        &strict_shell,
-    ];
-    let output = execute_shell("/bin/bash", &arguments, Some(timeout)).await?;
+    let arguments = ["-e", "-o", "pipefail", "-c", &strict_shell];
+    let output = execute_shell("/bin/bash", &arguments, Some(timeout), cancellation).await?;
     ensure_command_success(output)
 }
 
@@ -92,30 +127,62 @@ pub async fn linux_shell_with_timeout(shell: &str, timeout: Duration) -> io::Res
 ///
 /// Future 被取消或提前 Drop 时会尽力终止整个进程树
 pub async fn windows_shell_with_timeout(shell: &str, timeout: Duration) -> io::Result<String> {
-    validate_shell_timeout(timeout)?;
+    windows_shell_with_options(shell, timeout, &CancellationToken::new()).await
+}
 
-    execute_windows_shell(shell, Some(timeout)).await
+/// 异步运行 PowerShell；取消或超时后等待子进程退出及输出排空
+pub async fn windows_shell_with_options(
+    shell: &str,
+    timeout: Duration,
+    cancellation: &CancellationToken,
+) -> io::Result<String> {
+    execute_windows_shell(shell, Some(timeout), cancellation).await
 }
 
 /// 异步执行严格 PowerShell 脚本
-async fn execute_windows_shell(shell: &str, timeout: Option<Duration>) -> io::Result<String> {
+async fn execute_windows_shell(
+    shell: &str,
+    timeout: Option<Duration>,
+    cancellation: &CancellationToken,
+) -> io::Result<String> {
     let temp_script_path =
         std::env::temp_dir().join(format!("rust_engine.{}.ps1", uuid::Uuid::now_v7().simple()));
+    let mut create_options = std::fs::OpenOptions::new();
+    create_options.write(true).create_new(true);
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::OpenOptionsExt;
+        create_options.share_mode(0);
+    }
+    let mut script_file = create_options.open(&temp_script_path)?;
+    // 只有成功独占创建后才接管清理，不能删除创建冲突的其他文件。
     let temp_script_guard = TemporaryFileGuard::new(temp_script_path);
-    std::fs::write(temp_script_guard.path(), shell.as_bytes())?;
+    let write_result = script_file.write_all(shell.as_bytes());
+    drop(script_file);
+    write_result?;
 
-    let encoded_script_path =
-        powershell_single_quoted(temp_script_guard.path().to_str().ok_or_else(|| {
+    let mut read_options = std::fs::OpenOptions::new();
+    read_options.read(true);
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::OpenOptionsExt;
+        // FILE_SHARE_READ：执行期间允许读取，但禁止写入或删除脚本。
+        read_options.share_mode(1);
+    }
+    let _script_lock = read_options.open(temp_script_guard.path())?;
+
+    let encoded_script_path = base64::engine::general_purpose::STANDARD.encode(
+        temp_script_guard.path().to_str().ok_or_else(|| {
             io::Error::new(io::ErrorKind::InvalidInput, "PowerShell 临时路径无效")
-        })?);
+        })?,
+    );
     let strict_shell = format!(
         "[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)\n\
          $OutputEncoding = [Console]::OutputEncoding\n\
          $ErrorActionPreference = 'Stop'\n\
          if ($PSVersionTable.PSVersion -lt [Version]'7.3') {{ throw '严格模式需要 PowerShell 7.3 及以上版本' }}\n\
-         Set-StrictMode -Version Latest\n\
          $PSNativeCommandUseErrorActionPreference = $true\n\
-         & '{encoded_script_path}'"
+         & ([System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('{encoded_script_path}')))"
     );
     let arguments = [
         "-NoLogo",
@@ -125,7 +192,7 @@ async fn execute_windows_shell(shell: &str, timeout: Option<Duration>) -> io::Re
         "-Command",
         strict_shell.as_str(),
     ];
-    let output = execute_shell("pwsh", &arguments, timeout).await?;
+    let output = execute_shell("pwsh", &arguments, timeout, cancellation).await?;
     ensure_command_success(output)
 }
 
@@ -151,10 +218,10 @@ fn run_office_conversion_blocking(
     #[cfg(not(windows))]
     {
         let _ = (source_path, pdf_path, office_kind);
-        return Err(io::Error::new(
+        Err(io::Error::new(
             io::ErrorKind::Unsupported,
             "Office 转 PDF 仅支持 Windows",
-        ));
+        ))
     }
 
     #[cfg(windows)]
@@ -196,7 +263,7 @@ async fn convert_office_to_pdf(
     let output_text = powershell_path_base64(temp_guard.path())?;
     let shell = office_kind.build_script(&source_text, &output_text);
 
-    execute_windows_shell(&shell, None).await?;
+    execute_windows_shell(&shell, None, &CancellationToken::new()).await?;
 
     let metadata = match fs::metadata(temp_guard.path()) {
         Ok(metadata) => metadata,
@@ -389,8 +456,14 @@ enum ShellKind {
 }
 
 /// 在独立运行时线程中执行同步 Shell 入口
-fn run_shell_blocking(shell: &str, shell_kind: ShellKind) -> io::Result<String> {
+fn run_shell_blocking(
+    shell: &str,
+    shell_kind: ShellKind,
+    timeout: Duration,
+    cancellation: &CancellationToken,
+) -> io::Result<String> {
     let shell = shell.to_string();
+    let cancellation = cancellation.clone();
     std::thread::Builder::new()
         .name("common-shell-runner".to_string())
         .spawn(move || {
@@ -401,10 +474,10 @@ fn run_shell_blocking(shell: &str, shell_kind: ShellKind) -> io::Result<String> 
             runtime.block_on(async move {
                 match shell_kind {
                     ShellKind::Linux => {
-                        linux_shell_with_timeout(&shell, DEFAULT_SHELL_TIMEOUT).await
+                        linux_shell_with_options(&shell, timeout, &cancellation).await
                     }
                     ShellKind::Windows => {
-                        windows_shell_with_timeout(&shell, DEFAULT_SHELL_TIMEOUT).await
+                        windows_shell_with_options(&shell, timeout, &cancellation).await
                     }
                 }
             })
@@ -418,39 +491,89 @@ async fn execute_shell(
     program: &str,
     arguments: &[&str],
     timeout: Option<Duration>,
+    cancellation: &CancellationToken,
 ) -> io::Result<Output> {
+    if let Some(timeout) = timeout {
+        validate_shell_timeout(timeout)?;
+    }
+    check_shell_cancellation(cancellation)?;
+
     let mut command = Command::new(program);
     command
         .args(arguments)
-        .stdin(std::process::Stdio::null())
+        .kill_on_drop(true)
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped());
 
-    #[cfg(unix)]
+    #[cfg(all(unix, not(target_os = "linux")))]
     command.process_group(0);
+    #[cfg(windows)]
+    command.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
 
-    let child = command.spawn()?;
+    let mut child = command.spawn()?;
     let process_id = child
         .id()
         .ok_or_else(|| io::Error::other("无法获取 Shell 进程 ID"))?;
     let mut process_tree_guard = ProcessTreeGuard::new(process_id);
+    let mut stdout = child.stdout.take().expect("已启用 Shell 标准输出管道");
+    let mut stderr = child.stderr.take().expect("已启用 Shell 标准错误管道");
+    let mut output_bytes = Vec::new();
+    let mut error_bytes = Vec::new();
+    let started = tokio::time::Instant::now();
 
-    let output = match timeout {
-        Some(timeout) => match tokio::time::timeout(timeout, child.wait_with_output()).await {
-            Ok(Ok(output)) => output,
-            Ok(Err(error)) => return Err(error),
-            Err(_) => {
-                return Err(io::Error::new(
-                    io::ErrorKind::TimedOut,
-                    format!("Shell 执行超过 {} 秒", timeout.as_secs_f64()),
-                ));
+    // 与源进程等待循环一致：每次先等待退出，未退出才观察取消及超时。
+    // 两个管道同时读取，不能等退出后再读取而令满管道阻塞子进程。
+    let wait = async {
+        loop {
+            match tokio::time::timeout(Duration::from_millis(100), child.wait()).await {
+                Ok(Ok(status)) => {
+                    process_tree_guard.disarm();
+                    return Ok((status, false));
+                }
+                Ok(Err(error)) => {
+                    return Err(error);
+                }
+                Err(_) => {}
             }
-        },
-        None => child.wait_with_output().await?,
-    };
 
-    process_tree_guard.disarm();
-    Ok(output)
+            if cancellation.is_cancelled()
+                || timeout.is_some_and(|limit| started.elapsed() >= limit)
+            {
+                if let Some(status) = child.try_wait()? {
+                    process_tree_guard.disarm();
+                    return Ok((status, true));
+                }
+                // 整树清理可能已经终止根进程但有后代失败，不能据根退出吞掉错误。
+                process_tree_guard.terminate()?;
+                let status = child.wait().await?;
+                return Ok((status, true));
+            }
+        }
+    };
+    let ((status, stopped), output_result, error_result) = tokio::try_join!(
+        wait,
+        // 读取错误留待进程结束且两路读取完成后传播；等待/终止错误则立即退出。
+        async { Ok::<_, io::Error>(stdout.read_to_end(&mut output_bytes).await) },
+        async { Ok::<_, io::Error>(stderr.read_to_end(&mut error_bytes).await) },
+    )?;
+    output_result?;
+    error_result?;
+    if stopped {
+        // 排空期间收到取消也优先报告取消，不能覆盖为超时或命令失败。
+        check_shell_cancellation(cancellation)?;
+        return Err(io::Error::new(
+            io::ErrorKind::TimedOut,
+            format!(
+                "Shell执行超过{}秒",
+                timeout.expect("非取消的停止必然有超时时限").as_secs_f64()
+            ),
+        ));
+    }
+    Ok(Output {
+        status,
+        stdout: output_bytes,
+        stderr: error_bytes,
+    })
 }
 
 /// 进程树清理守卫
@@ -477,42 +600,70 @@ impl ProcessTreeGuard {
     fn disarm(&mut self) {
         self.active = false;
     }
+
+    /// 只发送一次终止，后续由调用方等待退出，避免再次使用已回收的 PID
+    fn terminate(&mut self) -> io::Result<()> {
+        if self.active {
+            self.disarm();
+            terminate_process_tree(self.process_id)?;
+        }
+        Ok(())
+    }
 }
 
 impl Drop for ProcessTreeGuard {
     /// 作用域退出时尽力终止进程树
     fn drop(&mut self) {
-        if self.active {
-            terminate_process_tree(self.process_id);
-        }
+        let _ = self.terminate();
     }
 }
 
 /// 终止进程树
-#[cfg(unix)]
-fn terminate_process_tree(process_id: u32) {
-    if let Ok(process_id) = i32::try_from(process_id) {
-        // SAFETY: 负进程 ID 表示向该进程组发送 SIGKILL，不解引用任何指针
-        unsafe {
-            libc::kill(-process_id, libc::SIGKILL);
-        }
+#[cfg(target_os = "linux")]
+fn terminate_process_tree(process_id: u32) -> io::Result<()> {
+    linux_process_tree::terminate(process_id)
+}
+
+/// 其他 Unix 平台使用单独进程组清理
+#[cfg(all(unix, not(target_os = "linux")))]
+fn terminate_process_tree(process_id: u32) -> io::Result<()> {
+    let process_id = i32::try_from(process_id)
+        .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "Shell 进程 ID 无效"))?;
+    // SAFETY: 负进程 ID 表示向新建的子进程组发送 SIGKILL，不解引用任何指针。
+    if unsafe { libc::kill(-process_id, libc::SIGKILL) } == 0 {
+        Ok(())
+    } else {
+        Err(io::Error::last_os_error())
     }
 }
 
 /// 终止进程树
 #[cfg(windows)]
-fn terminate_process_tree(process_id: u32) {
-    let _ = std::process::Command::new("taskkill")
+fn terminate_process_tree(process_id: u32) -> io::Result<()> {
+    use std::os::windows::process::CommandExt;
+
+    let status = std::process::Command::new("taskkill")
+        .creation_flags(0x0800_0000)
         .args(["/PID", &process_id.to_string(), "/T", "/F"])
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
-        .status();
+        .status()?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err(io::Error::other("无法终止 Shell 进程树"))
+    }
 }
 
 /// 终止进程树
 #[cfg(not(any(unix, windows)))]
-fn terminate_process_tree(_process_id: u32) {}
+fn terminate_process_tree(_process_id: u32) -> io::Result<()> {
+    Err(io::Error::new(
+        io::ErrorKind::Unsupported,
+        "不支持终止 Shell 进程树",
+    ))
+}
 
 /// 检查命令是否执行成功并返回标准输出
 fn ensure_command_success(output: Output) -> io::Result<String> {
@@ -520,15 +671,11 @@ fn ensure_command_success(output: Output) -> io::Result<String> {
         return Ok(String::from_utf8_lossy(&output.stdout).into_owned());
     }
 
-    let message = String::from_utf8_lossy(&output.stderr).trim().to_string();
-    let message = if message.is_empty() {
-        format!("命令执行失败，退出码: {:?}", output.status.code())
-    } else {
-        format!(
-            "命令执行失败，退出码: {:?}，错误: {message}",
-            output.status.code()
-        )
-    };
+    let message = format!(
+        "Shell执行失败，退出码：{}，错误：{}",
+        shell_exit_code(&output.status),
+        String::from_utf8_lossy(&output.stderr),
+    );
 
     Err(io::Error::other(message))
 }
@@ -538,54 +685,71 @@ fn validate_shell_timeout(timeout: Duration) -> io::Result<()> {
     if timeout.is_zero() {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
-            "Shell 超时时间必须大于 0",
+            "超时秒数必须大于0",
         ));
     }
 
     Ok(())
 }
 
-/// 转义 PowerShell 单引号字符串
-fn powershell_single_quoted(value: &str) -> String {
-    value.replace('\'', "''")
+/// 保留可识别的取消错误，不按错误消息推断取消
+fn check_shell_cancellation(cancellation: &CancellationToken) -> io::Result<()> {
+    if cancellation.is_cancelled() {
+        Err(io::Error::new(
+            io::ErrorKind::Interrupted,
+            OperationCancelled,
+        ))
+    } else {
+        Ok(())
+    }
 }
 
-/// 解析本机地址
-fn resolve_host_ips() -> Vec<String> {
-    let Ok(interfaces) = if_addrs::get_if_addrs() else {
-        return Vec::new();
-    };
-
-    let mut seen = HashSet::new();
-    let mut ips = Vec::new();
-    for interface in interfaces {
-        let ip = interface.ip().to_string();
-        if seen.insert(ip.clone()) {
-            ips.push(ip);
-        }
+/// .NET 在 Unix 上将信号退出映射为 128 加信号编号
+fn shell_exit_code(status: &std::process::ExitStatus) -> i32 {
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::ExitStatusExt;
+        status
+            .code()
+            .unwrap_or_else(|| 128 + status.signal().unwrap_or(0))
     }
-
-    ips
+    #[cfg(not(unix))]
+    status.code().unwrap_or(-1)
 }
 
-/// 查找优先使用的本机地址
-fn find_preferred_ip(ips: Vec<String>, matches_family: fn(&IpAddr) -> bool) -> Option<String> {
-    let mut fallback = None;
-    for item in ips {
-        let Ok(ip) = item.parse::<IpAddr>() else {
-            continue;
-        };
-        if !matches_family(&ip) {
-            continue;
-        }
+/// 按本机主机名解析地址，保持解析顺序和错误，不把失败当作空列表。
+fn resolve_host_ips() -> io::Result<Vec<SocketAddr>> {
+    let name = hostname::get()?
+        .into_string()
+        .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "本机主机名不是有效的 UTF-8"))?;
+    Ok((name.as_str(), 0).to_socket_addrs()?.collect())
+}
 
-        if fallback.is_none() {
-            fallback = Some(item.clone());
-        }
-        if !ip.is_loopback() {
-            return Some(item);
+fn format_host_address(address: SocketAddr) -> String {
+    if let SocketAddr::V6(address) = address
+        && address.scope_id() != 0
+    {
+        return format!("{}%{}", address.ip(), address.scope_id());
+    }
+    address.ip().to_string()
+}
+
+/// 同时响应交互退出和容器停止信号，供宿主有序停止后台服务。
+pub async fn wait_for_shutdown() -> Result<(), String> {
+    #[cfg(unix)]
+    {
+        let mut terminate =
+            tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+                .map_err(|error| format!("注册停止信号失败: {error}"))?;
+        tokio::select! {
+            result = tokio::signal::ctrl_c() => result.map_err(|error| error.to_string()),
+            _ = terminate.recv() => Ok(()),
         }
     }
-
-    fallback
+    #[cfg(not(unix))]
+    {
+        tokio::signal::ctrl_c()
+            .await
+            .map_err(|error| error.to_string())
+    }
 }

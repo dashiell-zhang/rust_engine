@@ -1,52 +1,82 @@
-use chrono::{DateTime, NaiveDate, NaiveDateTime};
-use serde::{Serialize, de::DeserializeOwned};
-use serde_json::Value;
-use std::collections::HashMap;
+use crate::data_helper::DataCell;
+use indexmap::IndexMap;
+use serde::{de::DeserializeOwned, ser::Error};
+
+mod model;
+pub use model::{Property, PropertyKind, PropertyModel, PropertyResult};
+#[doc(hidden)]
+pub use serde::Serialize;
+pub use source_generator_core::PropertyModel;
+
+/// 按属性名读取模板路径，错误保留调用方传入的完整路径。
+pub fn get_property<T: PropertyModel + ?Sized>(value: &T, field: &str) -> PropertyResult<Property> {
+    let path = field.split('.').collect::<Vec<_>>();
+    value
+        .read_property(&path)?
+        .ok_or_else(|| serde_json::Error::custom(format!("{field}字段不存在")))
+}
 
 /// 获取对象的属性字典
-pub fn get_properties<T>(value: &T) -> Result<HashMap<String, Value>, serde_json::Error>
+pub fn get_properties<T>(value: &T) -> PropertyResult<IndexMap<String, DataCell>>
 where
-    T: Serialize,
+    T: PropertyModel,
 {
-    object_to_map(value)
+    properties_to_map(value, false)
 }
 
 /// 获取对象的属性显示名字典
-pub fn get_properties_display_name<T>(
-    value: &T,
-) -> Result<HashMap<String, Value>, serde_json::Error>
+pub fn get_properties_display_name<T>(value: &T) -> PropertyResult<IndexMap<String, DataCell>>
 where
-    T: Serialize,
+    T: PropertyModel,
 {
-    object_to_map(value)
+    properties_to_map(value, true)
+}
+
+fn properties_to_map<T: PropertyModel>(
+    value: &T,
+    display_names: bool,
+) -> PropertyResult<IndexMap<String, DataCell>> {
+    let mut result = IndexMap::new();
+    for property in value.properties()? {
+        let Some(value) = property.scalar_cell()? else {
+            continue;
+        };
+        let name = if display_names {
+            property.display_name.unwrap_or(property.name)
+        } else {
+            property.name
+        };
+        if result.insert(name.to_owned(), value).is_some() {
+            return Err(serde_json::Error::custom(format!("属性名称重复：{name}")));
+        }
+    }
+    Ok(result)
 }
 
 /// 比较两个实体并输出差异文本
-pub fn comparison_entity<T>(original: &T, after: &T) -> Result<String, serde_json::Error>
+pub fn comparison_entity<T>(original: &T, after: &T) -> PropertyResult<String>
 where
-    T: Serialize,
+    T: PropertyModel,
 {
-    let original = object_to_map(original)?;
-    let after = object_to_map(after)?;
+    let original = original.properties()?;
+    let after = after.properties()?;
     let mut lines = Vec::new();
-    let mut keys = original.keys().cloned().collect::<Vec<_>>();
-    keys.sort();
-
-    for key in keys {
-        let Some(original_value) = original.get(&key) else {
-            continue;
-        };
-        let Some(after_value) = after.get(&key) else {
-            continue;
-        };
-
-        if original_value == after_value {
+    for property in original {
+        let other = after
+            .iter()
+            .find(|other| other.name == property.name)
+            .ok_or_else(|| serde_json::Error::custom(format!("属性不存在：{}", property.name)))?;
+        if property.value_equals(other)? {
             continue;
         }
-
-        let left = display_value(original_value);
-        let right = display_value(after_value);
-        lines.push(format!("{key}:{left} -> {right}； \n"));
+        let left = property.display_value()?;
+        let right = other.display_value()?;
+        let arrow = if property.kind == PropertyKind::DateTime {
+            " ->"
+        } else {
+            " -> "
+        };
+        lines.push(format!("{}:{left}{arrow}{right}； \n", property.name));
     }
 
     Ok(lines.concat())
@@ -79,43 +109,4 @@ where
     let payload = serde_json::to_vec(right)?;
     *left = serde_json::from_slice(&payload)?;
     Ok(())
-}
-
-/// 对象转字典
-fn object_to_map<T>(value: &T) -> Result<HashMap<String, Value>, serde_json::Error>
-where
-    T: Serialize,
-{
-    match serde_json::to_value(value)? {
-        Value::Object(map) => Ok(map.into_iter().collect()),
-        _ => Ok(HashMap::new()),
-    }
-}
-
-/// 生成差异展示值
-fn display_value(value: &Value) -> String {
-    match value {
-        Value::Null => String::new(),
-        Value::Bool(value) => {
-            if *value {
-                "是".to_string()
-            } else {
-                "否".to_string()
-            }
-        }
-        Value::String(value) => {
-            if let Ok(date) = DateTime::parse_from_rfc3339(value) {
-                return date.format("%Y-%m-%d").to_string();
-            }
-            if let Ok(date) = NaiveDate::parse_from_str(value, "%Y-%m-%d") {
-                return date.format("%Y-%m-%d").to_string();
-            }
-            if let Ok(date_time) = NaiveDateTime::parse_from_str(value, "%Y-%m-%d %H:%M:%S") {
-                return date_time.format("%Y-%m-%d").to_string();
-            }
-            value.clone()
-        }
-        Value::Number(value) => value.to_string(),
-        Value::Array(_) | Value::Object(_) => value.to_string(),
-    }
 }

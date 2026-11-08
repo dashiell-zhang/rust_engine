@@ -6,8 +6,8 @@ use application_interface::{
     error::AppError,
     http_client::HttpClientFactory,
     llm::{
-        AppLlmChatRequest, AppLlmChatResponse, AppLlmClient, AppLlmMessage, AppLlmRole,
-        AppLlmStreamChunk, AppLlmUsage,
+        AppLlmChatRequest, AppLlmChatResponse, AppLlmChoice, AppLlmClient, AppLlmMessage,
+        AppLlmRole, AppLlmStreamChoice, AppLlmStreamChunk, AppLlmStreamDelta, AppLlmUsage,
     },
 };
 
@@ -23,7 +23,7 @@ impl ModelConfigAppLlmClient {
         config: LlmModelConfig,
         http_client_factory: &HttpClientFactory,
     ) -> Result<Self, AppError> {
-        let client = create_client(http_client_factory.client(), config)
+        let client = create_client(http_client_factory.streaming_client(), config)
             .map_err(|error| AppError::internal(format!("初始化 LLM 客户端失败: {error}")))?;
 
         Ok(Self { client })
@@ -38,12 +38,12 @@ impl AppLlmClient for ModelConfigAppLlmClient {
             .client
             .chat(to_chat_request(request))
             .await
-            .map_err(|error| AppError::internal(format!("LLM 调用失败: {error}")))?;
+            .map_err(to_app_error)?;
 
         Ok(AppLlmChatResponse {
-            response_id: response.id,
+            id: response.id,
             model: response.model,
-            messages: response.choices.into_iter().map(to_app_message).collect(),
+            choices: response.choices.into_iter().map(to_app_choice).collect(),
             usage: response.usage.map(to_app_usage),
         })
     }
@@ -70,16 +70,7 @@ fn to_chat_request(request: AppLlmChatRequest) -> ChatRequest {
         request.messages.into_iter().map(to_chat_message).collect(),
     );
 
-    if let Some(temperature) = request.temperature {
-        chat_request = chat_request.with_temperature(f64::from(temperature));
-    }
-
-    if let Some(max_tokens) = request
-        .max_tokens
-        .and_then(|value| i32::try_from(value).ok())
-    {
-        chat_request = chat_request.with_max_tokens(max_tokens);
-    }
+    chat_request.user = request.user;
 
     if let Some(extra_body) = request.extra_body {
         // 透传应用层附带的模型协议扩展参数
@@ -96,59 +87,71 @@ fn to_chat_message(message: AppLlmMessage) -> ChatMessage {
             AppLlmRole::System => ChatRole::System,
             AppLlmRole::User => ChatRole::User,
             AppLlmRole::Assistant => ChatRole::Assistant,
+            AppLlmRole::Tool => ChatRole::Tool,
         },
         content: message.content,
     }
 }
 
-/// 转换基础设施层消息为应用层消息
-fn to_app_message(choice: llm::ChatChoice) -> AppLlmMessage {
-    AppLlmMessage {
-        role: match choice.message.role {
-            ChatRole::System => AppLlmRole::System,
-            ChatRole::User => AppLlmRole::User,
-            ChatRole::Assistant | ChatRole::Tool => AppLlmRole::Assistant,
-        },
-        content: choice.message.content,
+fn to_app_role(role: ChatRole) -> AppLlmRole {
+    match role {
+        ChatRole::System => AppLlmRole::System,
+        ChatRole::User => AppLlmRole::User,
+        ChatRole::Assistant => AppLlmRole::Assistant,
+        ChatRole::Tool => AppLlmRole::Tool,
     }
 }
 
-/// 转换基础设施层用量为应用层用量
+fn to_app_choice(choice: llm::ChatChoice) -> AppLlmChoice {
+    AppLlmChoice {
+        index: choice.index,
+        message: AppLlmMessage {
+            role: to_app_role(choice.message.role),
+            content: choice.message.content,
+        },
+        finish_reason: choice.finish_reason,
+    }
+}
+
 fn to_app_usage(usage: llm::Usage) -> AppLlmUsage {
     AppLlmUsage {
-        prompt_tokens: usage
-            .prompt_tokens
-            .and_then(|value| u32::try_from(value).ok()),
-        completion_tokens: usage
-            .completion_tokens
-            .and_then(|value| u32::try_from(value).ok()),
-        total_tokens: usage
-            .total_tokens
-            .and_then(|value| u32::try_from(value).ok()),
+        prompt_tokens: usage.prompt_tokens,
+        completion_tokens: usage.completion_tokens,
+        total_tokens: usage.total_tokens,
     }
 }
 
-/// 转换流式分片
 fn to_app_stream_chunk(chunk: ChatStreamChunk) -> AppLlmStreamChunk {
-    // 同一个分片内可能包含多个 choice 增量
-    let delta = chunk
-        .choices
-        .iter()
-        .filter_map(|choice| choice.delta.content.as_deref())
-        .collect::<String>();
-
-    let done = chunk
-        .choices
-        .iter()
-        .any(|choice| choice.finish_reason.as_deref().is_some());
-
     AppLlmStreamChunk {
-        delta: if delta.is_empty() { None } else { Some(delta) },
-        done,
+        id: chunk.id,
+        model: chunk.model,
+        usage: chunk.usage.map(to_app_usage),
+        choices: chunk
+            .choices
+            .into_iter()
+            .map(|choice| AppLlmStreamChoice {
+                index: choice.index,
+                finish_reason: choice.finish_reason,
+                delta: AppLlmStreamDelta {
+                    role: choice.delta.role.map(to_app_role),
+                    content: choice.delta.content,
+                },
+            })
+            .collect(),
     }
 }
 
 /// 转换流式调用错误
 fn to_stream_app_error(error: llm::LlmError) -> AppError {
-    AppError::internal(format!("LLM 流式调用失败: {error}"))
+    match error {
+        llm::LlmError::Cancelled => AppError::cancelled(),
+        error => AppError::internal(format!("LLM 流式调用失败: {error}")),
+    }
+}
+
+fn to_app_error(error: llm::LlmError) -> AppError {
+    match error {
+        llm::LlmError::Cancelled => AppError::cancelled(),
+        error => AppError::internal(format!("LLM 调用失败: {error}")),
+    }
 }

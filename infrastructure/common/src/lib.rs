@@ -1,3 +1,6 @@
+/// 任务配置和调度共用的 Cron 解析能力
+pub mod cron_helper;
+
 /// 加解密与摘要能力
 pub mod crypto_helper;
 
@@ -48,3 +51,6 @@ pub mod totp_helper;
 
 /// Xml 处理能力
 pub mod xml_helper;
+
+/// 调用取消令牌与可取消操作。
+pub mod cancellation;

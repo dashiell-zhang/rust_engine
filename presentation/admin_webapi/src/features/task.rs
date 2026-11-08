@@ -7,9 +7,9 @@ use crate::{
     openapi::task::TaskApiDoc,
     state::AppState,
 };
-use axum::Router;
 use std::sync::Arc;
 use utoipa::{OpenApi, openapi::OpenApi as OpenApiDocument};
+use webapi_core::routes::WebApiRoutes as Router;
 
 use super::{WebApiFeature, WebApiRoutePermission};
 
@@ -29,7 +29,7 @@ impl WebApiFeature for TaskFeature {
             .route(
                 "/Operations/GetTaskSettingList",
                 protect_method_router(
-                    axum::routing::get(get_task_setting_list),
+                    webapi_core::routes::get(get_task_setting_list),
                     app_state.clone(),
                     permission_module.clone(),
                     "/Operations/GetTaskSettingList",
@@ -39,7 +39,7 @@ impl WebApiFeature for TaskFeature {
             .route(
                 "/Operations/UpdateTaskSetting",
                 protect_method_router(
-                    axum::routing::post(update_task_setting),
+                    webapi_core::routes::post(update_task_setting).json_body("updateTaskSetting"),
                     app_state.clone(),
                     permission_module.clone(),
                     "/Operations/UpdateTaskSetting",
@@ -49,7 +49,7 @@ impl WebApiFeature for TaskFeature {
             .route(
                 "/Operations/GetArgsScheduleTaskNameList",
                 protect_method_router(
-                    axum::routing::get(get_args_schedule_task_name_list),
+                    webapi_core::routes::get(get_args_schedule_task_name_list),
                     app_state.clone(),
                     permission_module.clone(),
                     "/Operations/GetArgsScheduleTaskNameList",
@@ -59,7 +59,7 @@ impl WebApiFeature for TaskFeature {
             .route(
                 "/Operations/CreateScheduleTask",
                 protect_method_router(
-                    axum::routing::post(create_schedule_task),
+                    webapi_core::routes::post(create_schedule_task).json_body("createTaskSetting"),
                     app_state.clone(),
                     permission_module.clone(),
                     "/Operations/CreateScheduleTask",
@@ -69,7 +69,7 @@ impl WebApiFeature for TaskFeature {
             .route(
                 "/Operations/GetQueueTaskList",
                 protect_method_router(
-                    axum::routing::get(get_queue_task_list),
+                    webapi_core::routes::get(get_queue_task_list),
                     app_state.clone(),
                     permission_module.clone(),
                     "/Operations/GetQueueTaskList",
@@ -79,7 +79,7 @@ impl WebApiFeature for TaskFeature {
             .route(
                 "/Operations/RetryQueueTask",
                 protect_method_router(
-                    axum::routing::post(retry_queue_task),
+                    webapi_core::routes::post(retry_queue_task),
                     app_state,
                     permission_module,
                     "/Operations/RetryQueueTask",
@@ -102,15 +102,15 @@ impl WebApiFeature for TaskFeature {
             },
             WebApiRoutePermission {
                 route: "/Operations/UpdateTaskSetting",
-                remark: "更新任务配置",
+                remark: "更新任务配置信息",
             },
             WebApiRoutePermission {
                 route: "/Operations/GetArgsScheduleTaskNameList",
-                remark: "获取支持参数的定时任务名称列表",
+                remark: "获取定时任务名称列表（去重）",
             },
             WebApiRoutePermission {
                 route: "/Operations/CreateScheduleTask",
-                remark: "创建带参定时任务",
+                remark: "新增带参定时任务（动态添加支持参数的 ScheduleTask）",
             },
             WebApiRoutePermission {
                 route: "/Operations/GetQueueTaskList",
@@ -118,7 +118,7 @@ impl WebApiFeature for TaskFeature {
             },
             WebApiRoutePermission {
                 route: "/Operations/RetryQueueTask",
-                remark: "重试队列任务",
+                remark: "重试队列任务（仅限未成功的任务）",
             },
         ]
     }

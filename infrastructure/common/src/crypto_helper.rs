@@ -363,7 +363,12 @@ pub fn rsa_decrypt(
     encryption_padding: RsaEncryptionPadding,
 ) -> Result<String, String> {
     let private_key = parse_rsa_private_key(private_key)?;
-    let content = decode_bytes(content, string_encoding)?;
+    let content = match string_encoding {
+        StringEncoding::Base64 => general_purpose::STANDARD
+            .decode(content.replace([' ', '\t', '\r', '\n'], ""))
+            .map_err(|error| error.to_string())?,
+        StringEncoding::Hex => decode_bytes(content, string_encoding)?,
+    };
     let decrypted = match encryption_padding {
         RsaEncryptionPadding::Pkcs1 => private_key
             .decrypt(Pkcs1v15Encrypt, &content)
@@ -379,7 +384,8 @@ pub fn rsa_decrypt(
             .map_err(|error| error.to_string())?,
     };
 
-    String::from_utf8(decrypted).map_err(|error| error.to_string())
+    // Encoding.UTF8.GetString 对非法 UTF-8 使用替换字符。
+    Ok(String::from_utf8_lossy(&decrypted).into_owned())
 }
 
 /// 使用 PBKDF2-SHA256 计算密码哈希
@@ -529,17 +535,24 @@ fn aes_gcm_decrypt_bytes(
 /// 解析 RSA 私钥
 fn parse_rsa_private_key(value: &str) -> Result<RsaPrivateKey, String> {
     let normalized = value.trim();
-
-    if normalized.starts_with("-----BEGIN") {
-        return RsaPrivateKey::from_pkcs1_pem(normalized)
+    let encoded = if normalized.starts_with("-----BEGIN") {
+        if let Ok(key) = RsaPrivateKey::from_pkcs1_pem(normalized)
             .or_else(|_| RsaPrivateKey::from_pkcs8_pem(normalized))
-            .map_err(|error| error.to_string());
-    }
-
+        {
+            return Ok(key);
+        }
+        // 源工具兼容移除换行的 PEM：取封装内的 Base64，再按 DER 导入。
+        normalized
+            .split("-----")
+            .filter(|part| !part.starts_with("BEGIN ") && !part.starts_with("END "))
+            .max_by_key(|part| part.len())
+            .unwrap_or_default()
+    } else {
+        normalized
+    };
     let decoded = general_purpose::STANDARD
-        .decode(normalized.replace(['\r', '\n'], ""))
+        .decode(encoded.replace([' ', '\t', '\r', '\n'], ""))
         .map_err(|error| error.to_string())?;
-
     RsaPrivateKey::from_pkcs1_der(&decoded)
         .or_else(|_| RsaPrivateKey::from_pkcs8_der(&decoded))
         .map_err(|error| error.to_string())

@@ -17,15 +17,20 @@ use webapi_core::host::{WebApiHostProfile, run_webapi_host};
 
 /// 管理端 WebAPI 宿主档案
 pub const ADMIN_WEBAPI_PROFILE: WebApiHostProfile = WebApiHostProfile {
+    configure_http_clients: None,
+    application: webapi_support::application,
     host_name: "admin_webapi",
     default_config_path: "presentation/admin_webapi/appsettings",
-    permission_module: "admin_webapi",
+    permission_module: "Admin.WebAPI",
     default_lock_prefix: "admin_webapi",
     default_logger_project: "admin_webapi",
-    default_file_root: "presentation/admin_webapi/storage",
+    default_file_root: "wwwroot",
+    check_log_read_health: true,
+    serve_web_root: true,
     build_distributed_lock: llm_support::build_distributed_lock,
     build_cache: llm_support::build_cache,
     build_logger_runtime: llm_support::build_logger_runtime,
+    build_event_transport: llm_support::build_event_transport,
     build_file_storage: llm_support::build_file_storage,
     build_email_sender: llm_support::build_email_sender,
 };

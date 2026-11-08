@@ -1,5 +1,6 @@
 use std::{collections::BTreeMap, sync::Arc};
 
+use crate::task_handler::QueueTaskResult;
 use async_trait::async_trait;
 
 /// 已注册任务类型
@@ -74,6 +75,20 @@ pub struct ScheduleTaskContext {
 pub trait QueueTaskHandler: Send + Sync {
     /// 执行队列任务
     async fn execute(&self, context: QueueTaskContext) -> Result<(), String>;
+
+    /// 有返回值的处理器可覆盖此方法；没有显式回调参数时使用返回值。
+    async fn execute_with_result(
+        &self,
+        context: QueueTaskContext,
+    ) -> Result<QueueTaskResult, String> {
+        self.execute(context).await?;
+        Ok(QueueTaskResult::none())
+    }
+
+    /// 执行作用域结束时释放异步资源，完成和失败路径均调用。
+    async fn close(&mut self) -> Result<(), String> {
+        Ok(())
+    }
 }
 
 #[async_trait]
@@ -81,7 +96,16 @@ pub trait QueueTaskHandler: Send + Sync {
 pub trait ScheduleTaskHandler: Send + Sync {
     /// 执行定时任务
     async fn execute(&self, context: ScheduleTaskContext) -> Result<(), String>;
+    async fn close(&mut self) -> Result<(), String> {
+        Ok(())
+    }
 }
+
+/// 工厂在每次实际执行时创建独立处理器；注册阶段不创建执行作用域。
+pub type QueueTaskFactory =
+    Arc<dyn Fn() -> Result<Box<dyn QueueTaskHandler>, String> + Send + Sync>;
+pub type ScheduleTaskFactory =
+    Arc<dyn Fn() -> Result<Box<dyn ScheduleTaskHandler>, String> + Send + Sync>;
 
 /// 队列任务定义
 #[derive(Clone)]
@@ -181,8 +205,8 @@ struct QueueTaskRegistration {
     /// 任务定义
     definition: QueueTaskDefinition,
 
-    /// 任务处理器
-    handler: Arc<dyn QueueTaskHandler>,
+    /// 每次执行的处理器工厂
+    factory: QueueTaskFactory,
 }
 
 /// 定时任务注册项
@@ -191,8 +215,8 @@ struct ScheduleTaskRegistration {
     /// 任务定义
     definition: ScheduleTaskDefinition,
 
-    /// 任务处理器
-    handler: Arc<dyn ScheduleTaskHandler>,
+    /// 每次执行的处理器工厂
+    factory: ScheduleTaskFactory,
 }
 
 /// 任务注册表
@@ -218,22 +242,31 @@ impl TaskRegistry {
     }
 
     /// 注册队列任务
-    pub fn register_queue<T>(&mut self, name: impl Into<String>, handler: T) -> Result<(), String>
+    pub fn register_queue<F, T>(
+        &mut self,
+        name: impl Into<String>,
+        factory: F,
+    ) -> Result<(), String>
     where
+        F: Fn() -> Result<T, String> + Send + Sync + 'static,
         T: QueueTaskHandler + 'static,
     {
-        self.register_queue_with_definition(QueueTaskDefinition::new(name), handler)
+        self.register_queue_with_definition(QueueTaskDefinition::new(name), factory)
     }
 
     /// 注册带定义的队列任务
-    pub fn register_queue_with_definition<T>(
+    pub fn register_queue_with_definition<F, T>(
         &mut self,
         definition: QueueTaskDefinition,
-        handler: T,
+        factory: F,
     ) -> Result<(), String>
     where
+        F: Fn() -> Result<T, String> + Send + Sync + 'static,
         T: QueueTaskHandler + 'static,
     {
+        if definition.name.trim().is_empty() || definition.semaphore <= 0 {
+            return Err("队列任务名称不能为空，并发数必须大于零".into());
+        }
         let name = definition.name.clone();
         if self.queue_handlers.contains_key(&name) {
             return Err(format!("队列任务 {name:?} 重复注册"));
@@ -246,7 +279,9 @@ impl TaskRegistry {
             name,
             QueueTaskRegistration {
                 definition,
-                handler: Arc::new(handler),
+                factory: Arc::new(move || {
+                    factory().map(|handler| Box::new(handler) as Box<dyn QueueTaskHandler>)
+                }),
             },
         );
 
@@ -273,26 +308,37 @@ impl TaskRegistry {
     }
 
     /// 注册定时任务
-    pub fn register_schedule<T>(
+    pub fn register_schedule<F, T>(
         &mut self,
         name: impl Into<String>,
-        handler: T,
+        cron: impl Into<String>,
+        factory: F,
     ) -> Result<(), String>
     where
+        F: Fn() -> Result<T, String> + Send + Sync + 'static,
         T: ScheduleTaskHandler + 'static,
     {
-        self.register_schedule_with_definition(ScheduleTaskDefinition::new(name), handler)
+        self.register_schedule_with_definition(
+            ScheduleTaskDefinition::new(name).with_cron(cron),
+            factory,
+        )
     }
 
     /// 注册带定义的定时任务
-    pub fn register_schedule_with_definition<T>(
+    pub fn register_schedule_with_definition<F, T>(
         &mut self,
         definition: ScheduleTaskDefinition,
-        handler: T,
+        factory: F,
     ) -> Result<(), String>
     where
+        F: Fn() -> Result<T, String> + Send + Sync + 'static,
         T: ScheduleTaskHandler + 'static,
     {
+        if definition.name.trim().is_empty() {
+            return Err("定时任务名称不能为空".into());
+        }
+        common::cron_helper::validate(definition.cron.as_deref().unwrap_or_default())
+            .map_err(|error| format!("定时任务 {} 的默认 Cron 无效: {error}", definition.name))?;
         let name = definition.name.clone();
         if self.schedule_handlers.contains_key(&name) {
             return Err(format!("定时任务 {name:?} 重复注册"));
@@ -305,7 +351,9 @@ impl TaskRegistry {
             name,
             ScheduleTaskRegistration {
                 definition,
-                handler: Arc::new(handler),
+                factory: Arc::new(move || {
+                    factory().map(|handler| Box::new(handler) as Box<dyn ScheduleTaskHandler>)
+                }),
             },
         );
 
@@ -344,16 +392,16 @@ impl TaskRegistry {
         Ok(())
     }
 
-    /// 获取队列任务处理器
-    pub fn get_queue_handler(&self, name: &str) -> Option<Arc<dyn QueueTaskHandler>> {
+    /// 获取队列任务工厂
+    pub fn get_queue_factory(&self, name: &str) -> Option<QueueTaskFactory> {
         self.queue_handlers
             .get(name)
-            .map(|item| item.handler.clone())
+            .map(|item| item.factory.clone())
             .or_else(|| {
                 resolve_alias_target(&self.queue_alias_targets, &self.queue_handlers, name)
                     .ok()
                     .and_then(|target| self.queue_handlers.get(&target))
-                    .map(|item| item.handler.clone())
+                    .map(|item| item.factory.clone())
             })
     }
 
@@ -365,16 +413,16 @@ impl TaskRegistry {
             .map(|item| item.definition.clone())
     }
 
-    /// 获取定时任务处理器
-    pub fn get_schedule_handler(&self, name: &str) -> Option<Arc<dyn ScheduleTaskHandler>> {
+    /// 获取定时任务工厂
+    pub fn get_schedule_factory(&self, name: &str) -> Option<ScheduleTaskFactory> {
         self.schedule_handlers
             .get(name)
-            .map(|item| item.handler.clone())
+            .map(|item| item.factory.clone())
             .or_else(|| {
                 resolve_alias_target(&self.schedule_alias_targets, &self.schedule_handlers, name)
                     .ok()
                     .and_then(|target| self.schedule_handlers.get(&target))
-                    .map(|item| item.handler.clone())
+                    .map(|item| item.factory.clone())
             })
     }
 
