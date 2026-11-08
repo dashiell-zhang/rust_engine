@@ -1,6 +1,6 @@
 # NetEngine 与 rust_engine：框架架构差异清单
 
-审查日期：2026-11-08。AR-01～AR-09 已完成。AR-05～AR-07 结果见第 10～11 节，AR-08、AR-09 的本轮实施与验证见第 14～15 节；第 12 节保留实施前依据。AR-10、AR-11 为后续可选扩展，未实施、未纳入本目标。
+更新日期：2026-11-08。AR-01～AR-09 已完成并提交；AR-10、AR-11 已完成并通过容器编译检查，本轮结果与验证见第 16～17 节。第 12～15 节保留此前的判断、范围与停止记录，不代表当前待办。
 
 ## 1. 当前方向与基线
 
@@ -40,8 +40,8 @@
 | AR-07 | WebAPI 服务工厂要求整套业务能力一起实现 | 按需组合；随后处理 | 已完成；本轮容器验证通过 |
 | AR-08 | WebAPI 公共核心仍绑定部分业务资源与应用运行时 | 公共宿主边界；优先处理 | 已完成；本轮容器验证通过 |
 | AR-09 | LLM 客户端工厂及模型配置解析不能独立替换 | 组件替换能力；优先处理 | 已完成；本轮容器验证通过 |
-| AR-10 | 缺少统一的通用后台服务扩展入口 | 生命周期扩展；按需求处理 | 已静态确认，不纳入下一目标 |
-| AR-11 | 横切能力缺少通用自定义行为扩展机制 | 调用管道扩展；按需求处理 | 已静态确认，不纳入下一目标 |
+| AR-10 | 缺少统一的通用后台服务扩展入口 | 生命周期扩展 | 已完成，验证见第 17 节 |
+| AR-11 | 横切能力缺少通用自定义行为扩展机制 | 调用管道扩展 | 已完成，验证见第 17 节 |
 
 ### AR-01：应用契约层混入运行时实现
 
@@ -348,3 +348,33 @@
 | 文档与差异检查 | 本轮更新文档的本地链接及 `git diff --check` 通过 |
 
 本轮没有新增或运行测试，也没有进行真实数据库迁移、云模型调用或服务器部署。源码及编译证据不能替代这些运行联调。两项完成标准已达到，保留当前工作区供统一审查；未提交、推送或修改 NetEngine。本目标完成后停止，AR-10、AR-11 仍为待选扩展。
+
+## 16. AR-10、AR-11 连续实施结果
+
+用户在提交并推送 AR-08、AR-09 后授权连续完成这两项，不逐阶段确认。本轮 Rust 基线为 `2a0fb3776b703405ba2acaee15e77eaa772e4d10`，开始时工作区干净；NetEngine 仍为 `23a7d0002938d0308c975dc48c04ac66aae0dda8` 及既有六处未提交修改，本轮未改源项目。
+
+| 条目 | 完成内容 | 代码依据 |
+| --- | --- | --- |
+| AR-10 | 通用常驻服务契约、拒绝重名的显式注册表、运行失败和 panic 传播、取消与剩余停机期限管理 | [background_service](../infrastructure/common/src/background_service.rs) |
+| AR-10 | WebAPI 与 TaskService 均提供构建器注册入口及 Feature 注册钩子；装配完成后才运行，服务失败走宿主正常停机，超时 abort | [WebAPI 构建器](../project_core/webapi_core/src/host/runtime/builder.rs)、[任务构建器](../project_core/task_service_core/src/builder.rs)、[WebAPI Feature](../project_core/webapi_core/src/host/features.rs)、[任务 Feature](../project_core/task_service_core/src/features.rs) |
+| AR-10 | 现有 WebAPI 健康检查以 `webapi.health` 注册，维持启动十秒、六十秒间隔、三十秒单次超时及原有检查项目 | [健康检查](../project_core/webapi_core/src/health.rs)及 WebAPI 构建器 |
+| AR-11 | `#[behavior]` 支持单个或有序多个外部行为，同步、异步、流式分别接收 continuation、Future、Stream；复用既有稳定方法键规则 | [属性宏](../source_generator/source_generator_core/src/attributes/behavior.rs)、[运行时管道](../source_generator/source_generator_runtime/src/pipeline.rs) |
+| AR-11 | 行为使用静态类型和显式捕获，不要求全局注册、反射、'static 或统一 Send；保持具体结果、错误及借用类型 | 同上；框架不会主动吞掉错误或取消，自定义行为负责自己的转换策略 |
+| AR-11 | 流从首次 poll 执行行为，公共观察器区分自然完成、错误项后停止、提前释放和 panic，提前释放也按内层到外层结束 | [pipeline](../source_generator/source_generator_runtime/src/pipeline.rs) |
+| AR-11 | 现有缓存运行时接入异步行为管道，既有流日志改为公共行为及观察器，避免两套 poll/Drop 生命周期 | [cacheable](../source_generator/source_generator_runtime/src/cacheable.rs)、[logging_stream](../source_generator/source_generator_runtime/src/logging_stream.rs) |
+
+接入规则及使用边界见[宿主扩展](host-extensions.md)。任务调度、执行租约、事件消费、业务接口和数据迁移未改；缓存策略、普通日志、重试和并发限制默认值未改。流日志继续最多捕获一百项，准备阶段失败不启动流日志，提前结束仍记录非自然完成。
+
+## 17. AR-10、AR-11 验证与停止记录
+
+以下均使用本机 Docker `dev` 服务，沿用 stable 工具链与容器命名卷：
+
+- `cargo check --workspace --locked`：通过。
+- `cargo build --workspace --locked`：通过，包含三个运行时宿主、工具及宏组件。
+- 最终 `cargo clippy --workspace --lib --bins --locked -- -D warnings`：通过。
+- `cargo fmt --all -- --check` 与 `git diff --check`：通过。
+- 静态复核：后台服务在完成注册后才启动，两类宿主均监听失败并使用同一停机期限；健康检查实现未改；缓存原有读写和锁逻辑未改；流日志保留快照格式、错误项返回及捕获上限。
+
+本轮没有新增或运行测试，没有在本机安装工具，没有连接真实业务数据库、执行迁移、部署或修改 NetEngine。容器编译与静态复核不等同于真实宿主的故障注入、取消时序验证或所有外部自定义行为组合的运行验收。扩展代码应遵守协作式取消；异步 Drop 不会等待清理，阻塞工作不能靠 abort 强制停止。
+
+AR-10、AR-11 的登记范围已完成。AR-01～AR-11 当前均无未实施条目；本轮保留未提交改动供阶段性审查，不自动启动下一批业务对齐或全仓库循环复核。

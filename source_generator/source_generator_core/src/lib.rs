@@ -18,6 +18,20 @@ mod method_key;
 mod runtime_path;
 mod syntax;
 
+/// 自定义调用管道：behavior = 表达式 或 behaviors(外层, 内层)。
+/// 同步行为接收 FnOnce，异步行为接收 Future，stream = true 接收 Stream。
+/// 流的准备失败直接返回；Result 包装的流显式使用 result = true。
+/// 沿用 key_scope、key_types、key_consts 和 key_include_self 的稳定键规则。
+#[proc_macro_attribute]
+pub fn behavior(attr: TokenStream, item: TokenStream) -> TokenStream {
+    attributes::behavior::expand(
+        parse_macro_input!(attr as attributes::behavior::BehaviorArgs),
+        parse_macro_input!(item as ItemFn),
+    )
+    .unwrap_or_else(|error| error.to_compile_error())
+    .into()
+}
+
 /// 协议对象忽略字段 ASCII 大小写，按出现顺序验证每次赋值，合法重复字段取末值。
 /// 支持具名字段、serde(rename)、serde(default)；不应用 HTTP 请求模型的转换规则。
 #[proc_macro_derive(ProtocolModel, attributes(serde, protocol))]

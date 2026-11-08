@@ -74,3 +74,7 @@ pub mod resources;
 
 /// 不依赖数据库驱动的连接配置。
 pub mod database_settings;
+
+/// 常驻后台服务的显式注册与宿主生命周期。
+#[cfg(feature = "runtime")]
+pub mod background_service;

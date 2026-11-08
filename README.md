@@ -15,6 +15,8 @@
 
 ## 当前范围
 
+常驻服务注册与自定义横切行为见 [宿主扩展](docs/host-extensions.md)。
+
 按需启用的请求字段解密见 [RSA 请求字段解密](docs/webapi-rsa.md)。
 
 模型属性读取、显示名称和 Excel 导出见 [公共数据工具](docs/common-data.md)。

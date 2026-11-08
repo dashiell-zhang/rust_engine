@@ -34,6 +34,7 @@ pub struct TaskServiceHostBuilder {
 
     /// 已注册任务特性
     features: Vec<Box<dyn TaskServiceFeature>>,
+    background_services: common::background_service::BackgroundServiceRegistry,
 }
 
 /// TaskService 宿主实例
@@ -51,9 +52,20 @@ pub struct TaskServiceHost {
     _logger_runtime: LoggerRuntime,
     event_bus: event_bus::PreparedEventBus,
     event_listeners: event_bus::EventListenerRegistry,
+    background_services: common::background_service::BackgroundServiceRegistry,
 }
 
 impl TaskServiceHostBuilder {
+    /// 注册不依赖 Feature 上下文的常驻服务。
+    pub fn with_background_service(
+        mut self,
+        name: &'static str,
+        service: impl common::background_service::BackgroundService,
+    ) -> Result<Self, String> {
+        self.background_services.register(name, service)?;
+        Ok(self)
+    }
+
     /// 创建 TaskService 宿主构建器
     pub fn new(
         settings: Settings,
@@ -67,6 +79,7 @@ impl TaskServiceHostBuilder {
             build_distributed_cache,
             build_logger_runtime,
             features: Vec::new(),
+            background_services: common::background_service::BackgroundServiceRegistry::default(),
             build_event_transport: None,
             build_databases: None,
             build_resources: None,
@@ -169,7 +182,9 @@ impl TaskServiceHostBuilder {
             identifier_generator: identifier_generator.clone(),
             resources: Arc::new(resources),
         };
+        let mut background_services = self.background_services;
         for feature in &self.features {
+            feature.register_background_services(&mut background_services, &feature_context)?;
             feature.register_event_listeners(&mut event_listeners, &feature_context)?;
         }
         let registry = build_task_registry(self.features, &feature_context)?;
@@ -206,6 +221,7 @@ impl TaskServiceHostBuilder {
             _logger_runtime: logger_runtime,
             event_bus,
             event_listeners,
+            background_services,
         })
     }
 }
@@ -220,6 +236,7 @@ impl TaskServiceHost {
         tracing::info!(target: "task_service.startup", "TaskService 启动完成");
         let mut events = self.event_bus.start(self.event_listeners);
         let stopping = event_bus::CancellationToken::new();
+        let mut background = self.background_services.start(&stopping);
         let mut runner = Box::pin(self.runner.run(stopping.clone()));
         let mut menu = Box::pin(crate::debug_menu::run(self.configuration));
         let mut menu_done = false;
@@ -227,6 +244,7 @@ impl TaskServiceHost {
             tokio::select! {
                 _ = &mut runner => break (Ok(()), false),
                 failure = events.wait_failure() => break (failure, true),
+                failure = background.wait_failure() => break (failure, true),
                 signal = common::system_helper::wait_for_shutdown() => break (signal, true),
                 selection = &mut menu, if !menu_done => {
                     match selection {
@@ -251,6 +269,8 @@ impl TaskServiceHost {
         }
         // 丢弃拥有 JoinSet 的运行器会取消剩余执行，禁止超时后继续续租或提交。
         drop(runner);
+        result = result.and(background.shutdown(deadline).await);
+        drop(background);
         let _ = tokio::time::timeout_at(deadline, events.shutdown()).await;
         drop(events);
         self._logger_runtime

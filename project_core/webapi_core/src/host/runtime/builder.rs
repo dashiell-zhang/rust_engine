@@ -41,6 +41,7 @@ pub struct WebApiHostBuilder {
 
     /// 已注册特性
     features: Vec<Box<dyn WebApiFeature>>,
+    background_services: common::background_service::BackgroundServiceRegistry,
     check_log_read_health: bool,
     serve_web_root: bool,
     configure_http_clients: Option<crate::host::ConfigureWebApiHttpClients>,
@@ -59,11 +60,21 @@ pub struct WebApiHost {
     _logger_runtime: LoggerRuntime,
     event_bus: event_bus::PreparedEventBus,
     event_listeners: event_bus::EventListenerRegistry,
-    health_state: Arc<AppState>,
+    background_services: common::background_service::BackgroundServiceRegistry,
     request_runtime: crate::request_cancellation::RequestRuntime,
 }
 
 impl WebApiHostBuilder {
+    /// 注册不依赖 Feature 上下文的常驻服务；需要 AppState 时使用 Feature 注册钩子。
+    pub fn with_background_service(
+        mut self,
+        name: &'static str,
+        service: impl common::background_service::BackgroundService,
+    ) -> Result<Self, String> {
+        self.background_services.register(name, service)?;
+        Ok(self)
+    }
+
     /// 创建 WebAPI 宿主构建器
     pub fn new(
         settings: Settings,
@@ -77,6 +88,7 @@ impl WebApiHostBuilder {
             build_cache,
             build_logger_runtime,
             features: Vec::new(),
+            background_services: common::background_service::BackgroundServiceRegistry::default(),
             build_event_transport: None,
             application: None,
             build_resources: None,
@@ -269,7 +281,14 @@ impl WebApiHostBuilder {
         let mut openapi_doc = ApiDoc::openapi();
         let mut business_router = crate::routes::WebApiRoutes::default();
 
+        let mut background_services = self.background_services;
+        let health_state = app_state.clone();
+        background_services.register("webapi.health", move |stopping| async move {
+            crate::health::publish_health(health_state, stopping).await;
+            Ok(())
+        })?;
         for (feature_index, feature) in self.features.into_iter().enumerate() {
+            feature.register_background_services(&mut background_services, app_state.clone())?;
             feature.register_event_listeners(&mut event_listeners, app_state.clone())?;
             tracing::info!(
                 target: "app.startup",
@@ -342,7 +361,7 @@ impl WebApiHostBuilder {
             _logger_runtime: logger_runtime,
             event_bus,
             event_listeners,
-            health_state: app_state,
+            background_services,
             request_runtime,
         })
     }
@@ -389,10 +408,7 @@ impl WebApiHost {
 
         let mut events = self.event_bus.start(self.event_listeners);
         let shutdown = event_bus::CancellationToken::new();
-        let mut health_task = tokio::spawn(crate::health::publish_health(
-            self.health_state.clone(),
-            shutdown.clone(),
-        ));
+        let mut background = self.background_services.start(&shutdown);
         let server_shutdown = shutdown.clone();
         let server = axum::serve(
             listener,
@@ -405,18 +421,12 @@ impl WebApiHost {
         let (mut result, drain_server) = tokio::select! {
             result = &mut server => (result.map_err(|error| format!("WebAPI 运行失败: {error}")), false),
             failure = events.wait_failure() => (failure, true),
+            failure = background.wait_failure() => (failure, true),
             signal = common::system_helper::wait_for_shutdown() => (signal, true),
         };
         let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(30);
         events.cancel();
         shutdown.cancel();
-        if tokio::time::timeout_at(deadline, &mut health_task)
-            .await
-            .is_err()
-        {
-            health_task.abort();
-            let _ = health_task.await;
-        }
         if drain_server {
             let drain = tokio::time::timeout_at(deadline, &mut server)
                 .await
@@ -428,6 +438,8 @@ impl WebApiHost {
             tracing::warn!(target: "app.shutdown", "请求清理期限耗尽");
             result = result.and(Err("请求停机等待超时".into()));
         }
+        result = result.and(background.shutdown(deadline).await);
+        drop(background);
         let _ = tokio::time::timeout_at(deadline, events.shutdown()).await;
         drop(events);
         self._logger_runtime

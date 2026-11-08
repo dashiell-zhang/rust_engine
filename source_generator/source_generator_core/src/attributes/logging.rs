@@ -321,7 +321,7 @@ pub(crate) fn expand_logging(args: LoggingArgs, mut input: ItemFn) -> syn::Resul
 }
 
 /// 常见流别名自动恢复装箱；自定义别名可显式使用 stream_boxed。
-fn logging_stream_is_boxed(output: &syn::ReturnType, result: bool) -> bool {
+pub(crate) fn logging_stream_is_boxed(output: &syn::ReturnType, result: bool) -> bool {
     let syn::ReturnType::Type(_, ty) = output else {
         return false;
     };

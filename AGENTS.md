@@ -108,6 +108,7 @@
 - 文件、邮件、短信提供商契约归属各自基础设施组件，应用接口可以单向兼容导出；基础设施不得直接或间接反向依赖应用 crate。只需文件契约时关闭 file_storage 的默认 local 特性。
 - WebAPI 业务能力按 `webapi_support::services::ServiceKey` 独立注册，入口只选择启用功能所需的能力；不要恢复全量 ServiceFactory。新增 Feature 必须在 `validate_resources` 中声明所需能力，处理器通过 `services().能力()?` 或 `get::<Key>()?` 调用。LLM 默认实现需显式启用 webapi_support 的 llm 特性。
 - TaskService 业务资源通过 presentation 的可选 `build_resources` 注册；公共调度核心不得固定要求邮件、短信、文件或 HTTP 工厂。具体日志连接由入口构建，继续使用核心传入的 ID 生成器和统一异步停机流程。
+- 新增常驻后台服务通过 `common::background_service` 和宿主构建器或 Feature 钩子显式注册；注册时不 spawn，名称不得重复。错误和 panic 交给宿主停机，清理共用宿主绝对期限，超时 abort；不要绕开注册表另写不受管理的监听循环。`webapi.health` 已使用此机制，保留原有检查周期与项目。
 - `webapi_core` 不得依赖 application_runtime、repository_core 或 SeaORM。CurrentUser 直接来自 application_model；JWT 编解码使用 jwt_auth，原 application_runtime::auth 仅兼容导出。
 - WebAPI 资源工厂接收宿主已配置的共享 HTTP 工厂，文件提供商通过 `FileStorageResource` 显式注册；本地存储注册 `FileStorageResource(None)`，不能把缺少注册当作本地模式。邮件能力由有实际需要的入口装配，不回填到公共 AppState。
 - 数据库纯配置位于 `common::database_settings`，连接选项由 `repository_core::connection` 构造；WebAPI、任务和工具保留各自默认参数，None 的 acquire/max_lifetime 不得擅自改为 WebAPI 默认值。
@@ -245,6 +246,8 @@
 - RSA 请求字段解密由 `webapi_core::rsa_decrypt` 按需启用，模型通过 `RsaDecrypt` 派生与 `#[rsa_encrypted]` 标记字符串字段。使用 OAEP-SHA256 与 Base64，密钥来自宿主可选 `[rsa]` 配置；不要自动给现有接口或响应模型添加解密。Debug 对非法密文记录固定消息并保留原值，Release 交给共享内部异常响应，禁止记录密钥、密文或明文。
 
 ## 代码生成与宏
+
+- 通用自定义行为使用 `#[behavior]` 与 `InvocationBehavior`，复用稳定方法键；按声明顺序进入、逆序退出。流行为必须显式声明并随枚举生命周期执行，不在后台脱离调用方消费；已有缓存与流日志复用公共管道，禁止另外维护平行实现。使用方式见 [宿主扩展](docs/host-extensions.md)。
 
 - `#[logging]` 不是默认全量挂载；只在需要的方法上显式 `use source_generator_runtime::logging;` 后再添加属性。
 - `#[logging]` 支持同步和异步方法，默认处理 `Result`（包括别名），普通返回值或单元值使用 `result = false`；异步序列显式使用 `stream = true`，只在枚举期间记录生命周期，最多捕获前 100 项。`#[retry]`、`#[cacheable]`、`#[concurrency_limit]` 仍仅支持 `async fn`；改方法签名或扩宏时先检查这一前提。

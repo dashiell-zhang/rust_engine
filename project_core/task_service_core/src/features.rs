@@ -20,6 +20,14 @@ pub struct TaskServiceFeatureContext {
 
 /// TaskService 业务特性
 pub trait TaskServiceFeature: Send + Sync {
+    fn register_background_services(
+        &self,
+        _registry: &mut common::background_service::BackgroundServiceRegistry,
+        _context: &TaskServiceFeatureContext,
+    ) -> Result<(), String> {
+        Ok(())
+    }
+
     fn register_event_listeners(
         &self,
         _registry: &mut event_bus::EventListenerRegistry,

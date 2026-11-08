@@ -16,6 +16,38 @@ pub async fn invoke_cacheable<T, E>(
 where
     T: Serialize + DeserializeOwned,
 {
+    invoke_async(
+        InvocationContext::new(method.to_owned()),
+        |context: InvocationContext, next| async move {
+            let method = context.method.as_str();
+            cache_operation(
+                cache,
+                lock,
+                method,
+                arguments,
+                ttl_seconds,
+                lock_expiry_seconds,
+                next,
+            )
+            .await
+        },
+        body,
+    )
+    .await
+}
+
+async fn cache_operation<T, E>(
+    cache: &dyn DistributedCache,
+    lock: &dyn DistributedLock,
+    method: &str,
+    arguments: &str,
+    ttl_seconds: u64,
+    lock_expiry_seconds: u64,
+    body: impl Future<Output = Result<T, E>>,
+) -> Result<T, E>
+where
+    T: Serialize + DeserializeOwned,
+{
     let key = cacheable_key(method, arguments);
     if let Some(value) = read(cache, &key, method).await {
         return Ok(value);

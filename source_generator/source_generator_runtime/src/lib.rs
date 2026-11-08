@@ -39,6 +39,7 @@ mod logging_snapshot;
 mod logging_stream;
 mod method_key;
 mod options;
+mod pipeline;
 mod retry;
 
 pub use adapters::*;
@@ -50,7 +51,11 @@ pub use logging_snapshot::*;
 pub use logging_stream::*;
 pub use method_key::*;
 pub use options::*;
+pub use pipeline::*;
 pub use retry::*;
+
+/// 显式自定义调用行为，支持同步、异步以及延迟枚举的流。
+pub use source_generator_core::behavior;
 
 /// 为同步或异步方法自动注入结构化调用日志的属性宏
 ///

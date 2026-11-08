@@ -16,6 +16,15 @@ pub struct WebApiRoutePermission {
 
 /// WebAPI 业务特性
 pub trait WebApiFeature: Send + Sync {
+    /// 注册常驻服务；所有特性验证与装配成功后才由宿主启动。
+    fn register_background_services(
+        &self,
+        _registry: &mut common::background_service::BackgroundServiceRegistry,
+        _state: Arc<AppState>,
+    ) -> Result<(), String> {
+        Ok(())
+    }
+
     /// 启动阶段验证当前特性所需的服务和资源。
     fn validate_resources(
         &self,
