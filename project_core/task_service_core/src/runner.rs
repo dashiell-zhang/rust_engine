@@ -286,7 +286,8 @@ impl TaskServiceRunner {
         F: Future<Output = Result<(), String>>,
     {
         let lease = self.lease();
-        let period = Duration::from_secs((lease.as_secs() / 3).clamp(5, 30));
+        // 租约最短为一秒；续租不能设五秒下限，否则短租约会在首次续期前失效。
+        let period = (lease / 3).min(Duration::from_secs(30));
         let renew = async {
             let mut distributed_lost = false;
             loop {

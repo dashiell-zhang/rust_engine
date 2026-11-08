@@ -8,6 +8,9 @@ use serde::{
 use std::fmt;
 type Error = de::value::Error;
 
+// 三种提供商沿用 System.Text.Json 的默认上限；对象和数组各占一层。
+const MAX_DEPTH: usize = 64;
+
 /// 引用类型集合允许 null；只有实际访问元素时才失败，不能提前否定被覆盖或未使用的集合。
 pub(crate) fn require_object<T>(value: Option<T>) -> Result<T, crate::LlmError> {
     value.ok_or_else(|| {
@@ -51,7 +54,28 @@ impl ErrorValue {
     }
 }
 
-struct ValueVisitor;
+struct ValueVisitor {
+    depth: usize,
+}
+
+impl ValueVisitor {
+    fn check_container<E: de::Error>(&self) -> Result<(), E> {
+        if self.depth >= MAX_DEPTH {
+            Err(E::custom(format!("JSON 嵌套深度不能超过 {MAX_DEPTH}")))
+        } else {
+            Ok(())
+        }
+    }
+}
+
+impl<'de> DeserializeSeed<'de> for ValueVisitor {
+    type Value = Value;
+
+    fn deserialize<D: Deserializer<'de>>(self, deserializer: D) -> Result<Value, D::Error> {
+        deserializer.deserialize_any(self)
+    }
+}
+
 impl<'de> Visitor<'de> for ValueVisitor {
     type Value = Value;
     fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -84,23 +108,87 @@ impl<'de> Visitor<'de> for ValueVisitor {
         Ok(Value::String(v))
     }
     fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<Value, A::Error> {
+        self.check_container()?;
         let mut items = Vec::new();
-        while let Some(item) = seq.next_element()? {
+        while let Some(item) = seq.next_element_seed(ValueVisitor {
+            depth: self.depth + 1,
+        })? {
             items.push(item);
         }
         Ok(Value::Array(items))
     }
     fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<Value, A::Error> {
+        let first = map.next_key::<Key>();
+        // arbitrary_precision 使用内部 MapAccess 表示数字，它不是 JSON 容器。
+        if matches!(first, Ok(Some(Key::Number))) {
+            return map
+                .next_value::<String>()?
+                .parse()
+                .map(Value::Number)
+                .map_err(de::Error::custom);
+        }
+        self.check_container()?;
         let mut fields = Vec::new();
-        while let Some(entry) = map.next_entry()? {
-            fields.push(entry);
+        let mut pending = first?;
+        while let Some(key) = pending {
+            let Key::Property(key) = key else {
+                return Err(de::Error::custom("JSON 属性协议无效"));
+            };
+            fields.push((
+                key,
+                map.next_value_seed(ValueVisitor {
+                    depth: self.depth + 1,
+                })?,
+            ));
+            pending = map.next_key()?;
         }
         Ok(Value::Object(fields))
     }
 }
 impl<'de> Deserialize<'de> for Value {
     fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
-        d.deserialize_any(ValueVisitor)
+        ValueVisitor { depth: 0 }.deserialize(d)
+    }
+}
+
+enum Key {
+    Property(String),
+    Number,
+}
+
+impl<'de> Deserialize<'de> for Key {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        // 真正的对象键经过 newtype 边界；不能只按字符串名称识别数字内部标记。
+        deserializer.deserialize_newtype_struct("LLM.Json.Property", KeyVisitor)
+    }
+}
+
+struct KeyVisitor;
+impl<'de> Visitor<'de> for KeyVisitor {
+    type Value = Key;
+
+    fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("JSON 属性名")
+    }
+
+    fn visit_newtype_struct<D: Deserializer<'de>>(self, deserializer: D) -> Result<Key, D::Error> {
+        String::deserialize(deserializer).map(Key::Property)
+    }
+
+    fn visit_borrowed_str<E: de::Error>(self, value: &'de str) -> Result<Key, E> {
+        if value == "$serde_json::private::Number" {
+            Ok(Key::Number)
+        } else {
+            self.visit_str(value)
+        }
+    }
+
+    fn visit_str<E: de::Error>(self, value: &str) -> Result<Key, E> {
+        self.visit_string(value.to_owned())
+    }
+
+    fn visit_string<E: de::Error>(self, value: String) -> Result<Key, E> {
+        Ok(Key::Property(value))
     }
 }
 

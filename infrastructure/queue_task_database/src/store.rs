@@ -10,7 +10,8 @@ use repository_core::{SoftDeleteEntityExt, versioned::VersionedActiveModel};
 use sea_orm::{
     ActiveEnum, ColumnTrait, DatabaseConnection, DatabaseTransaction, DbErr, EntityTrait,
     ExprTrait, IntoActiveModel, PaginatorTrait, QueryFilter, QueryOrder, QuerySelect, Set,
-    TransactionTrait, sea_query::Expr,
+    TransactionTrait,
+    sea_query::{Expr, LockType},
 };
 use std::{collections::HashSet, sync::Arc, time::Duration};
 
@@ -347,8 +348,11 @@ impl QueueTaskStore for DatabaseQueueTaskStore {
 }
 
 async fn lock_task(transaction: &DatabaseTransaction, id: i64) -> Result<Option<Model>, DbErr> {
+    // 完成流程不修改主键。子记录在同一事务中多次更新会再次检查外键并持有父记录
+    // KEY SHARE；父链使用 NO KEY UPDATE 仍串行化状态写入，同时避免兄弟事务
+    // 各持 KEY SHARE 后再升级 FOR UPDATE 造成死锁。
     queue_task::Entity::find_by_id_active(id)
-        .lock_exclusive()
+        .lock(LockType::NoKeyUpdate)
         .one(transaction)
         .await
 }
