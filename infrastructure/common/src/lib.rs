@@ -70,7 +70,7 @@ pub mod cancellation;
 pub(crate) mod guid;
 
 /// 自定义资源的异步清理登记与共享停机期限。
-#[cfg(feature = "runtime")]
+#[cfg(feature = "resource-cleanup")]
 pub mod resource_cleanup;
 /// 宿主显式资源集合。
 pub mod resources;

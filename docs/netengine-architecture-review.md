@@ -1,6 +1,6 @@
 # NetEngine 与 rust_engine：框架架构差异清单
 
-更新日期：2026-11-08。AR-01～AR-14 已完成并提交，用户确认已推送；AR-13、AR-14 的实施及容器验证结果见第 22～23 节。AR-15、AR-16 已连续实施完成，容器检查、构建、Clippy 和格式检查通过，结果及边界见第 26～27 节，尚未提交。当前清单无未实施条目；前轮目标与停止记录作为历史保留，不代表当前待办状态。
+更新日期：2026-11-08。AR-01～AR-16 已完成并提交，用户确认已推送；AR-15、AR-16 的原实施及验证见第 26～27 节。提交后发现的 repository_core 独立编译问题归为 AR-16 补正，处理与验证见第 28 节，本次补正尚未提交。更新时间规则统一仅为可选观察，用户明确暂不调整；前轮目标与停止记录作为历史保留，不代表当前待办状态。
 
 ## 1. 当前方向与基线
 
@@ -45,8 +45,8 @@
 | AR-12 | 具体组件配置仍集中在公共宿主并存在重复定义 | 配置归属与扩展边界 | 已完成；容器验证见第 21 节 |
 | AR-13 | 横切行为共享的调用上下文及内置行为统一程度仍有限 | 管道进一步统一；已按限定范围完成 | 已完成并提交；容器验证见第 23 节 |
 | AR-14 | 软删除规则依靠显式查询入口，缺少同等默认保障 | 持久化默认约束；已按限定范围完成 | 已完成并提交；容器验证见第 23 节 |
-| AR-15 | 运行路由、权限清单与 OpenAPI 元数据分开维护 | 声明一致性 | 已完成；容器验证见第 27 节 |
-| AR-16 | 自定义宿主资源缺少配套的异步释放注册入口 | 生命周期扩展；按限定范围完成 | 已完成；容器验证见第 27 节 |
+| AR-15 | 运行路由、权限清单与 OpenAPI 元数据分开维护 | 声明一致性 | 已完成并提交；容器验证见第 27 节 |
+| AR-16 | 自定义宿主资源缺少配套的异步释放注册入口 | 生命周期扩展；按限定范围完成 | 原实现已提交；独立编译补正已完成，验证见第 28 节 |
 
 ### AR-01：应用契约层混入运行时实现
 
@@ -603,3 +603,28 @@ AR-13、AR-14 按本轮限定的调用上下文和常见查询边界完成，清
 AR-15、AR-16 达到本轮完成标准，文档已更新，工作区保留供阶段性审查。到此停止，不自动开始新的全仓库对齐或重新评估已完成条目。
 
 提交前复核修正：端点宏允许显式 HEAD，但共享路由收尾原先无条件追加 HEAD 拒绝处理器，导致重复注册并在宿主构建时 panic。现按同一路径合并后的声明方法集合判断，仅在未声明 HEAD 时追加拒绝处理；显式 HEAD、同一声明中的 GET/HEAD、同路径分别注册的 GET 与 HEAD 均保留已注册处理器，未声明 HEAD 时仍返回原有 405，Allow 继续来源于显式方法集合。修复后容器工作区格式检查、check、build、Clippy（`-D warnings`）及 `git diff --check` 均通过。该分支按源码与 Axum 注册逻辑复核，遵守工作区约定未新增或运行测试、模拟程序，未声称执行了 HEAD 端点运行联调。
+
+## 28. AR-16 提交后补正：通用仓储独立编译
+
+本轮基线为 Rust `90763accd6985be18caa41433b37ecc6131ba3d2`，用户确认 AR-15、AR-16 已提交并推送，开始时工作区干净。仅修复独立组件的特性依赖，不启动新的架构改造。
+
+**问题与原因**：容器单独执行 `cargo check --locked -p repository_core` 报 E0433：`common` 中找不到 `resource_cleanup`。AR-16 的 `ModuleDatabase::connect_managed` 引用了该模块，但模块受 `common::runtime` 控制，repository_core 又显式关闭 common 默认特性。此前工作区检查因其他成员启用了 runtime 而通过，不能证明该组件的依赖声明完整。
+
+**修正**：[common/Cargo.toml](../infrastructure/common/Cargo.toml) 新增 `resource-cleanup` 特性，只额外启用 Tokio 与 time；[模块导出](../infrastructure/common/src/lib.rs)改由该特性控制。[repository_core/Cargo.toml](../infrastructure/repository_core/Cargo.toml)保留 `default-features = false`，显式启用 `resource-cleanup`。common 默认 runtime 包含新特性并保持 Tokio full，原宿主能力不变；未为仓储开启图片、Excel 等整个 runtime 工具集合，未新增依赖版本或改动 Cargo.lock。
+
+**范围**：不改变清理回调、停机预算、连接行为、实体更新时间、数据库迁移或业务代码。更新时间规则逐实体实现的观察暂不编号为实施任务，不在本次处理。接入说明同步到[宿主扩展](host-extensions.md)。
+
+**容器验证**：以下 Cargo 命令均分别通过 `docker compose exec -T dev` 执行。独立组件与工作区使用不同 Cargo 调用，避免特性合并掩盖问题。
+
+| 验证 | 结果 |
+| --- | --- |
+| `cargo check --locked -p common --no-default-features --features resource-cleanup` | 通过，最小资源清理特性可单独检查 |
+| `cargo check --locked -p repository_core` | 通过，原 E0433 消失 |
+| `cargo build --locked -p repository_core` | 通过，独立构建成功 |
+| `cargo check --workspace --locked` | 通过 |
+| `cargo build --workspace --locked` | 通过，包含三个宿主及工作区工具 |
+| `cargo clippy --workspace --lib --bins --locked -- -D warnings` | 通过 |
+| `cargo fmt --all -- --check`、`git diff --check` | 通过 |
+| `cargo tree --locked -p repository_core -e features -i common` | 仅启用 common 的 resource-cleanup 及 Tokio 依赖，未启用 default/runtime |
+
+未新增或运行测试，未安装本机组件；stable/latest、Cargo.lock 和 `/cargo-target` 保持不变。未修改 NetEngine，未提交、推送或部署。本次补正完成后停止，不推进更新时间规则或其他架构调整。

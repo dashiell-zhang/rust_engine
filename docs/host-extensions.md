@@ -29,6 +29,8 @@
 
 公共契约为 [common::resource_cleanup::ResourceCleanup](../infrastructure/common/src/resource_cleanup.rs)，WebAPI 也从 `host::resources` 重导出。`BuildWebApiResources`、`BuildTaskServiceResources`、`BuildTaskServiceDatabases` 工厂新增同生命周期的 `&mut ResourceCleanup` 参数。登记簿由宿主独占，不能藏在资源集合内部直到工厂成功后才移交，否则无法清理部分装配结果。
 
+关闭 common 默认特性的组件需显式启用 `features = ["resource-cleanup"]`。该特性只额外启用 Tokio 计时能力，不引入完整 runtime 工具集合；默认 runtime 包含此特性并保持 Tokio full，现有宿主无需调整。`repository_core` 已显式声明这一依赖；验证独立组件时应单独运行 `cargo check/build -p repository_core --locked`，不能与工作区构建合成一次 Cargo 调用，否则特性合并可能掩盖缺失的依赖声明。
+
 - `acquire(name, 创建Future, 清理回调).await` 在创建前拒绝重复名称，成功后立即登记清理并返回资源；创建与登记之间没有新的 await 点。清理持有共享句柄的克隆，正常使用方仍获得原句柄。
 - `manage(name, 已有句柄, 清理回调)` 用于移交已有资源；`register(name, 回调)` 用于单独登记。名称必须非空且宿主内唯一，开始停机后拒绝登记。被拒绝的已有值没有转移清理所有权，只做普通 Drop；新资源优先使用 acquire。
 - 回调为 `FnOnce(Instant) -> Future<Output = Result<(), String>>`，接收同一绝对期限。先登记依赖、后登记消费者，退出时逆序调用；不建立自动依赖图。不要给已经由后台服务、日志或事件组件收尾的资源再登记第二次。
