@@ -1,5 +1,7 @@
 # 对外 HTTP 调用
 
+共享工厂位于独立组件 `infrastructure/http_client`，导入路径为 `http_client::HttpClientFactory`，不依赖应用上下文、SeaORM 或 JWT。
+
 应用服务使用上下文中的 `http_client_factory` 获取客户端，由宿主创建和共享工厂。不要在每次调用时创建新工厂，也不要长期保存工厂返回的客户端；在需要发出请求时重新获取，才能使用轮换后的连接池。
 
 默认客户端不跟随重定向、不保存 Cookie，支持 gzip、deflate 和 Brotli 解压。普通客户端有 100 秒整体请求期限，连接池空闲期限为 60 秒，工厂每 120 秒按需轮换。可以通过 `HttpClientFactoryOptions` 调整这些选项。

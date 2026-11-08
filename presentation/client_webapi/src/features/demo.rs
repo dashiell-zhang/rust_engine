@@ -15,6 +15,13 @@ use super::WebApiFeature;
 pub struct DemoFeature;
 
 impl WebApiFeature for DemoFeature {
+    fn validate_resources(
+        &self,
+        resources: &webapi_core::host::resources::WebApiResources,
+    ) -> Result<(), String> {
+        webapi_support::services::require::<webapi_support::services::LlmInvoke>(resources)?;
+        Ok(())
+    }
     /// 注册 Demo 路由
     fn register(
         &self,

@@ -149,7 +149,7 @@ pub async fn upload_file(
 
     let temp_file_path_text = temp_file_path.to_string_lossy().to_string();
 
-    let service = app_state.services().file();
+    let service = app_state.services().file()?;
     let current_user = user_ctx.current_user();
     let result = service
         .upload_file(
@@ -209,7 +209,7 @@ pub async fn remote_upload_file(
     user_ctx: UserContext,
     Json(dto): Json<RemoteUploadFileDto>,
 ) -> Result<Response, AppError> {
-    let service = app_state.services().file();
+    let service = app_state.services().file()?;
     let current_user = user_ctx.current_user();
 
     match service.remote_upload_file(dto, &current_user).await {
@@ -236,7 +236,7 @@ pub async fn get_file_url(
     _user_ctx: UserContext,
     Query(query): Query<GetFileUrlQuery>,
 ) -> Result<Response, AppError> {
-    let service = app_state.services().file();
+    let service = app_state.services().file()?;
 
     match service.get_file_url(query.file_id, query.is_inline).await {
         Ok(result) => {
@@ -264,7 +264,7 @@ pub async fn get_file(
 ) -> Result<Response, AppError> {
     let file = app_state
         .services()
-        .file()
+        .file()?
         .get_file_local_content(query.file_id, true)
         .await?;
     webapi_core::file_response::physical_file(file, &headers, false).await
@@ -291,7 +291,7 @@ pub async fn get_image(
 ) -> Result<Response, AppError> {
     let result = app_state
         .services()
-        .file()
+        .file()?
         .get_image_content(query.file_id, query.width, query.height)
         .await?;
     webapi_core::file_response::content_type(&result.file.path, true)?;
@@ -319,7 +319,7 @@ pub async fn delete_file(
     user_ctx: UserContext,
     Query(query): Query<DeleteFileQuery>,
 ) -> Result<Response, AppError> {
-    let service = app_state.services().file();
+    let service = app_state.services().file()?;
     let current_user = user_ctx.current_user();
 
     match service.delete_file(query.id, &current_user).await {

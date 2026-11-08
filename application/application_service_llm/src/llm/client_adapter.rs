@@ -9,7 +9,7 @@ use application_interface::{
         AppLlmRole, AppLlmStreamChoice, AppLlmStreamChunk, AppLlmStreamDelta, AppLlmUsage,
     },
 };
-use application_runtime::http_client::HttpClientFactory;
+use http_client::HttpClientFactory;
 
 /// 基于单个模型配置的应用层 LLM 客户端适配器
 pub struct ModelConfigAppLlmClient {

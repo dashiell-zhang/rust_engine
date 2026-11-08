@@ -42,7 +42,7 @@ pub async fn update_route(State(app_state): State<Arc<AppState>>) -> Result<Resp
     tag = "授权"
 )]
 pub async fn get_public_key(State(app_state): State<Arc<AppState>>) -> Result<Response, AppError> {
-    match app_state.services().authorize().get_public_key()? {
+    match app_state.services().authorize()?.get_public_key()? {
         Some(key) => Ok(webapi_core::text_response::Text(key).into_response()),
         None => Ok(StatusCode::NO_CONTENT.into_response()),
     }
@@ -65,7 +65,7 @@ pub async fn get_token(
     Json(request): Json<GetTokenRequest>,
 ) -> Result<Response, AppError> {
     // Handler 只负责接收请求和返回协议层响应
-    let service = app_state.services().authorize();
+    let service = app_state.services().authorize()?;
 
     match service.get_token(request).await {
         Ok(token) => Ok(webapi_core::text_response::Text(token).into_response()),
@@ -90,7 +90,7 @@ pub async fn get_token_by_sms(
     Json(request): Json<GetTokenBySmsRequest>,
 ) -> Result<Response, AppError> {
     // 短信登录和账号密码登录共用同一个授权服务
-    let service = app_state.services().authorize();
+    let service = app_state.services().authorize()?;
 
     match service.get_token_by_sms(request).await {
         Ok(token) => Ok(webapi_core::text_response::Text(token).into_response()),
@@ -117,7 +117,7 @@ pub async fn get_function_list(
     Query(request): Query<ClientGetFunctionListRequest>,
 ) -> Result<Response, AppError> {
     // 当前用户从鉴权中间件注入 这里仅透传给服务层
-    let service = app_state.services().authorize();
+    let service = app_state.services().authorize()?;
 
     match service
         .get_function_list(user_ctx.current_user(), Some(&request.sign))
@@ -145,7 +145,7 @@ pub async fn send_sms_verify_code(
     Json(request): Json<SendSmsVerifyCodeRequest>,
 ) -> Result<Response, AppError> {
     // 发送接口只返回提交结果 实际短信由后台任务异步处理
-    let service = app_state.services().authorize();
+    let service = app_state.services().authorize()?;
 
     match service.send_sms_verify_code(request).await {
         Ok(result) => Ok((StatusCode::OK, Json(result)).into_response()),
@@ -170,7 +170,7 @@ pub async fn get_token_by_wx_mini_app(
     Json(request): Json<GetTokenByWxMiniAppRequest>,
 ) -> Result<Response, AppError> {
     // 小程序登录复用授权服务中的第三方绑定逻辑
-    let service = app_state.services().authorize();
+    let service = app_state.services().authorize()?;
 
     match service.get_token_by_wx_mini_app(request).await {
         Ok(token) => Ok(webapi_core::text_response::Text(token).into_response()),
@@ -194,7 +194,7 @@ pub async fn get_token_by_wx_app(
     State(app_state): State<Arc<AppState>>,
     Json(request): Json<GetTokenByWxAppRequest>,
 ) -> Result<Response, AppError> {
-    let service = app_state.services().authorize();
+    let service = app_state.services().authorize()?;
 
     match service.get_token_by_wx_app(request).await {
         Ok(token) => Ok(webapi_core::text_response::Text(token).into_response()),
@@ -222,7 +222,7 @@ pub async fn update_password_by_sms(
     Json(request): Json<UpdatePasswordBySmsRequest>,
 ) -> Result<Response, AppError> {
     // 修改密码前必须先通过鉴权获取当前用户身份
-    let service = app_state.services().authorize();
+    let service = app_state.services().authorize()?;
 
     match service
         .update_password_by_sms(user_ctx.current_user(), request)
@@ -252,7 +252,7 @@ pub async fn update_password_by_old_password(
     user_ctx: UserContext,
     Json(request): Json<UpdatePasswordByOldPasswordRequest>,
 ) -> Result<Response, AppError> {
-    let service = app_state.services().authorize();
+    let service = app_state.services().authorize()?;
 
     match service
         .update_password_by_old_password(user_ctx.current_user(), request)

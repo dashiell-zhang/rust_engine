@@ -31,7 +31,7 @@ pub async fn get_log_list(
     _user_ctx: UserContext,
     PageQuery(params): PageQuery<LogPageRequest>,
 ) -> Result<Response, AppError> {
-    let service = app_state.services().log_manage();
+    let service = app_state.services().log_manage()?;
 
     match service.get_log_list(params).await {
         Ok(result) => Ok((StatusCode::OK, Json(result)).into_response()),

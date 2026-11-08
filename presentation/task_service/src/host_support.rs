@@ -2,20 +2,21 @@
 
 use std::{future::Future, pin::Pin, sync::Arc};
 
-use application_interface::sms::AppSmsSender;
-use application_interface::{email::AppEmailSender, storage::AppFileStorage};
 use distributed_cache::DistributedCache;
 use distributed_cache_memory::InMemoryCache;
 use distributed_cache_redis::RedisCache;
 use distributed_lock::DistributedLock;
 use distributed_lock_memory::InMemoryLock;
 use distributed_lock_redis::RedisLock;
+use email::AppEmailSender;
 use email_smtp::{SmtpEmailSender, SmtpEmailSettings};
+use file_storage::AppFileStorage;
 use file_storage_ali_cloud::{AliyunOssFileStorage, AliyunOssFileStorageSettings};
 use file_storage_tencent_cloud::{TencentCosFileStorage, TencentCosFileStorageSettings};
 use logger::{LoggerComponent, LoggerRuntime};
 use logger_database::init_database_logger;
 use logger_local_file::init_local_file_logger;
+use sms::AppSmsSender;
 use sms_ali_cloud::{AliyunSmsSender, AliyunSmsSettings};
 use sms_tencent_cloud::{TencentSmsSender, TencentSmsSettings};
 use task_service_core::{
@@ -44,7 +45,7 @@ pub fn build_distributed_lock(
 /// 构建任务宿主文件存储
 pub fn build_file_storage(
     settings: &Settings,
-    http_clients: Arc<application_runtime::http_client::HttpClientFactory>,
+    http_clients: Arc<http_client::HttpClientFactory>,
 ) -> Result<Option<Arc<dyn AppFileStorage>>, String> {
     match settings.file.component {
         FileStorageComponent::Local => Ok(None),
@@ -105,6 +106,20 @@ pub fn build_logger_runtime<'a>(
     Box::pin(async move {
         match settings.logger.component {
             LoggerComponent::Database => {
+                let mut options =
+                    task_service_core::startup::TaskServiceStartup::build_postgres_connect_options(
+                        settings
+                            .logger
+                            .write_connection(&settings.database.connection),
+                        &settings.host.database_pool,
+                    );
+                options.sqlx_logging(false);
+                let log_db_pool = Arc::new(
+                    sea_orm::Database::connect(options)
+                        .await
+                        .map_err(|error| format!("日志写连接初始化失败: {error}"))?,
+                );
+
                 // 分区维护必须在所有宿主使用同一连接和前缀，不能沿用宿主专属业务锁前缀。
                 let maintenance_lock: Arc<dyn DistributedLock> = match settings.lock.component {
                     LockComponent::InMemory => Arc::new(InMemoryLock::new()),
@@ -128,10 +143,7 @@ pub fn build_logger_runtime<'a>(
                 };
                 init_database_logger(
                     &settings.logger,
-                    context
-                        .log_db_pool
-                        .clone()
-                        .ok_or("数据库日志写连接未装配")?,
+                    log_db_pool,
                     context.identifier_generator.clone(),
                     settings
                         .logger
@@ -151,7 +163,7 @@ pub fn build_logger_runtime<'a>(
 /// 构建任务宿主短信发送器
 pub fn build_sms_sender(
     settings: &Settings,
-    http_clients: Arc<application_runtime::http_client::HttpClientFactory>,
+    http_clients: Arc<http_client::HttpClientFactory>,
 ) -> Result<Arc<dyn AppSmsSender>, String> {
     match settings.sms.component {
         SmsComponent::Aliyun => Ok(Arc::new(AliyunSmsSender::new(
@@ -260,5 +272,36 @@ pub fn build_databases(
         let mut modules = DatabaseModules::default();
         modules.register(module)?;
         task_service_core::TaskServiceDatabases::for_module::<BusinessModule>(modules)
+    })
+}
+
+/// 只有模板消息任务需要这些资源，其他宿主可以完全省略该工厂。
+#[derive(Clone)]
+pub struct MessageResources {
+    pub sms_sender: Arc<dyn AppSmsSender>,
+    pub email_sender: Arc<dyn AppEmailSender>,
+    pub file_storage: Option<Arc<dyn AppFileStorage>>,
+    pub content_root: Arc<std::path::PathBuf>,
+}
+pub fn build_resources(
+    settings: &Settings,
+) -> Pin<Box<dyn Future<Output = Result<common::resources::Resources, String>> + Send + '_>> {
+    Box::pin(async move {
+        let clients = Arc::new(
+            http_client::HttpClientFactory::new()
+                .map_err(|error| format!("HTTP 客户端工厂初始化失败: {error}"))?,
+        );
+        let message = MessageResources {
+            sms_sender: build_sms_sender(settings, clients.clone())?,
+            email_sender: build_email_sender(settings)?,
+            file_storage: build_file_storage(settings, clients)?,
+            content_root: Arc::new(
+                std::env::current_dir()
+                    .map_err(|error| format!("读取宿主内容目录失败: {error}"))?,
+            ),
+        };
+        let mut resources = common::resources::Resources::default();
+        resources.insert(message)?;
+        Ok(resources)
     })
 }

@@ -1,3 +1,4 @@
+use http_client::HttpClientFactory;
 use std::{borrow::Cow, collections::BTreeMap};
 
 use async_trait::async_trait;
@@ -6,7 +7,7 @@ use hmac::{Hmac, KeyInit, Mac};
 use percent_encoding::{AsciiSet, NON_ALPHANUMERIC, utf8_percent_encode};
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
-use sms::{AppSmsSender, HttpClientFactory, SendSmsRequest};
+use sms::{AppSmsSender, SendSmsRequest};
 use std::sync::Arc;
 use uuid::Uuid;
 

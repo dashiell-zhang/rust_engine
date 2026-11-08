@@ -12,6 +12,13 @@ use super::{WebApiFeature, WebApiRoutePermission};
 pub struct LogFeature;
 
 impl WebApiFeature for LogFeature {
+    fn validate_resources(
+        &self,
+        resources: &webapi_core::host::resources::WebApiResources,
+    ) -> Result<(), String> {
+        webapi_support::services::require::<webapi_support::services::LogManage>(resources)?;
+        Ok(())
+    }
     /// 注册当前特性的路由
     fn register(
         &self,

@@ -196,7 +196,7 @@ pub async fn test_llm(
         )))
     })?;
     let adapter = ClientLlmApplicationAdapter::new(app_state.as_ref());
-    let service = adapter.llm_invoke();
+    let service = adapter.llm_invoke()?;
     // 使用固定演示参数调用默认样例应用 便于快速验证链路是否可用
     let content = service
         .chat_content(
@@ -223,7 +223,7 @@ pub async fn test_llm_stream(
     cancellation: webapi_core::request_cancellation::RequestCancellation,
 ) -> Result<Response, AppError> {
     let adapter = ClientLlmApplicationAdapter::new(app_state.as_ref());
-    let service = adapter.llm_invoke();
+    let service = adapter.llm_invoke()?;
     let mut stream = service
         .chat_stream_with_cancellation(
             "sumqw",

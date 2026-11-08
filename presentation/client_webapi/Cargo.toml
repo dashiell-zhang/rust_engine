@@ -4,9 +4,12 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+email = { path = "../../infrastructure/email" }
+file_storage = { path = "../../infrastructure/file_storage", default-features = false }
+http_client = { path = "../../infrastructure/http_client" }
 application_runtime = { path = "../../application/application_runtime" }
 source_generator_runtime = { path = "../../source_generator/source_generator_runtime" }
-webapi_support = { path = "../webapi_support" }
+webapi_support = { path = "../webapi_support", features = ["llm"] }
 event_bus = { path = "../../infrastructure/event_bus" }
 event_bus_redis = { path = "../../infrastructure/event_bus_redis" }
 event_bus_database = { path = "../../infrastructure/event_bus_database" }

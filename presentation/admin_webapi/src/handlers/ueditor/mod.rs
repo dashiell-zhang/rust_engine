@@ -366,7 +366,7 @@ async fn persist_upload_file_from_temp(
     upload_key: i64,
     sign: &str,
 ) -> Result<Response, AppError> {
-    let service = app_state.services().file();
+    let service = app_state.services().file()?;
     // 复用现有文件服务 保持上传记录 URL 生成与审计行为一致
     let result = service
         .upload_file(

@@ -25,9 +25,7 @@ pub const TASK_SERVICE_PROFILE: TaskServiceHostProfile = TaskServiceHostProfile 
     build_distributed_cache: host_support::build_distributed_cache,
     build_logger_runtime: host_support::build_logger_runtime,
     build_event_transport: host_support::build_event_transport,
-    build_sms_sender: host_support::build_sms_sender,
-    build_email_sender: host_support::build_email_sender,
-    build_file_storage: host_support::build_file_storage,
+    build_resources: Some(host_support::build_resources),
 };
 
 /// 启动任务宿主
@@ -38,10 +36,8 @@ pub async fn run() -> Result<(), String> {
         TASK_SERVICE_PROFILE.build_distributed_lock,
         TASK_SERVICE_PROFILE.build_distributed_cache,
         TASK_SERVICE_PROFILE.build_logger_runtime,
-        TASK_SERVICE_PROFILE.build_sms_sender,
-        TASK_SERVICE_PROFILE.build_email_sender,
-        TASK_SERVICE_PROFILE.build_file_storage,
     )
+    .with_resources_factory(TASK_SERVICE_PROFILE.build_resources)
     .with_databases_factory(TASK_SERVICE_PROFILE.build_databases)
     .with_event_transport_factory(TASK_SERVICE_PROFILE.build_event_transport)
     .with_features(features::features())

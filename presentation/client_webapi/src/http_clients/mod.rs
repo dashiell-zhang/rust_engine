@@ -2,9 +2,9 @@ mod sign;
 
 use std::sync::Arc;
 
-use application_runtime::http_client::{HttpClientFactory, NamedHttpClientRegistration};
 use common::error_helper::CustomError;
 use distributed_cache::DistributedCache;
+use http_client::{HttpClientFactory, NamedHttpClientRegistration};
 use openssl::pkcs12::Pkcs12;
 use serde::Deserialize;
 use webapi_core::settings::Settings;

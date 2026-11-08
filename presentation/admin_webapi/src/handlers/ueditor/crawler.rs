@@ -7,8 +7,9 @@ use std::{
 };
 
 use application_model::file::models::UploadFileDto;
-use application_runtime::{context::CurrentUser, http_client::HttpClientFactory};
+use application_runtime::context::CurrentUser;
 use common::{io_helper::TemporaryFileGuard, string_helper::is_public_ip_address};
+use http_client::HttpClientFactory;
 use reqwest::{Response, Url, header, redirect::Policy};
 use tokio::{fs, io::AsyncWriteExt};
 use webapi_support::WebApiApplicationExt;
@@ -116,7 +117,10 @@ async fn fetch_and_save(
     }
     output.flush().await.map_err(crawl_error)?;
     drop(output);
-    let service = state.services().file();
+    let service = state
+        .services()
+        .file()
+        .map_err(|error| error.message().to_owned())?;
     let file_id = service
         .upload_file(
             UploadFileDto {

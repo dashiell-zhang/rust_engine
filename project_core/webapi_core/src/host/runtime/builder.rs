@@ -14,10 +14,10 @@ use crate::rate_limit::RateLimiter;
 use crate::{
     builder::WebApiRouterBuilder, openapi::apply_openapi_enhancements, startup::WebApiStartup,
 };
-use application_interface::email::AppEmailSender;
 use application_runtime::auth::EcJwtCodec;
-use application_runtime::http_client::HttpClientFactory;
 use axum::Router;
+use email::AppEmailSender;
+use http_client::HttpClientFactory;
 use identifier_generator::IdentifierGenerator;
 use logger::LoggerRuntime;
 use utoipa::OpenApi;
@@ -188,6 +188,9 @@ impl WebApiHostBuilder {
         };
 
         application.validate_resources(&resources)?;
+        for feature in &self.features {
+            feature.validate_resources(&resources)?;
+        }
 
         let logger_runtime = (self.build_logger_runtime)(
             &self.settings,

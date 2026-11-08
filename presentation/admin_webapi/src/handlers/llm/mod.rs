@@ -36,7 +36,7 @@ pub async fn get_llm_model_list(
     PageQuery(params): PageQuery<LlmModelPageRequest>,
 ) -> Result<Response, AppError> {
     let adapter = AdminLlmApplicationAdapter::new(app_state.as_ref());
-    let service = adapter.llm_model();
+    let service = adapter.llm_model()?;
 
     match service.get_llm_model_list(params).await {
         Ok(result) => Ok((StatusCode::OK, Json(result)).into_response()),
@@ -61,7 +61,7 @@ pub async fn get_llm_model_select(
     _user_ctx: UserContext,
 ) -> Result<Response, AppError> {
     let adapter = AdminLlmApplicationAdapter::new(app_state.as_ref());
-    let service = adapter.llm_model();
+    let service = adapter.llm_model()?;
 
     match service.get_llm_model_select().await {
         Ok(result) => Ok((StatusCode::OK, Json(result)).into_response()),
@@ -89,7 +89,7 @@ pub async fn create_llm_model(
     Json(dto): Json<EditLlmModelDto>,
 ) -> Result<Response, AppError> {
     let adapter = AdminLlmApplicationAdapter::new(app_state.as_ref());
-    let service = adapter.llm_model();
+    let service = adapter.llm_model()?;
     let current_user = user_ctx.current_user();
 
     match service.create_llm_model(dto, &current_user).await {
@@ -120,7 +120,7 @@ pub async fn update_llm_model(
     Json(dto): Json<EditLlmModelDto>,
 ) -> Result<Response, AppError> {
     let adapter = AdminLlmApplicationAdapter::new(app_state.as_ref());
-    let service = adapter.llm_model();
+    let service = adapter.llm_model()?;
     let current_user = user_ctx.current_user();
 
     match service.update_llm_model(query.id, dto, &current_user).await {
@@ -149,7 +149,7 @@ pub async fn delete_llm_model(
     Query(query): Query<LlmModelIdQuery>,
 ) -> Result<Response, AppError> {
     let adapter = AdminLlmApplicationAdapter::new(app_state.as_ref());
-    let service = adapter.llm_model();
+    let service = adapter.llm_model()?;
     let current_user = user_ctx.current_user();
 
     match service.delete_llm_model(query.id, &current_user).await {
@@ -178,7 +178,7 @@ pub async fn get_llm_app_list(
     PageQuery(params): PageQuery<LlmAppPageRequest>,
 ) -> Result<Response, AppError> {
     let adapter = AdminLlmApplicationAdapter::new(app_state.as_ref());
-    let service = adapter.llm_app();
+    let service = adapter.llm_app()?;
 
     match service.get_llm_app_list(params).await {
         Ok(result) => Ok((StatusCode::OK, Json(result)).into_response()),
@@ -206,7 +206,7 @@ pub async fn create_llm_app(
     Json(dto): Json<EditLlmAppDto>,
 ) -> Result<Response, AppError> {
     let adapter = AdminLlmApplicationAdapter::new(app_state.as_ref());
-    let service = adapter.llm_app();
+    let service = adapter.llm_app()?;
     let current_user = user_ctx.current_user();
 
     match service.create_llm_app(dto, &current_user).await {
@@ -237,7 +237,7 @@ pub async fn update_llm_app(
     Json(dto): Json<EditLlmAppDto>,
 ) -> Result<Response, AppError> {
     let adapter = AdminLlmApplicationAdapter::new(app_state.as_ref());
-    let service = adapter.llm_app();
+    let service = adapter.llm_app()?;
     let current_user = user_ctx.current_user();
 
     match service
@@ -269,7 +269,7 @@ pub async fn delete_llm_app(
     Query(query): Query<LlmAppIdQuery>,
 ) -> Result<Response, AppError> {
     let adapter = AdminLlmApplicationAdapter::new(app_state.as_ref());
-    let service = adapter.llm_app();
+    let service = adapter.llm_app()?;
     let current_user = user_ctx.current_user();
 
     match service
@@ -302,7 +302,7 @@ pub async fn test_llm_app(
     Json(request): Json<TestLlmAppRequest>,
 ) -> Result<Response, AppError> {
     let adapter = AdminLlmApplicationAdapter::new(app_state.as_ref());
-    let service = adapter.llm_app();
+    let service = adapter.llm_app()?;
 
     match service
         .test_llm_app_with_cancellation(user_ctx.current_user().user_id, request, cancellation.0)
@@ -333,7 +333,7 @@ pub async fn get_llm_conversation_list(
     PageQuery(params): PageQuery<LlmConversationPageRequest>,
 ) -> Result<Response, AppError> {
     let adapter = AdminLlmApplicationAdapter::new(app_state.as_ref());
-    let service = adapter.llm_conversation_manage();
+    let service = adapter.llm_conversation_manage()?;
 
     match service.get_llm_conversation_list(params).await {
         Ok(result) => Ok((StatusCode::OK, Json(result)).into_response()),

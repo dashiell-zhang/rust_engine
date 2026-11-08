@@ -18,6 +18,13 @@ use super::{WebApiFeature, WebApiRoutePermission};
 pub struct FileFeature;
 
 impl WebApiFeature for FileFeature {
+    fn validate_resources(
+        &self,
+        resources: &webapi_core::host::resources::WebApiResources,
+    ) -> Result<(), String> {
+        webapi_support::services::require::<webapi_support::services::File>(resources)?;
+        Ok(())
+    }
     /// 注册当前特性的路由
     fn register(
         &self,

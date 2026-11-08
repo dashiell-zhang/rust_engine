@@ -31,14 +31,8 @@ pub struct TaskServiceHostProfile {
     pub build_logger_runtime: crate::BuildTaskServiceLoggerRuntime,
     pub build_event_transport: crate::BuildTaskServiceEventTransport,
 
-    /// 短信发送器构建方法
-    pub build_sms_sender: crate::BuildTaskServiceSmsSender,
-
-    /// 邮件发送器构建方法
-    pub build_email_sender: crate::BuildTaskServiceEmailSender,
-
-    /// 文件存储构建方法
-    pub build_file_storage: crate::BuildTaskServiceFileStorage,
+    /// 任务业务资源由运行入口按需装配。
+    pub build_resources: Option<crate::BuildTaskServiceResources>,
 }
 
 /// 锁组件类型

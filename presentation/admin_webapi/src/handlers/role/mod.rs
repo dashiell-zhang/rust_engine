@@ -34,7 +34,7 @@ pub async fn get_role_list(
     _user_ctx: UserContext,
     PageQuery(params): PageQuery<RolePageRequest>,
 ) -> Result<Response, AppError> {
-    let service = app_state.services().role();
+    let service = app_state.services().role()?;
 
     match service.get_role_list(params).await {
         Ok(result) => Ok((StatusCode::OK, Json(result)).into_response()),
@@ -60,7 +60,7 @@ pub async fn get_role(
     _user_ctx: UserContext,
     Query(query): Query<RoleIdQuery>,
 ) -> Result<Response, AppError> {
-    let service = app_state.services().role();
+    let service = app_state.services().role()?;
 
     match service.get_role(query.role_id).await {
         Ok(result) => Ok((StatusCode::OK, Json(result)).into_response()),
@@ -87,7 +87,7 @@ pub async fn create_role(
     _user_ctx: UserContext,
     Json(dto): Json<EditRoleDto>,
 ) -> Result<Response, AppError> {
-    let service = app_state.services().role();
+    let service = app_state.services().role()?;
 
     match service.create_role(dto).await {
         Ok(role_id) => Ok((StatusCode::OK, Json(role_id)).into_response()),
@@ -116,7 +116,7 @@ pub async fn update_role(
     Query(query): Query<RoleIdQuery>,
     Json(dto): Json<EditRoleDto>,
 ) -> Result<Response, AppError> {
-    let service = app_state.services().role();
+    let service = app_state.services().role()?;
 
     match service.update_role(query.role_id, dto).await {
         Ok(result) => Ok((StatusCode::OK, Json(result)).into_response()),
@@ -143,7 +143,7 @@ pub async fn delete_role(
     _user_ctx: UserContext,
     Query(query): Query<DeleteRoleQuery>,
 ) -> Result<Response, AppError> {
-    let service = app_state.services().role();
+    let service = app_state.services().role()?;
 
     match service.delete_role(query.id).await {
         Ok(result) => Ok((StatusCode::OK, Json(result)).into_response()),
@@ -169,7 +169,7 @@ pub async fn get_role_function(
     _user_ctx: UserContext,
     Query(query): Query<RoleIdQuery>,
 ) -> Result<Response, AppError> {
-    let service = app_state.services().role();
+    let service = app_state.services().role()?;
 
     match service.get_role_function(query.role_id).await {
         Ok(list) => Ok((StatusCode::OK, Json(list)).into_response()),
@@ -195,7 +195,10 @@ pub async fn set_role_function(
     user_ctx: UserContext,
     Json(dto): Json<SetRoleFunctionDto>,
 ) -> Response {
-    let service = app_state.services().role();
+    let service = match app_state.services().role() {
+        Ok(service) => service,
+        Err(error) => return AppError::from(error).into_response(),
+    };
     let current_user = user_ctx.current_user();
 
     match service.set_role_function(dto, &current_user).await {
@@ -220,7 +223,7 @@ pub async fn get_role_select(
     State(app_state): State<Arc<AppState>>,
     _user_ctx: UserContext,
 ) -> Result<Response, AppError> {
-    let service = app_state.services().role();
+    let service = app_state.services().role()?;
 
     match service.get_role_select().await {
         Ok(list) => Ok((StatusCode::OK, Json(list)).into_response()),

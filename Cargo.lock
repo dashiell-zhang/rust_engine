@@ -26,13 +26,16 @@ dependencies = [
  "distributed_lock",
  "distributed_lock_memory",
  "distributed_lock_redis",
+ "email",
  "email_smtp",
  "event_bus",
  "event_bus_database",
  "event_bus_redis",
+ "file_storage",
  "file_storage_ali_cloud",
  "file_storage_tencent_cloud",
  "futures-util",
+ "http_client",
  "llm",
  "logger",
  "logger_database",
@@ -206,11 +209,14 @@ dependencies = [
  "chrono",
  "common",
  "distributed_cache",
+ "email",
  "event_bus",
+ "file_storage",
  "futures-util",
  "indexmap",
  "serde",
  "serde_json",
+ "sms",
  "uuid",
 ]
 
@@ -232,17 +238,17 @@ version = "0.1.0"
 dependencies = [
  "application_interface",
  "application_model",
- "async-trait",
  "common",
  "distributed_cache",
  "distributed_lock",
- "futures-util",
+ "email",
+ "file_storage",
+ "http_client",
  "identifier_generator",
  "jsonwebtoken",
- "reqwest",
  "sea-orm",
  "serde",
- "tokio",
+ "sms",
 ]
 
 [[package]]
@@ -259,6 +265,7 @@ dependencies = [
  "common",
  "distributed_cache",
  "distributed_lock",
+ "email",
  "event_bus",
  "indexmap",
  "logger_database",
@@ -293,6 +300,7 @@ dependencies = [
  "chrono",
  "common",
  "futures-util",
+ "http_client",
  "llm",
  "regex",
  "repository",
@@ -311,6 +319,7 @@ dependencies = [
  "application_runtime",
  "async-trait",
  "common",
+ "sms",
 ]
 
 [[package]]
@@ -1060,14 +1069,17 @@ dependencies = [
  "distributed_lock",
  "distributed_lock_memory",
  "distributed_lock_redis",
+ "email",
  "email_smtp",
  "event_bus",
  "event_bus_database",
  "event_bus_redis",
+ "file_storage",
  "file_storage_ali_cloud",
  "file_storage_tencent_cloud",
  "futures-util",
  "http",
+ "http_client",
  "llm",
  "logger",
  "logger_database",
@@ -1911,7 +1923,9 @@ dependencies = [
 name = "email"
 version = "0.1.0"
 dependencies = [
- "application_interface",
+ "async-trait",
+ "common",
+ "serde",
 ]
 
 [[package]]
@@ -2107,7 +2121,6 @@ checksum = "28dea519a9695b9977216879a3ebfddf92f1c08c05d984f8996aecd6ecdc811d"
 name = "file_storage"
 version = "0.1.0"
 dependencies = [
- "application_interface",
  "async-trait",
  "chrono",
  "common",
@@ -2118,15 +2131,15 @@ dependencies = [
 name = "file_storage_ali_cloud"
 version = "0.1.0"
 dependencies = [
- "application_interface",
- "application_runtime",
  "async-trait",
  "base64 0.23.1",
  "chrono",
  "common",
  "crc",
+ "file_storage",
  "futures-util",
  "hmac 0.13.0",
+ "http_client",
  "quick-xml",
  "rand 0.10.3",
  "reqwest",
@@ -2139,14 +2152,14 @@ dependencies = [
 name = "file_storage_tencent_cloud"
 version = "0.1.0"
 dependencies = [
- "application_interface",
- "application_runtime",
  "async-trait",
  "base64 0.23.1",
  "chrono",
  "common",
+ "file_storage",
  "futures-util",
  "hmac 0.13.0",
+ "http_client",
  "md-5 0.11.0",
  "percent-encoding",
  "quick-xml",
@@ -2589,6 +2602,16 @@ name = "http-range-header"
 version = "0.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9171a2ea8a68358193d15dd5d70c1c10a2afc3e7e4c5bc92bc9f025cebd7359c"
+
+[[package]]
+name = "http_client"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "common",
+ "reqwest",
+ "tokio",
+]
 
 [[package]]
 name = "httparse"
@@ -5278,8 +5301,10 @@ dependencies = [
 name = "sms"
 version = "0.1.0"
 dependencies = [
- "application_interface",
- "application_runtime",
+ "async-trait",
+ "common",
+ "indexmap",
+ "serde",
 ]
 
 [[package]]
@@ -5290,6 +5315,7 @@ dependencies = [
  "chrono",
  "common",
  "hmac 0.13.0",
+ "http_client",
  "percent-encoding",
  "reqwest",
  "serde",
@@ -5307,6 +5333,7 @@ dependencies = [
  "chrono",
  "common",
  "hmac 0.13.0",
+ "http_client",
  "reqwest",
  "serde",
  "serde_json",
@@ -5708,12 +5735,15 @@ dependencies = [
  "distributed_lock",
  "distributed_lock_memory",
  "distributed_lock_redis",
+ "email",
  "email_smtp",
  "event_bus",
  "event_bus_database",
  "event_bus_redis",
+ "file_storage",
  "file_storage_ali_cloud",
  "file_storage_tencent_cloud",
+ "http_client",
  "logger",
  "logger_database",
  "logger_local_file",
@@ -5721,6 +5751,7 @@ dependencies = [
  "repository",
  "repository_core",
  "sea-orm",
+ "sms",
  "sms_ali_cloud",
  "sms_tencent_cloud",
  "source_generator_runtime",
@@ -5733,8 +5764,6 @@ dependencies = [
 name = "task_service_core"
 version = "0.1.0"
 dependencies = [
- "application_interface",
- "application_runtime",
  "async-trait",
  "chrono",
  "common",
@@ -6475,10 +6504,13 @@ dependencies = [
  "dashmap",
  "distributed_cache",
  "distributed_lock",
+ "email",
  "event_bus",
+ "file_storage",
  "flate2",
  "futures-util",
  "http-body",
+ "http_client",
  "httpdate",
  "identifier_generator",
  "jsonwebtoken",

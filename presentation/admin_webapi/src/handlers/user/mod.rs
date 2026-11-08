@@ -33,7 +33,7 @@ pub async fn get_user_list(
     _user_ctx: UserContext,
     PageQuery(params): PageQuery<UserPageRequest>,
 ) -> Result<Response, AppError> {
-    let service = app_state.services().user_webapi();
+    let service = app_state.services().user_webapi()?;
 
     match service.get_user_list(params).await {
         Ok(result) => Ok((StatusCode::OK, Json(result)).into_response()),
@@ -60,7 +60,7 @@ pub async fn get_user(
     Query(params): Query<UserIdQuery>,
 ) -> Result<Response, AppError> {
     let target_id = params.user_id.unwrap_or(user_ctx.user_id);
-    let service = app_state.services().user_webapi();
+    let service = app_state.services().user_webapi()?;
 
     match service.get_user(target_id).await {
         Ok(result) => Ok((StatusCode::OK, Json(result)).into_response()),
@@ -87,7 +87,7 @@ pub async fn get_user_role_list(
     _user_ctx: UserContext,
     Query(query): Query<UpdateUserQuery>,
 ) -> Result<Response, AppError> {
-    let service = app_state.services().user_webapi();
+    let service = app_state.services().user_webapi()?;
 
     match service.get_user_role_list(query.user_id).await {
         Ok(result) => Ok((StatusCode::OK, Json(result)).into_response()),
@@ -114,7 +114,7 @@ pub async fn set_user_role(
     user_ctx: UserContext,
     Json(dto): Json<SetUserRoleDto>,
 ) -> Result<Response, AppError> {
-    let service = app_state.services().user_webapi();
+    let service = app_state.services().user_webapi()?;
     let current_user = user_ctx.current_user();
 
     match service.set_user_role(dto, &current_user).await {
@@ -142,7 +142,7 @@ pub async fn get_user_function(
     _user_ctx: UserContext,
     Query(query): Query<UpdateUserQuery>,
 ) -> Result<Response, AppError> {
-    let service = app_state.services().user_webapi();
+    let service = app_state.services().user_webapi()?;
 
     match service.get_user_function(query.user_id).await {
         Ok(result) => Ok((StatusCode::OK, Json(result)).into_response()),
@@ -169,7 +169,7 @@ pub async fn set_user_function(
     user_ctx: UserContext,
     Json(dto): Json<SetUserFunctionDto>,
 ) -> Result<Response, AppError> {
-    let service = app_state.services().user_webapi();
+    let service = app_state.services().user_webapi()?;
     let current_user = user_ctx.current_user();
 
     match service.set_user_function(dto, &current_user).await {
@@ -197,7 +197,7 @@ pub async fn create_user(
     user_ctx: UserContext,
     Json(dto): Json<EditUserDto>,
 ) -> Result<Response, AppError> {
-    let service = app_state.services().user_webapi();
+    let service = app_state.services().user_webapi()?;
     let current_user = user_ctx.current_user();
 
     match service.create_user(dto, &current_user).await {
@@ -227,7 +227,7 @@ pub async fn update_user(
     Query(query): Query<UpdateUserQuery>,
     Json(dto): Json<EditUserDto>,
 ) -> Result<Response, AppError> {
-    let service = app_state.services().user_webapi();
+    let service = app_state.services().user_webapi()?;
     let current_user = user_ctx.current_user();
 
     match service.update_user(query.user_id, dto, &current_user).await {
@@ -255,7 +255,7 @@ pub async fn delete_user(
     user_ctx: UserContext,
     Query(query): Query<DeleteUserQuery>,
 ) -> Result<Response, AppError> {
-    let service = app_state.services().user_webapi();
+    let service = app_state.services().user_webapi()?;
     let current_user = user_ctx.current_user();
 
     match service.delete_user(query.id, &current_user).await {

@@ -68,3 +68,6 @@ pub mod cancellation;
 
 #[path = "data_helper/guid.rs"]
 pub(crate) mod guid;
+
+/// 宿主显式资源集合。
+pub mod resources;

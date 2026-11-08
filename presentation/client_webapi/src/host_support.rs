@@ -2,14 +2,15 @@
 
 use std::{future::Future, pin::Pin, sync::Arc};
 
-use application_interface::{email::AppEmailSender, storage::AppFileStorage};
 use distributed_cache::DistributedCache;
 use distributed_cache_memory::InMemoryCache;
 use distributed_cache_redis::RedisCache;
 use distributed_lock::DistributedLock;
 use distributed_lock_memory::InMemoryLock;
 use distributed_lock_redis::RedisLock;
+use email::AppEmailSender;
 use email_smtp::{SmtpEmailSender, SmtpEmailSettings};
+use file_storage::AppFileStorage;
 use file_storage_ali_cloud::{AliyunOssFileStorage, AliyunOssFileStorageSettings};
 use file_storage_tencent_cloud::{TencentCosFileStorage, TencentCosFileStorageSettings};
 use logger::{LoggerComponent, LoggerRuntime};
@@ -112,7 +113,7 @@ pub fn build_logger_runtime<'a>(
 /// 构建客户端文件存储
 pub fn build_file_storage(
     settings: &Settings,
-    http_clients: Arc<application_runtime::http_client::HttpClientFactory>,
+    http_clients: Arc<http_client::HttpClientFactory>,
 ) -> Result<Option<Arc<dyn AppFileStorage>>, String> {
     match settings.file.component {
         FileStorageComponent::Local => Ok(None),

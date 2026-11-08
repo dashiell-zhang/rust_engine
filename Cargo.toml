@@ -19,6 +19,7 @@ members = [
   "presentation/client_webapi",
   "presentation/task_service",
   "infrastructure/common",
+  "infrastructure/http_client",
   "infrastructure/cancellation",
   "infrastructure/event_bus",
   "infrastructure/event_bus_redis",

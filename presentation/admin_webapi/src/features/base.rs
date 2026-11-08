@@ -18,6 +18,13 @@ use super::WebApiFeature;
 pub struct BaseFeature;
 
 impl WebApiFeature for BaseFeature {
+    fn validate_resources(
+        &self,
+        resources: &webapi_core::host::resources::WebApiResources,
+    ) -> Result<(), String> {
+        webapi_support::services::require::<webapi_support::services::Base>(resources)?;
+        Ok(())
+    }
     /// 注册基础工具路由
     fn register(
         &self,

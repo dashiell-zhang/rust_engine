@@ -12,11 +12,17 @@ pub fn business_services(context: &TaskServiceFeatureContext) -> Arc<dyn TaskSer
         .clone();
     Arc::new(BusinessTaskServices {
         context: context.clone(),
+        message: context
+            .resources
+            .get::<crate::host_support::MessageResources>()
+            .expect("内置消息任务必须注册 MessageResources")
+            .clone(),
         database,
     })
 }
 struct BusinessTaskServices {
     context: TaskServiceFeatureContext,
+    message: crate::host_support::MessageResources,
     database: repository_core::module::ModuleDatabase<repository::BusinessModule>,
 }
 impl TaskServiceFactory for BusinessTaskServices {
@@ -28,16 +34,16 @@ impl TaskServiceFactory for BusinessTaskServices {
                     id_generator: &self.context.identifier_generator,
                     current_user: None,
                 },
-                root_path: self.context.content_root.as_path(),
-                file_storage: self.context.file_storage.as_deref(),
-                email_sender: Some(self.context.email_sender.as_ref()),
+                root_path: self.message.content_root.as_path(),
+                file_storage: self.message.file_storage.as_deref(),
+                email_sender: Some(self.message.email_sender.as_ref()),
             },
         ))
     }
     fn sms(&self) -> Box<dyn application_interface::services::sms::SmsService + '_> {
         Box::new(
             application_service_sms::sms::send_service::SendSmsService::new(SmsContext {
-                sms_sender: self.context.sms_sender.as_ref(),
+                sms_sender: self.message.sms_sender.as_ref(),
             }),
         )
     }

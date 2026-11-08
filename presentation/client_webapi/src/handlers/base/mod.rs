@@ -98,7 +98,7 @@ pub async fn get_region(
 ) -> Result<Response, AppError> {
     let result = app_state
         .services()
-        .base()
+        .base()?
         .get_region(
             query.province_id.unwrap_or_default(),
             query.city_id.unwrap_or_default(),
@@ -122,7 +122,7 @@ pub async fn get_region(
     tag = "基础工具"
 )]
 pub async fn get_region_all(State(app_state): State<Arc<AppState>>) -> Result<Response, AppError> {
-    match app_state.services().base().get_region_all().await {
+    match app_state.services().base()?.get_region_all().await {
         Ok(result) => Ok((StatusCode::OK, Json(result)).into_response()),
         Err(error) => Err(error.into()),
     }
@@ -146,7 +146,7 @@ pub async fn get_verify_code(
 ) -> Result<Response, AppError> {
     match app_state
         .services()
-        .base()
+        .base()?
         .get_verify_code(query.sign)
         .await
     {
@@ -178,7 +178,7 @@ pub async fn get_value_list(
 ) -> Result<Response, AppError> {
     match app_state
         .services()
-        .base()
+        .base()?
         .get_value_list(query.group_id)
         .await
     {

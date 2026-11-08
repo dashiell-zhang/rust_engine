@@ -18,6 +18,15 @@ use super::{WebApiFeature, WebApiRoutePermission};
 pub struct LlmFeature;
 
 impl WebApiFeature for LlmFeature {
+    fn validate_resources(
+        &self,
+        resources: &webapi_core::host::resources::WebApiResources,
+    ) -> Result<(), String> {
+        webapi_support::services::require::<webapi_support::services::LlmApp>(resources)?;
+        webapi_support::services::require::<webapi_support::services::LlmModel>(resources)?;
+        webapi_support::services::require::<webapi_support::services::LlmConversation>(resources)?;
+        Ok(())
+    }
     /// 注册 LLM 管理相关路由
     fn register(
         &self,

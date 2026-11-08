@@ -19,6 +19,9 @@ impl TaskServiceFeature for BuiltinTaskFeature {
         context: &TaskServiceFeatureContext,
     ) -> Result<(), String> {
         context.modules.get::<repository::BusinessModule>()?;
+        context
+            .resources
+            .get::<crate::host_support::MessageResources>()?;
         register_builtin_tasks(registry, context, (self.services)(context))
     }
 }

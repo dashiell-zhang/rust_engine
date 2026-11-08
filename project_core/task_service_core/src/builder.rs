@@ -1,21 +1,18 @@
 use std::sync::Arc;
 
 use crate::{
-    BuildTaskServiceCache, BuildTaskServiceEmailSender, BuildTaskServiceFileStorage,
-    BuildTaskServiceLock, BuildTaskServiceLoggerRuntime, BuildTaskServiceSmsSender,
+    BuildTaskServiceCache, BuildTaskServiceLock, BuildTaskServiceLoggerRuntime,
     TaskServiceLoggerBuilderContext,
     features::{TaskServiceFeature, TaskServiceFeatureContext},
     registry::TaskRegistry,
     runner::{TaskServiceRunner, TaskServiceRunnerOptions},
     settings::Settings,
-    startup::TaskServiceStartup,
     sync::TaskRuntimeConfiguration,
 };
 use common::identifier_generator::IdentifierGenerator;
 use logger::LoggerRuntime;
 use queue_task_database::{DatabaseQueueTaskStore, QueueTaskStore};
 use repository_core::ReadDatabaseConnection;
-use sea_orm::Database;
 
 /// TaskService 宿主构建器
 pub struct TaskServiceHostBuilder {
@@ -33,14 +30,7 @@ pub struct TaskServiceHostBuilder {
     build_event_transport: Option<crate::BuildTaskServiceEventTransport>,
     build_databases: Option<crate::BuildTaskServiceDatabases>,
 
-    /// 短信发送器构建方法
-    build_sms_sender: BuildTaskServiceSmsSender,
-
-    /// 邮件发送器构建方法
-    build_email_sender: BuildTaskServiceEmailSender,
-
-    /// 文件存储构建方法
-    build_file_storage: BuildTaskServiceFileStorage,
+    build_resources: Option<crate::BuildTaskServiceResources>,
 
     /// 已注册任务特性
     features: Vec<Box<dyn TaskServiceFeature>>,
@@ -70,22 +60,25 @@ impl TaskServiceHostBuilder {
         build_distributed_lock: BuildTaskServiceLock,
         build_distributed_cache: BuildTaskServiceCache,
         build_logger_runtime: BuildTaskServiceLoggerRuntime,
-        build_sms_sender: BuildTaskServiceSmsSender,
-        build_email_sender: BuildTaskServiceEmailSender,
-        build_file_storage: BuildTaskServiceFileStorage,
     ) -> Self {
         Self {
             settings,
             build_distributed_lock,
             build_distributed_cache,
             build_logger_runtime,
-            build_sms_sender,
-            build_email_sender,
-            build_file_storage,
             features: Vec::new(),
             build_event_transport: None,
             build_databases: None,
+            build_resources: None,
         }
+    }
+
+    pub fn with_resources_factory(
+        mut self,
+        factory: Option<crate::BuildTaskServiceResources>,
+    ) -> Self {
+        self.build_resources = factory;
+        self
     }
 
     pub fn with_databases_factory(mut self, factory: crate::BuildTaskServiceDatabases) -> Self {
@@ -119,13 +112,6 @@ impl TaskServiceHostBuilder {
 
     /// 构建 TaskService 宿主实例
     pub async fn build(self) -> Result<TaskServiceHost, String> {
-        let content_root = Arc::new(
-            std::env::current_dir().map_err(|error| format!("读取宿主内容目录失败: {error}"))?,
-        );
-        let http_client_factory = Arc::new(
-            application_runtime::http_client::HttpClientFactory::new()
-                .map_err(|error| format!("HTTP 客户端工厂初始化失败: {error}"))?,
-        );
         let distributed_lock = (self.build_distributed_lock)(&self.settings).await?;
         let distributed_cache = (self.build_distributed_cache)(&self.settings).await?;
         let identifier_generator = IdentifierGenerator::from_settings(
@@ -142,28 +128,9 @@ impl TaskServiceHostBuilder {
         let db_pool = databases.queue_write.clone();
         let read_db_pool = databases.queue_read.clone();
 
-        let log_db_pool = if self.settings.logger.component == logger::LoggerComponent::Database {
-            let mut options = TaskServiceStartup::build_postgres_connect_options(
-                self.settings
-                    .logger
-                    .write_connection(&self.settings.database.connection),
-                &self.settings.host.database_pool,
-            );
-            // 日志数据库自身的 SQL 不回流日志管线，避免递归记录。
-            options.sqlx_logging(false);
-            Some(Arc::new(
-                Database::connect(options)
-                    .await
-                    .map_err(|error| format!("日志写连接初始化失败: {error}"))?,
-            ))
-        } else {
-            None
-        };
-
         let logger_runtime = (self.build_logger_runtime)(
             &self.settings,
             &TaskServiceLoggerBuilderContext {
-                log_db_pool: log_db_pool.clone(),
                 identifier_generator: identifier_generator.clone(),
             },
         )
@@ -191,18 +158,16 @@ impl TaskServiceHostBuilder {
         };
         let mut event_listeners = event_bus::EventListenerRegistry::default();
 
-        let sms_sender = (self.build_sms_sender)(&self.settings, http_client_factory.clone())?;
-        let email_sender = (self.build_email_sender)(&self.settings)?;
-        let file_storage = (self.build_file_storage)(&self.settings, http_client_factory)?;
+        let resources = match self.build_resources {
+            Some(build) => build(&self.settings).await?,
+            None => common::resources::Resources::default(),
+        };
         let feature_context = TaskServiceFeatureContext {
             cache: distributed_cache,
             event_publisher,
             modules: databases.modules,
             identifier_generator: identifier_generator.clone(),
-            sms_sender,
-            email_sender,
-            file_storage,
-            content_root,
+            resources: Arc::new(resources),
         };
         for feature in &self.features {
             feature.register_event_listeners(&mut event_listeners, &feature_context)?;

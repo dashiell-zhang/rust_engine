@@ -16,7 +16,10 @@ impl<'a> ClientLlmApplicationAdapter<'a> {
     /// 创建 LLM 运行时调用服务
     pub fn llm_invoke(
         &self,
-    ) -> Box<dyn application_interface::services::llm_invoke::LlmInvokeService + '_> {
+    ) -> Result<
+        Box<dyn application_interface::services::llm_invoke::LlmInvokeService + '_>,
+        common::app_error::AppError,
+    > {
         self.state.services().llm_invoke()
     }
 }

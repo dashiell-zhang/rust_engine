@@ -1,14 +1,15 @@
 #![allow(clippy::type_complexity)]
 use webapi_support::WebApiApplicationExt;
 
-use application_interface::{email::AppEmailSender, storage::AppFileStorage};
 use distributed_cache::DistributedCache;
 use distributed_cache_memory::InMemoryCache;
 use distributed_cache_redis::RedisCache;
 use distributed_lock::DistributedLock;
 use distributed_lock_memory::InMemoryLock;
 use distributed_lock_redis::RedisLock;
+use email::AppEmailSender;
 use email_smtp::{SmtpEmailSender, SmtpEmailSettings};
+use file_storage::AppFileStorage;
 use file_storage_ali_cloud::{AliyunOssFileStorage, AliyunOssFileStorageSettings};
 use file_storage_tencent_cloud::{TencentCosFileStorage, TencentCosFileStorageSettings};
 use logger::{LoggerComponent, LoggerRuntime};
@@ -115,7 +116,7 @@ pub fn build_logger_runtime<'a>(
 /// 构建管理端文件存储
 pub fn build_file_storage(
     settings: &Settings,
-    http_clients: Arc<application_runtime::http_client::HttpClientFactory>,
+    http_clients: Arc<http_client::HttpClientFactory>,
 ) -> Result<Option<Arc<dyn AppFileStorage>>, String> {
     match settings.file.component {
         webapi_core::settings::FileStorageComponent::Local => Ok(None),
@@ -173,22 +174,35 @@ impl<'a> AdminLlmApplicationAdapter<'a> {
     }
 
     /// 创建 LLM 应用配置服务
-    pub fn llm_app(&self) -> Box<dyn application_interface::services::llm_app::LlmAppService + '_> {
+    pub fn llm_app(
+        &self,
+    ) -> Result<
+        Box<dyn application_interface::services::llm_app::LlmAppService + '_>,
+        common::app_error::AppError,
+    > {
         self.state.services().llm_app()
     }
 
     /// 创建 LLM 模型配置服务
     pub fn llm_model(
         &self,
-    ) -> Box<dyn application_interface::services::llm_model::LlmModelService + '_> {
+    ) -> Result<
+        Box<dyn application_interface::services::llm_model::LlmModelService + '_>,
+        common::app_error::AppError,
+    > {
         self.state.services().llm_model()
     }
 
     /// 创建 LLM 对话记录管理服务
     pub fn llm_conversation_manage(
         &self,
-    ) -> Box<dyn application_interface::services::llm_conversation::LlmConversationManageService + '_>
-    {
+    ) -> Result<
+        Box<
+            dyn application_interface::services::llm_conversation::LlmConversationManageService
+                + '_,
+        >,
+        common::app_error::AppError,
+    > {
         self.state.services().llm_conversation_manage()
     }
 }

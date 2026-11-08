@@ -1,26 +1,36 @@
 # 业务模块、服务工厂与宿主装配
 
-本文对应 [AR-01～AR-04 架构调整](netengine-architecture-review.md)。模块机制已接入三个现有宿主，不要求拆分现有业务数据库。
+本文对应 [AR-01～AR-07 架构调整](netengine-architecture-review.md)。模块机制已接入三个现有宿主，不要求拆分现有业务数据库。
 
 ## 契约与运行资源
 
-- `application_model` 保存 DTO，`application_interface` 保存业务服务及提供商契约。
-- `application_runtime` 保存数据库执行上下文、共享 HTTP 客户端工厂和 JWT 编解码实现。应用实现与宿主引用它；只使用契约的组件无需引用它。
-- DTO、接口和事件契约关闭 common 的默认 `runtime` 特性，保留 JSON、日期、属性映射和错误类型。网络、图像、Excel、系统等运行能力由默认启用的 `runtime` 特性提供；已有运行组件行为保持不变。
+- `application_model` 保存 DTO，`application_interface` 保存业务服务契约；`file_storage`、`email`、`sms` 拥有提供商契约及请求类型。接口层原模块仅保留单向兼容导出，基础设施不得回引它们。
+- `application_runtime` 保存数据库执行上下文和 JWT 编解码实现。共享 HTTP 工厂独立为 `http_client::HttpClientFactory`，提供商无需引入应用上下文、SeaORM 或 JWT。
+- DTO、接口和事件契约关闭 common 的默认 `runtime` 特性。只使用文件契约时也关闭 file_storage 的默认 `local` 特性，避免带入本地文件实现。
 
 ## WebAPI 实现选择
 
-`WebApiHostProfile.build_resources` 指向运行入口的资源工厂。模板入口使用 `webapi_support::resources::build_resources`，它装配业务模块、独立日志查询、健康检查及 `BusinessServiceFactory`。
+`WebApiHostProfile.build_resources` 指向运行入口的资源工厂。两个入口各自的 `business_resources.rs` 先调用 `webapi_support::resources::build_resources` 创建模块连接和健康检查，再逐项选择业务能力。例如 `services::Base::register_default(&mut resources)?` 只注册 Base 的默认实现，不要求实现其他业务方法。
 
-请求处理器继续使用 `app_state.services()`。返回值是 `application_interface::services::ServiceFactory` 契约，具体工厂函数由资源注册决定。鉴权、权限路由同步、普通业务和 LLM 均走该选择。
+请求处理器通过 `app_state.services().base()?` 获得业务契约。鉴权、续签、权限路由同步、普通业务和 LLM 均通过所选能力；服务生命周期借用 AppState，不借用临时工厂。注册项只保存构造函数和资源校验函数，不长期保存应用服务对象。
 
-替换业务实现时，在 presentation 中实现 `ServiceFactory<'a>`，并由档案的资源回调调用 `build_resources_with_factory(settings, check_log_read_health, BusinessServiceFactory(custom_services))`。可用现有 `WebApiApplicationAdapter` 委托未替换的方法。不要修改 handler，也不要在公共宿主内选择具体应用服务。
+替换一项能力时，实现对应业务 trait，并在 presentation 调用 `services::register::<services::Base>(&mut resources, create_base, validate_base)`，不要再注册该项默认实现。构造函数签名由 `ServiceConstructor<K>` 约束，返回借用状态的 `Result<Box<dyn 契约>, AppError>`；校验函数接收 `&WebApiResources`，缺少依赖时返回错误。其他能力的注册不受影响。新增自定义能力可实现 `ServiceKey`，用 `services().get::<自定义键>()?` 获取，无需修改一个全量工厂接口。
 
-现有 `generate_direct_service_factory!` 支持可选 `implements = 契约类型;`，自动生成 trait 实现；不写时仍生成原有公开方法。参数和返回值仍由真实契约约束，不能仅修改实现而漏改接口。
+默认具体服务构造继续复用 `generate_direct_service_factory!`。宏的 `implements = 契约类型;` 仍可用于完整 trait 实现，例如后台消息任务的 `TaskServiceFactory`，但 WebAPI 不再要求聚合所有业务方法的 ServiceFactory。
 
-`WebApiResources` 按类型保存入口选择的资源，重复注册报错。公共宿主不自动连接业务库或日志库，业务策略在启动时通过 `validate_resources` 检查必要绑定。独立宿主可以使用自己的资源工厂与业务策略；模板业务策略必须配套模板资源。
+`WebApiResources` 使用 common 的按类型资源集合，重复注册报错。注册能力时立即校验资源；每个已启用的 `WebApiFeature::validate_resources` 还必须调用 `services::require::<能力键>(resources)` 声明自己需要的能力。公共宿主在启动日志与事件运行时之前执行业务策略和全部 Feature 的校验。缺少注册不能以空实现代替，访问层也返回共享内部错误而非 panic。
 
-健康检查由资源工厂显式注册，公共宿主并行运行并传递取消令牌。两个现有 WebAPI 均检查业务读写库和日志写库，只有管理端检查日志读库；缓存与事件检查继续由公共宿主执行。新增模块的读写连接也参与检查。
+管理端选择授权、权限路由、基础、用户、角色、任务、日志、文章、文件、链接、站点和 LLM 管理能力；客户端仅选择授权、权限路由、基础、用户、文件、支付及 LLM 调用能力。`webapi_support` 默认不启用 `llm` 特性；现有两个宿主确有 LLM 入口，因此显式启用它。未启用时不引入 application_service_llm，契约仍可供自定义实现使用。
+
+日志查询通过 `register_log_query` 单独装配，只有管理端选择它，并与日志读健康检查共享同一只读连接。客户端不创建查询服务或日志读连接。两个宿主仍检查业务读写库、日志写库、缓存和事件；只有管理端检查日志读库。新增模块的读写连接也参与检查，公共宿主并行执行并传递取消令牌。
+
+## TaskService 资源选择
+
+`TaskServiceHostProfile.build_resources` 是可选回调，返回 `common::resources::Resources`；不需要业务资源的宿主填 `None`。核心不要求邮件、短信、文件或 HTTP 工厂，Feature 从 `TaskServiceFeatureContext.resources` 获取自己明确注册的资源。
+
+当前入口的 `host_support::build_resources` 注册 `MessageResources`，共享一个 HTTP 工厂供短信和云文件调用，保留邮件及内容根目录。内置 Feature 在注册任务前检查 BusinessModule 与 MessageResources。配置模型保留原有可选/默认字段以兼容 TOML，字段存在不代表核心会创建对应资源。
+
+具体日志提供商和日志数据库连接由 presentation 的 `build_logger_runtime` 选择，继续使用核心传入的同一 ID 生成器。核心保留 LoggerRuntime 的异步关闭、任务取消、执行租约及停机预算；资源重组不改变队列事务或调度规则。
 
 ## 模块身份与连接
 

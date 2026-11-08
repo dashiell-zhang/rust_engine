@@ -4,6 +4,9 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+sms = { path = "../../infrastructure/sms" }
+email = { path = "../../infrastructure/email" }
+file_storage = { path = "../../infrastructure/file_storage", default-features = false }
 application_model = { path = "../application_model" }
 uuid = "1.29.0"
 event_bus = { path = "../../infrastructure/event_bus" }

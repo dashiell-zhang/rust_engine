@@ -1,5 +1,7 @@
 # 任务服务
 
+任务业务资源由 presentation 的可选 `build_resources` 回调选择，公共核心只保存按类型注册的资源。不需要消息能力的宿主可以设为 `None`；当前入口注册 `MessageResources` 并在内置 Feature 中校验，消息服务仍按每次执行创建。日志提供商及数据库连接也由入口创建，核心负责原有异步排空与停机预算。接入步骤见 [业务模块与宿主装配](database-modules.md)。
+
 `presentation/task_service` 选择具体任务和业务适配器，`task_service_core` 负责调度和执行生命周期，`queue_task_database` 管理所属业务库中的队列记录。队列任务与广播事件分别使用竞争领取和每实例订阅，不混用消费机制。
 
 配置环境按 `APP_ENVIRONMENT`、`DOTNET_ENVIRONMENT` 依次选择，未提供有效值时为 `Production`。宿主在基础 TOML 后加载对应环境 TOML，再应用 APP 环境变量；环境文件可以暂时不存在。日志过滤配置默认自动监听文件变化，开关、覆盖及故障恢复规则见[配置文件自动更新](local-file-logger.md#配置文件自动更新)。

@@ -1,7 +1,4 @@
 use crate::registry::TaskRegistry;
-use application_interface::email::AppEmailSender;
-use application_interface::sms::AppSmsSender;
-use application_interface::storage::AppFileStorage;
 use common::identifier_generator::IdentifierGenerator;
 use std::sync::Arc;
 
@@ -17,17 +14,8 @@ pub struct TaskServiceFeatureContext {
     /// ID 生成器
     pub identifier_generator: IdentifierGenerator,
 
-    /// 短信发送器
-    pub sms_sender: Arc<dyn AppSmsSender>,
-
-    /// 邮件发送器
-    pub email_sender: Arc<dyn AppEmailSender>,
-
-    /// 文件存储
-    pub file_storage: Option<Arc<dyn AppFileStorage>>,
-
-    /// 宿主启动时的内容目录
-    pub content_root: Arc<std::path::PathBuf>,
+    /// 任务入口按需注册的资源；公共核心不要求消息或文件组件。
+    pub resources: Arc<common::resources::Resources>,
 }
 
 /// TaskService 业务特性
@@ -48,7 +36,7 @@ pub trait TaskServiceFeature: Send + Sync {
     ) -> Result<(), String>;
 }
 
-impl application_interface::events::EventPublisherProvider for TaskServiceFeatureContext {
+impl event_bus::EventPublisherProvider for TaskServiceFeatureContext {
     fn event_publisher(&self) -> &event_bus::EventPublisher {
         &self.event_publisher
     }

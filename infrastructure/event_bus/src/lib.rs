@@ -287,3 +287,8 @@ impl EventListenerRegistry {
         Ok(())
     }
 }
+
+/// 调用方显式提供广播入口。
+pub trait EventPublisherProvider {
+    fn event_publisher(&self) -> &EventPublisher;
+}

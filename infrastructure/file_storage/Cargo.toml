@@ -3,10 +3,13 @@ name = "file_storage"
 version = "0.1.0"
 edition = "2024"
 
+[features]
+default = ["local"]
+local = ["dep:tokio"]
+
 [dependencies]
-application_interface = { path = "../../application/application_interface" }
-common = { path = "../common" }
+common = { path = "../common", default-features = false }
 
 async-trait = "0.1.92"
 chrono = "0.4.45"
-tokio = { version = "1.54.1", features = ["fs", "io-util"] }
+tokio = { version = "1.54.1", features = ["fs", "io-util"], optional = true }

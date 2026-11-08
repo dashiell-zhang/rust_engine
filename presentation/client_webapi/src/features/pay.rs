@@ -19,6 +19,13 @@ use super::WebApiFeature;
 pub struct PayFeature;
 
 impl WebApiFeature for PayFeature {
+    fn validate_resources(
+        &self,
+        resources: &webapi_core::host::resources::WebApiResources,
+    ) -> Result<(), String> {
+        webapi_support::services::require::<webapi_support::services::Pay>(resources)?;
+        Ok(())
+    }
     /// 注册当前特性的路由
     fn register(
         &self,

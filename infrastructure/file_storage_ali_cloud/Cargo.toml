@@ -4,8 +4,8 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-application_runtime = { path = "../../application/application_runtime" }
-application_interface = { path = "../../application/application_interface" }
+file_storage = { path = "../file_storage", default-features = false }
+http_client = { path = "../http_client" }
 common = { path = "../common" }
 
 async-trait = "0.1.92"

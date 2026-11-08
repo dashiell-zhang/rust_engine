@@ -35,7 +35,7 @@ pub async fn create_alipay_pc(
     request_context: RequestContext,
     Query(query): Query<PaymentOrderQuery>,
 ) -> Result<Response, AppError> {
-    let service = app_state.services().pay();
+    let service = app_state.services().pay()?;
 
     // 支付宝异步通知固定回调到当前宿主公开地址
     let notify_url = format!("{}/Pay/AliPayNotify", request_context.base_url());
@@ -72,7 +72,7 @@ pub async fn create_alipay_h5(
     request_context: RequestContext,
     Query(query): Query<PaymentOrderQuery>,
 ) -> Result<Response, AppError> {
-    let service = app_state.services().pay();
+    let service = app_state.services().pay()?;
 
     // 支付宝异步通知固定回调到当前宿主公开地址
     let notify_url = format!("{}/Pay/AliPayNotify", request_context.base_url());
@@ -109,7 +109,7 @@ pub async fn create_alipay_mini_app(
     request_context: RequestContext,
     Query(query): Query<PaymentOrderQuery>,
 ) -> Result<Response, AppError> {
-    let service = app_state.services().pay();
+    let service = app_state.services().pay()?;
 
     // 支付宝异步通知固定回调到当前宿主公开地址
     let notify_url = format!("{}/api/Pay/AliPayNotify", request_context.base_url());
@@ -145,7 +145,7 @@ pub async fn alipay_notify(
     State(app_state): State<Arc<AppState>>,
     FormFields(parameters): FormFields,
 ) -> Result<Response, AppError> {
-    let service = app_state.services().pay();
+    let service = app_state.services().pay()?;
 
     match service.process_alipay_notify(parameters).await {
         Ok(Some(message)) => Ok(Text(message).into_response()),
@@ -174,7 +174,7 @@ pub async fn create_wx_pay_jsapi(
     request_context: RequestContext,
     Query(query): Query<CreateWxPayJsapiQuery>,
 ) -> Result<Response, AppError> {
-    let service = app_state.services().pay();
+    let service = app_state.services().pay()?;
 
     // 通知地址不携带商户号后缀，由 Service 层在末尾追加
     let notify_url = format!("{}/Pay/WeiXinPayNotify/", request_context.base_url());
@@ -209,7 +209,7 @@ pub async fn create_wx_pay_app(
     request_context: RequestContext,
     Query(query): Query<PaymentOrderQuery>,
 ) -> Result<Response, AppError> {
-    let service = app_state.services().pay();
+    let service = app_state.services().pay()?;
 
     // 通知地址不携带商户号后缀，由 Service 层在末尾追加
     let notify_url = format!("{}/Pay/WeiXinPayNotify/", request_context.base_url());
@@ -244,7 +244,7 @@ pub async fn create_wx_pay_h5(
     request_context: RequestContext,
     Query(query): Query<PaymentOrderQuery>,
 ) -> Result<Response, AppError> {
-    let service = app_state.services().pay();
+    let service = app_state.services().pay()?;
     let client_ip = request_context.client_ip()?;
 
     // 通知地址不携带商户号后缀，由 Service 层在末尾追加
@@ -282,7 +282,7 @@ pub async fn create_wx_pay_pc(
     request_context: RequestContext,
     Query(query): Query<PaymentOrderQuery>,
 ) -> Result<Response, AppError> {
-    let service = app_state.services().pay();
+    let service = app_state.services().pay()?;
 
     // 通知地址不携带商户号后缀，由 Service 层在末尾追加
     let notify_url = format!("{}/Pay/WeiXinPayNotify/", request_context.base_url());
@@ -337,7 +337,7 @@ pub async fn wx_pay_notify(
         })
         .collect();
 
-    let service = app_state.services().pay();
+    let service = app_state.services().pay()?;
 
     // 服务层统一捕获处理异常，失败描述不包含内部错误或通知正文。
     let result = service

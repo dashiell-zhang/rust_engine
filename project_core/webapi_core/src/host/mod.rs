@@ -16,11 +16,11 @@ pub mod resources;
 use self::builder::WebApiHostBuilder;
 use self::features::WebApiFeature;
 use self::settings::Settings;
-use application_interface::email::AppEmailSender;
-use application_interface::storage::AppFileStorage;
 use common::identifier_generator::IdentifierGenerator;
 use distributed_cache::DistributedCache;
 use distributed_lock::DistributedLock;
+use email::AppEmailSender;
+use file_storage::AppFileStorage;
 use logger::LoggerRuntime;
 use std::future::Future;
 use std::pin::Pin;
@@ -63,13 +63,13 @@ pub type BuildWebApiEventTransport =
 pub type ConfigureWebApiHttpClients = fn(
     &Settings,
     Arc<dyn DistributedCache>,
-    &mut application_runtime::http_client::HttpClientFactory,
+    &mut http_client::HttpClientFactory,
 ) -> Result<(), String>;
 
 /// 文件组件使用宿主已配置的共享 HTTP 工厂。
 pub type BuildWebApiFileStorage = fn(
     &Settings,
-    Arc<application_runtime::http_client::HttpClientFactory>,
+    Arc<http_client::HttpClientFactory>,
 ) -> Result<Option<Arc<dyn AppFileStorage>>, String>;
 
 pub type BuildWebApiResources = for<'a> fn(

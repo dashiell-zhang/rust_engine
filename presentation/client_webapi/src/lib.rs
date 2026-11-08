@@ -1,3 +1,4 @@
+pub mod business_resources;
 /// 客户端业务特性定义
 pub mod features;
 
@@ -28,7 +29,7 @@ use webapi_core::host::{WebApiHostProfile, run_webapi_host};
 pub const CLIENT_WEBAPI_PROFILE: WebApiHostProfile = WebApiHostProfile {
     configure_http_clients: Some(http_clients::configure),
     application: webapi_support::application,
-    build_resources: webapi_support::resources::build_resources,
+    build_resources: business_resources::build,
     host_name: "client_webapi",
     default_config_path: "presentation/client_webapi/appsettings",
     permission_module: "Client.WebAPI",

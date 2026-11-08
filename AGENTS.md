@@ -101,10 +101,13 @@
 ## 分层边界
 
 - HTTP 相关关注点、路由注册和宿主装配应放在 `presentation/*` 与 `project_core/*`。
-- 对外 HTTP 调用应复用 `application_runtime::http_client::HttpClientFactory` 这类宿主级工厂，由 `project_core/*` 或运行时宿主统一创建并通过上下文注入；不要在应用服务或基础设施调用点长期持有自行创建的 `reqwest::Client`。
+- 对外 HTTP 调用应复用 `http_client::HttpClientFactory` 这类宿主级工厂，由 `project_core/*` 或运行时宿主统一创建并通过上下文注入；不要在应用服务或基础设施调用点长期持有自行创建的 `reqwest::Client`。
 - 业务流程与编排应放在 `application_service*` 系列 crate 中。
-- 跨宿主契约应放在 `application_interface`，DTO 和配置模型应放在 `application_model`。运行资源上下文、HTTP 工厂和 JWT 实现放在 `application_runtime`；不得回填到接口层。DTO/契约使用 common 时关闭默认 runtime 特性。
+- 跨宿主契约应放在 `application_interface`，DTO 和配置模型应放在 `application_model`。运行资源上下文和 JWT 实现放在 `application_runtime`，HTTP 工厂放在独立 `infrastructure/http_client`；不得回填到接口层。DTO/契约使用 common 时关闭默认 runtime 特性。
 - WebAPI 业务连接、日志查询和业务服务工厂通过 presentation 的资源工厂显式注册，公共宿主只运行资源健康检查管线。模块通过 `DatabaseModules` 按类型注册，禁止重复覆盖；业务事务使用 `ModuleDatabase::begin`，事务入队必须验证连接归属。
+- 文件、邮件、短信提供商契约归属各自基础设施组件，应用接口可以单向兼容导出；基础设施不得直接或间接反向依赖应用 crate。只需文件契约时关闭 file_storage 的默认 local 特性。
+- WebAPI 业务能力按 `webapi_support::services::ServiceKey` 独立注册，入口只选择启用功能所需的能力；不要恢复全量 ServiceFactory。新增 Feature 必须在 `validate_resources` 中声明所需能力，处理器通过 `services().能力()?` 或 `get::<Key>()?` 调用。LLM 默认实现需显式启用 webapi_support 的 llm 特性。
+- TaskService 业务资源通过 presentation 的可选 `build_resources` 注册；公共调度核心不得固定要求邮件、短信、文件或 HTTP 工厂。具体日志连接由入口构建，继续使用核心传入的 ID 生成器和统一异步停机流程。
 - WebAPI 业务服务契约放在 `application_interface::services`，参数与结果只使用模型或通用类型，不暴露数据库连接、实体和 HTTP 上下文。`application_interface` 依赖 `application_model`，模型层不得反向依赖接口层。
 - 请求处理器通过工厂返回的服务契约调用用例，具体实现仅在宿主适配器选择。使用服务工厂宏的 `实现类型 => dyn 契约 + 生命周期` 声明；新增操作同步修改契约与实现绑定，不在 handler 导入具体应用服务。
 - `/Base` 的地区、字典和验证码用例统一通过 `BaseService`；地区与字典使用宿主只读连接，不复用写库上下文或额外缓存结果。验证码归属基础服务，保持五分钟有效及相同标记覆盖规则。

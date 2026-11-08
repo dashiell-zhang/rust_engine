@@ -45,7 +45,7 @@ pub async fn init_data(State(app_state): State<Arc<AppState>>) -> Result<Respons
         .map_err(|error| ApplicationError::internal(format!("读取初始化数据文件失败: {error}")))?;
     let seed = AuthorizeSeedData::from_json(&json)
         .map_err(|error| ApplicationError::internal(format!("初始化数据文件解析失败: {error}")))?;
-    let result = app_state.services().authorize().init_data(seed).await?;
+    let result = app_state.services().authorize()?.init_data(seed).await?;
     Ok(Json(AuthorizeInitDataResult {
         result,
         file_path: file_path.to_string_lossy().into_owned(),
@@ -69,7 +69,7 @@ pub async fn get_token(
     State(app_state): State<Arc<AppState>>,
     Json(request): Json<GetTokenRequest>,
 ) -> Result<Response, AppError> {
-    let service = app_state.services().authorize();
+    let service = app_state.services().authorize()?;
 
     match service.get_token(request).await {
         Ok(token) => Ok(webapi_core::text_response::Text(token).into_response()),
@@ -95,7 +95,7 @@ pub async fn get_function_list(
     user_ctx: UserContext,
     Query(request): Query<GetFunctionListRequest>,
 ) -> Result<Response, AppError> {
-    let service = app_state.services().authorize();
+    let service = app_state.services().authorize()?;
 
     match service
         .get_function_list(user_ctx.current_user(), request.sign.as_deref())

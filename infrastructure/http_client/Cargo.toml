@@ -1,0 +1,10 @@
+[package]
+name = "http_client"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+common = { path = "../common" }
+async-trait = "0.1.92"
+tokio = { version = "1.54.1", features = ["time"] }
+reqwest = { version = "0.13.5", default-features = false, features = ["json", "rustls", "http2", "gzip", "deflate", "brotli", "system-proxy", "cookies"] }

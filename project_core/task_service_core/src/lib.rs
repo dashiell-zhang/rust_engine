@@ -24,9 +24,6 @@ pub mod sync;
 /// 任务宿主启动帮助方法
 pub mod startup;
 
-use application_interface::email::AppEmailSender;
-use application_interface::sms::AppSmsSender;
-use application_interface::storage::AppFileStorage;
 use common::identifier_generator::IdentifierGenerator;
 use distributed_cache::DistributedCache;
 use distributed_lock::DistributedLock;
@@ -50,26 +47,15 @@ pub type BuildTaskServiceCache = for<'a> fn(
     Box<dyn Future<Output = Result<Arc<dyn DistributedCache>, String>> + Send + 'a>,
 >;
 
-/// TaskService 短信发送器构建方法
-pub type BuildTaskServiceSmsSender = fn(
-    &Settings,
-    Arc<application_runtime::http_client::HttpClientFactory>,
-) -> Result<Arc<dyn AppSmsSender>, String>;
-
-/// TaskService 邮件发送器构建方法
-pub type BuildTaskServiceEmailSender = fn(&Settings) -> Result<Arc<dyn AppEmailSender>, String>;
-
-/// TaskService 文件存储构建方法
-pub type BuildTaskServiceFileStorage = fn(
-    &Settings,
-    Arc<application_runtime::http_client::HttpClientFactory>,
-) -> Result<Option<Arc<dyn AppFileStorage>>, String>;
+/// 运行入口按需创建资源；不注册时使用空集合。
+pub type BuildTaskServiceResources = for<'a> fn(
+    &'a Settings,
+) -> Pin<
+    Box<dyn Future<Output = Result<common::resources::Resources, String>> + Send + 'a>,
+>;
 
 /// TaskService 日志构建上下文
 pub struct TaskServiceLoggerBuilderContext {
-    /// 独立日志写连接池；本地文件组件为空
-    pub log_db_pool: Option<Arc<DatabaseConnection>>,
-
     /// 标识生成器
     pub identifier_generator: IdentifierGenerator,
 }

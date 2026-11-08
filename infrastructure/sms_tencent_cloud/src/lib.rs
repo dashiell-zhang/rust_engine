@@ -1,10 +1,11 @@
 use async_trait::async_trait;
 use common::app_error::AppError;
 use hmac::{Hmac, KeyInit, Mac};
+use http_client::HttpClientFactory;
 use reqwest::header::{AUTHORIZATION, CONTENT_TYPE};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use sms::{AppSmsSender, HttpClientFactory, SendSmsRequest};
+use sms::{AppSmsSender, SendSmsRequest};
 use std::sync::Arc;
 
 /// HMAC-SHA256 签名器类型

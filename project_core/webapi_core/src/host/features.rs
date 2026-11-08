@@ -16,6 +16,13 @@ pub struct WebApiRoutePermission {
 
 /// WebAPI 业务特性
 pub trait WebApiFeature: Send + Sync {
+    /// 启动阶段验证当前特性所需的服务和资源。
+    fn validate_resources(
+        &self,
+        _resources: &crate::host::resources::WebApiResources,
+    ) -> Result<(), String> {
+        Ok(())
+    }
     /// 在后台开始消费之前建立当前特性的事件监听。
     fn register_event_listeners(
         &self,

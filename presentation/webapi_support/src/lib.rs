@@ -1,5 +1,5 @@
-use application_interface::services::ServiceFactory;
 pub mod resources;
+pub mod services;
 use application_interface::error::AppError;
 use application_model::authorize::models::PermissionRouteSyncItem;
 use application_runtime::context::{
@@ -39,7 +39,7 @@ impl<'a> WebApiApplicationAdapter<'a> {
 
 pub trait WebApiApplicationExt {
     fn business_resources(&self) -> &BusinessResources;
-    fn services(&self) -> Box<dyn ServiceFactory<'_> + '_>;
+    fn services(&self) -> services::Services<'_>;
 }
 impl WebApiApplicationExt for AppState {
     fn business_resources(&self) -> &BusinessResources {
@@ -47,12 +47,8 @@ impl WebApiApplicationExt for AppState {
             .get()
             .expect("业务特性必须通过宿主档案注册 BusinessResources")
     }
-    fn services(&self) -> Box<dyn ServiceFactory<'_> + '_> {
-        (self
-            .resources
-            .get::<BusinessServiceFactory>()
-            .expect("业务特性必须注册服务工厂")
-            .0)(self)
+    fn services(&self) -> services::Services<'_> {
+        services::Services { state: self }
     }
 }
 
@@ -99,7 +95,7 @@ impl<'a> WebApiApplicationAdapter<'a> {
 
         self.state
             .services()
-            .permission_route()
+            .permission_route()?
             .sync_routes(&self.state.settings.permission_module, &routes)
             .await?;
 
@@ -110,7 +106,6 @@ impl<'a> WebApiApplicationAdapter<'a> {
 generate_direct_service_factory! {
     impl_generics = <'a>;
     factory = WebApiApplicationAdapter<'a>;
-    implements = application_interface::services::ServiceFactory<'a>;
 
     (self.authorize_context()) {
         authorize: AuthorizeService<'a> => dyn application_interface::services::authorize::AuthorizeService + 'a
@@ -125,7 +120,7 @@ generate_direct_service_factory! {
         permission_route: PermissionRouteService<'a> => dyn application_interface::services::permission_route::PermissionRouteService + 'a
     }
 
-    (&self.state.business_resources().log_query) {
+    (&self.state.resources.get::<resources::LogQueryResource>().expect("日志能力启动前必须验证 LogQueryResource").0) {
         log_manage: LogManageService<'a> => dyn application_interface::services::log::LogManageService + 'a,
         task_logs: application_service::task_center::log_service::TaskExecutionLogService<'a> => dyn application_interface::services::task_log::TaskExecutionLogService + 'a
     }
@@ -152,6 +147,12 @@ generate_direct_service_factory! {
         link_webapi: LinkWebApiService<'a> => dyn application_interface::services::link::LinkService + 'a,
         site_webapi: SiteWebApiService<'a> => dyn application_interface::services::site::SiteService + 'a
     }
+}
+
+#[cfg(feature = "llm")]
+generate_direct_service_factory! {
+    impl_generics = <'a>;
+    factory = WebApiApplicationAdapter<'a>;
     (application_runtime::context::LlmContext { app: self.primary_app_context(), distributed_lock: self.state.distributed_lock.as_ref(), http_client_factory: &self.state.http_client_factory }) {
         llm_app: application_service_llm::llm::app_service::LlmAppService<'a> => dyn application_interface::services::llm_app::LlmAppService + 'a,
         llm_model: application_service_llm::llm::model_service::LlmModelService<'a> => dyn application_interface::services::llm_model::LlmModelService + 'a,
@@ -246,7 +247,8 @@ impl WebApiApplication for BusinessWebApiApplication {
         &self,
         resources: &webapi_core::host::resources::WebApiResources,
     ) -> Result<(), String> {
-        resources.get::<BusinessServiceFactory>()?;
+        services::require::<services::Authorize>(resources)?;
+        services::require::<services::PermissionRoute>(resources)?;
         resources
             .get::<BusinessResources>()?
             .modules
@@ -263,7 +265,7 @@ impl WebApiApplication for BusinessWebApiApplication {
     ) -> Result<Option<String>, AppError> {
         state
             .services()
-            .authorize()
+            .authorize()?
             .try_renew_token(user_id, token_id, nbf, exp)
             .await
     }
@@ -277,7 +279,7 @@ impl WebApiApplication for BusinessWebApiApplication {
     ) -> Result<bool, AppError> {
         state
             .services()
-            .authorize()
+            .authorize()?
             .check_function_authorize(
                 current_user,
                 module,
@@ -291,10 +293,4 @@ impl WebApiApplication for BusinessWebApiApplication {
             .sync_permission_routes()
             .await
     }
-}
-
-/// 每个宿主注册一次工厂选择；服务只借用本次请求的宿主资源。
-pub struct BusinessServiceFactory(pub for<'a> fn(&'a AppState) -> Box<dyn ServiceFactory<'a> + 'a>);
-pub fn default_services(state: &AppState) -> Box<dyn ServiceFactory<'_> + '_> {
-    Box::new(WebApiApplicationAdapter::new(state))
 }

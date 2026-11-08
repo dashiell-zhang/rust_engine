@@ -4,10 +4,8 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-application_runtime = { path = "../../application/application_runtime" }
 event_bus = { path = "../../infrastructure/event_bus" }
 queue_task_database = { path = "../../infrastructure/queue_task_database" }
-application_interface = { path = "../../application/application_interface" }
 common = { path = "../../infrastructure/common" }
 distributed_cache = { path = "../../infrastructure/distributed_cache" }
 distributed_lock = { path = "../../infrastructure/distributed_lock" }

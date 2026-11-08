@@ -3,13 +3,13 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use application_runtime::http_client::{HttpRequestState, NamedHttpHandler};
 use async_trait::async_trait;
 use common::{
     error_helper::CustomError,
     http_client_helper::{self, PostFormDataItem, RequestOptions},
 };
 use distributed_cache::{DistributedCache, DistributedCacheExt};
+use http_client::{HttpRequestState, NamedHttpHandler};
 use reqwest::{
     Client, Request, Response,
     header::{AUTHORIZATION, CONTENT_TYPE, HeaderValue},

@@ -18,7 +18,6 @@ use webapi_core::{
 pub struct BusinessResources {
     pub modules: DatabaseModules,
     pub log_db_pool: Option<Arc<DatabaseConnection>>,
-    pub log_query: logger_database::query::LogQueryService,
 }
 
 struct DatabaseCheck<C> {
@@ -50,35 +49,16 @@ impl<C: database_health::DatabaseHealthConnection + Send + Sync> ResourceHealthC
     }
 }
 
+/// 只创建业务数据库、日志写连接与健康检查；服务能力由入口分别注册。
 pub fn build_resources(
     settings: &Settings,
     check_log_read_health: bool,
 ) -> Pin<Box<dyn Future<Output = Result<WebApiResources, String>> + Send + '_>> {
-    build_resources_with_factory(
-        settings,
-        check_log_read_health,
-        crate::BusinessServiceFactory(crate::default_services),
-    )
+    build_resources_with_modules(settings, check_log_read_health, DatabaseModules::default())
 }
-
-pub fn build_resources_with_factory(
-    settings: &Settings,
-    check_log_read_health: bool,
-    factory: crate::BusinessServiceFactory,
-) -> Pin<Box<dyn Future<Output = Result<WebApiResources, String>> + Send + '_>> {
-    build_resources_with_modules(
-        settings,
-        check_log_read_health,
-        factory,
-        DatabaseModules::default(),
-    )
-}
-
-/// 额外模块由宿主显式连接并注册；这里仅补齐模板 BusinessModule，拒绝重复身份。
 pub fn build_resources_with_modules(
     settings: &Settings,
     check_log_read_health: bool,
-    factory: crate::BusinessServiceFactory,
     mut modules: DatabaseModules,
 ) -> Pin<Box<dyn Future<Output = Result<WebApiResources, String>> + Send + '_>> {
     Box::pin(async move {
@@ -144,24 +124,7 @@ pub fn build_resources_with_modules(
                 )
             }
         };
-        let mut log_read_options = WebApiStartup::build_postgres_connect_options(
-            settings
-                .logger
-                .query_connection(&settings.database.connection),
-            &settings.host.database_pool,
-        );
-        log_read_options.sqlx_logging(false);
-        if !check_log_read_health {
-            log_read_options.min_connections(0).connect_lazy(true);
-        }
-        let log_query = logger_database::query::LogQueryService::new(Arc::new(
-            ReadDatabaseConnection::connect(log_read_options)
-                .await
-                .map_err(|error| format!("日志只读连接初始化失败: {error}"))?,
-        ));
-
         let mut resources = WebApiResources::default();
-        resources.insert(factory)?;
         for module in modules.connections() {
             let prefix = if module.name == BusinessModule::NAME {
                 "Business"
@@ -182,37 +145,19 @@ pub fn build_resources_with_modules(
             connection: log_health_db_pool,
         }))?;
         if check_log_read_health {
-            resources.add_health_check(Arc::new(LogReadCheck(log_query.clone())))?;
+            let connection = build_log_read_connection(settings).await?;
+            resources.add_health_check(Arc::new(DatabaseCheck {
+                name: "Log.Read".into(),
+                connection: connection.clone(),
+            }))?;
+            resources.insert(LogReadConnection(connection))?;
         }
         resources.insert(BusinessResources {
             modules,
             log_db_pool,
-            log_query,
         })?;
         Ok(resources)
     })
-}
-
-struct LogReadCheck(logger_database::query::LogQueryService);
-#[async_trait]
-impl ResourceHealthCheck for LogReadCheck {
-    fn name(&self) -> &str {
-        "Log.Read"
-    }
-    async fn check(&self, stopping: &event_bus::CancellationToken) -> HealthComponentResponse {
-        let result =
-            database_health::check_database_health_with_cancellation(self.0.connection(), stopping)
-                .await;
-        HealthComponentResponse {
-            name: self.name().into(),
-            status: if result.is_ok() {
-                HEALTH_STATUS_HEALTHY
-            } else {
-                HEALTH_STATUS_UNHEALTHY
-            },
-            detail: result.err().map(|e| e.to_string()).unwrap_or_default(),
-        }
-    }
 }
 
 impl BusinessResources {
@@ -221,4 +166,40 @@ impl BusinessResources {
             .get()
             .expect("默认业务工厂必须装配 BusinessModule")
     }
+}
+
+/// 查询能力与数据库健康检查分别选择；客户端无需创建查询服务。
+pub struct LogQueryResource(pub logger_database::query::LogQueryService);
+struct LogReadConnection(Arc<ReadDatabaseConnection>);
+async fn build_log_read_connection(
+    settings: &Settings,
+) -> Result<Arc<ReadDatabaseConnection>, String> {
+    let mut options = WebApiStartup::build_postgres_connect_options(
+        settings
+            .logger
+            .query_connection(&settings.database.connection),
+        &settings.host.database_pool,
+    );
+    options.sqlx_logging(false);
+    Ok(Arc::new(
+        ReadDatabaseConnection::connect(options)
+            .await
+            .map_err(|error| format!("日志只读连接初始化失败: {error}"))?,
+    ))
+}
+pub async fn register_log_query(
+    resources: &mut WebApiResources,
+    settings: &Settings,
+) -> Result<(), String> {
+    let connection = match resources.get::<LogReadConnection>() {
+        Ok(connection) => connection.0.clone(),
+        Err(_) => {
+            let connection = build_log_read_connection(settings).await?;
+            resources.insert(LogReadConnection(connection.clone()))?;
+            connection
+        }
+    };
+    resources.insert(LogQueryResource(
+        logger_database::query::LogQueryService::new(connection),
+    ))
 }

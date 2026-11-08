@@ -34,7 +34,7 @@ pub async fn get_task_setting_list(
     _user_ctx: UserContext,
     PageQuery(params): PageQuery<TaskSettingPageRequest>,
 ) -> Result<Response, AppError> {
-    let service = app_state.services().task_center();
+    let service = app_state.services().task_center()?;
 
     match service.get_task_setting_list(params).await {
         Ok(result) => Ok((StatusCode::OK, Json(result)).into_response()),
@@ -63,7 +63,7 @@ pub async fn update_task_setting(
     Query(query): Query<TaskSettingIdQuery>,
     Json(dto): Json<EditTaskSettingDto>,
 ) -> Result<Response, AppError> {
-    let service = app_state.services().task_center();
+    let service = app_state.services().task_center()?;
     let current_user = user_ctx.current_user();
 
     match service
@@ -91,7 +91,7 @@ pub async fn get_args_schedule_task_name_list(
     State(app_state): State<Arc<AppState>>,
     _user_ctx: UserContext,
 ) -> Result<Response, AppError> {
-    let service = app_state.services().task_center();
+    let service = app_state.services().task_center()?;
 
     match service.get_args_schedule_task_name_list().await {
         Ok(result) => Ok((StatusCode::OK, Json(result)).into_response()),
@@ -118,7 +118,7 @@ pub async fn create_schedule_task(
     user_ctx: UserContext,
     Json(dto): Json<CreateScheduleTaskDto>,
 ) -> Result<Response, AppError> {
-    let service = app_state.services().task_center();
+    let service = app_state.services().task_center()?;
     let current_user = user_ctx.current_user();
 
     match service.create_schedule_task(dto, &current_user).await {
@@ -146,7 +146,7 @@ pub async fn get_queue_task_list(
     _user_ctx: UserContext,
     PageQuery(params): PageQuery<QueueTaskPageRequest>,
 ) -> Result<Response, AppError> {
-    let service = app_state.services().task_center();
+    let service = app_state.services().task_center()?;
 
     match service.get_queue_task_list(params).await {
         Ok(result) => Ok((StatusCode::OK, Json(result)).into_response()),
@@ -173,7 +173,7 @@ pub async fn retry_queue_task(
     _user_ctx: UserContext,
     Query(query): Query<QueueTaskIdQuery>,
 ) -> Result<Response, AppError> {
-    let service = app_state.services().task_center();
+    let service = app_state.services().task_center()?;
 
     match service.retry_queue_task(query.id).await {
         Ok(result) => Ok((StatusCode::OK, Json(result)).into_response()),

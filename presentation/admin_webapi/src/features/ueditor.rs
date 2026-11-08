@@ -12,6 +12,13 @@ use super::{WebApiFeature, WebApiRoutePermission};
 pub struct UEditorFeature;
 
 impl WebApiFeature for UEditorFeature {
+    fn validate_resources(
+        &self,
+        resources: &webapi_core::host::resources::WebApiResources,
+    ) -> Result<(), String> {
+        webapi_support::services::require::<webapi_support::services::File>(resources)?;
+        Ok(())
+    }
     /// 注册 UEditor 协议路由
     fn register(
         &self,
