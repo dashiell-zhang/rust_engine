@@ -1,96 +1,28 @@
-# distributed_lock
+# 分布式锁
 
-分布式锁抽象 crate，定义统一的 `DistributedLock` trait 与公共类型
+`distributed_lock` 提供互斥和限并发接口，用于防止多个调用同时处理同一业务资源。
 
-具体实现由独立 crate 提供：
-
-- **`distributed_lock_memory`**：基于进程内信号量，适用于单进程内的并发控制，无需外部依赖
-- **`distributed_lock_redis`**：基于 Redis，适用于跨进程与跨机器的分布式互斥
-
----
+| 实现 | 适用范围 |
+| --- | --- |
+| `distributed_lock_memory::InMemoryLock` | 同一进程内共享的并发控制 |
+| `distributed_lock_redis::RedisLock` | 多进程、多机器共享的并发控制 |
 
 ## 添加依赖
 
-### 仅使用内存锁
+以下路径适用于 `presentation/<宿主>` 下的 crate；其他位置按实际目录调整：
 
 ```toml
 [dependencies]
-distributed_lock = { path = "..." }
-distributed_lock_memory = { path = "..." }
+distributed_lock = { path = "../../infrastructure/distributed_lock" }
+distributed_lock_memory = { path = "../../infrastructure/distributed_lock_memory" }
+distributed_lock_redis = { path = "../../infrastructure/distributed_lock_redis" }
 ```
 
-### 同时使用 Redis 锁
+只使用一种实现时，可省略另一种依赖。
 
-```toml
-[dependencies]
-distributed_lock = { path = "..." }
-distributed_lock_memory = { path = "..." }
-distributed_lock_redis = { path = "..." }
-```
+## 获取与释放
 
----
-
-## 核心接口
-
-所有实现均通过 `DistributedLock` trait 提供统一的三个方法：
-
-| 方法 | 说明 |
-|---|---|
-| `lock` | 阻塞式获取锁，超时前持续重试，超时后返回错误 |
-| `try_lock` | 非阻塞式尝试获取锁，立即返回，获取失败返回 `None` |
-| `renew` | 续期锁，将失效时长延长至新的 `expiry` |
-
-获取成功后返回 `LockGuard`，持有期间锁保持有效，**离开作用域时自动释放**，无需手动调用释放方法。
-
----
-
-## InMemoryLock 用法
-
-### 创建实例
-
-```rust
-use distributed_lock_memory::InMemoryLock;
-
-let lock = InMemoryLock::new();
-```
-
-`InMemoryLock` 实现了 `Default`，也可以通过 `InMemoryLock::default()` 创建。
-
-需要跨任务共享时，包装在 `Arc` 中：
-
-```rust
-use std::sync::Arc;
-use distributed_lock_memory::InMemoryLock;
-
-let lock = Arc::new(InMemoryLock::new());
-```
-
-### 阻塞获取锁
-
-```rust
-use std::time::Duration;
-use distributed_lock::DistributedLock;
-use distributed_lock_memory::InMemoryLock;
-
-let lock = InMemoryLock::new();
-
-// 获取锁，失效时长 30 秒，互斥（semaphore = 1）
-// lock 方法会持续重试直到获取成功或超时
-let guard = lock.lock("my-key", Duration::from_secs(30), 1).await?;
-
-// 持有 guard 期间锁保持有效
-do_work().await;
-
-// guard 离开作用域，锁自动释放
-```
-
-`expiry` 传 `Duration::ZERO` 时默认使用 60 秒：
-
-```rust
-let guard = lock.lock("my-key", Duration::ZERO, 1).await?;
-```
-
-### 非阻塞尝试获取
+以下片段在异步函数中执行，业务操作由调用方提供：
 
 ```rust
 use distributed_lock::DistributedLock;
@@ -98,146 +30,59 @@ use distributed_lock_memory::InMemoryLock;
 use std::time::Duration;
 
 let lock = InMemoryLock::new();
+let guard = lock.lock("order:123", Duration::from_secs(30), 1).await?;
+// 在租约有效期内处理订单。
+guard.release().await;
+```
 
-match lock.try_lock("my-key", Duration::from_secs(30), 1).await? {
+`lock` 异步等待可用名额，`expiry` 同时指定最长等待时间和取得锁后的租约时长，两者独立计时。传 `Duration::ZERO` 使用 60 秒；超时返回 `LockError::Timeout`。
+
+句柄离开作用域会触发释放；需要等待释放完成时使用 `release().await`。**持有句柄不会自动续期**，租约到期后其他调用仍可能取得锁。
+
+多个任务需要共享同一个内存锁实例或其 `Arc`，各自创建实例不会互斥。
+
+## 不等待与限并发
+
+```rust
+match lock.try_lock("report", Duration::from_secs(60), 3).await? {
     Some(guard) => {
-        // 获取成功，执行临界区逻辑
-        do_work().await;
-        // guard drop 时自动释放
+        // 最多三个调用同时处理此资源。
+        guard.release().await;
     }
     None => {
-        // 锁当前被其他持有者占用，可选择跳过或稍后重试
+        // 当前名额已满，按业务选择跳过或稍后重试。
     }
 }
 ```
 
-### 信号量模式（允许多个并发持有者）
+`try_lock` 只尝试一次，名额满时返回 `None`。第三个参数为并发名额，1 表示互斥，0 为非法参数。同一业务键应使用一致的并发配置。
 
-`semaphore` 参数控制同一 key 可同时被持有的名额数，传入大于 1 的值即为信号量语义：
-
-```rust
-// 允许最多 3 个任务同时持有此锁
-let guard = lock.lock("resource-key", Duration::from_secs(60), 3).await?;
-```
-
-### 续期锁
-
-适用于执行时间不确定、可能超过初始 `expiry` 的长任务：
+## Redis 用法
 
 ```rust
 use distributed_lock::DistributedLock;
-use distributed_lock_memory::InMemoryLock;
+use distributed_lock_redis::RedisLock;
 use std::time::Duration;
 
-let lock = InMemoryLock::new();
-let guard = lock.lock("long-task", Duration::from_secs(30), 1).await?;
+let lock = RedisLock::new("redis://host.docker.internal:6379/0", "Orders:").await?;
+let guard = lock.lock("order:123", Duration::from_secs(30), 1).await?;
+// 处理共享资源。
+guard.release().await;
+```
 
-// 任务执行过程中续期，将失效时长重置为 30 秒
+需要互斥的实例使用相同 Redis 目标、库编号和前缀。不同业务可以使用不同前缀；不要按实例名称隔离需要共同协调的锁。
+
+Redis 释放按持有者身份校验，不会删除他人取得的锁。Drop 只触发尽力释放，不等待网络完成；应在 Tokio 运行时结束前显式等待 `release()`。无法完成释放时依赖租约自然到期。
+
+## 长任务续期
+
+```rust
 let renewed = lock.renew(&guard, Duration::from_secs(30)).await?;
 if !renewed {
-    // 锁已过期，需要重新获取
+    // 已不能确认持有锁，停止依赖互斥保证的操作。
 }
 ```
 
----
+长任务应在租约到期前定期续期。续期返回 false 表示锁已过期或句柄无效，不能继续把业务当成受锁保护。网络错误同样需要由调用方处理。
 
-## RedisLock 用法
-
-### 创建实例
-
-```rust
-use distributed_lock_redis::RedisLock;
-
-let lock = RedisLock::new("redis://127.0.0.1/", "my-service").await?;
-```
-
-第二个参数为 Key 前缀，建议使用服务名称，避免不同服务的锁 Key 在 Redis 中冲突。
-最终写入 Redis 的 Key 格式为 `{prefix}:{key}:{slot}`，例如 `my-service:order-123:0`。
-
-### 阻塞获取锁
-
-```rust
-use distributed_lock::DistributedLock;
-use distributed_lock_redis::RedisLock;
-use std::time::Duration;
-
-let lock = RedisLock::new("redis://127.0.0.1/", "my-service").await?;
-let guard = lock.lock("order-123", Duration::from_secs(30), 1).await?;
-
-do_work().await;
-
-// guard drop 时 fire-and-forget 发送 DEL 命令释放锁
-```
-
-### 非阻塞尝试获取
-
-```rust
-match lock.try_lock("order-123", Duration::from_secs(30), 1).await? {
-    Some(guard) => {
-        do_work().await;
-    }
-    None => {
-        // 锁被其他进程占用
-    }
-}
-```
-
-### 续期锁
-
-```rust
-let guard = lock.lock("long-task", Duration::from_secs(30), 1).await?;
-
-// 通过 Lua 脚本原子地校验并续期
-let renewed = lock.renew(&guard, Duration::from_secs(30)).await?;
-```
-
----
-
-## 错误处理
-
-```rust
-use distributed_lock::{DistributedLock, LockError};
-use distributed_lock_memory::InMemoryLock;
-use std::time::Duration;
-
-let lock = InMemoryLock::new();
-
-match lock.lock("my-key", Duration::from_secs(5), 1).await {
-    Ok(guard) => {
-        // 获取成功
-    }
-    Err(LockError::Timeout { key }) => {
-        // 在 5 秒内未能获取到锁
-        eprintln!("获取锁 {} 超时", key);
-    }
-    Err(LockError::InvalidArgument { message }) => {
-        // 参数错误，如 key 为空或 semaphore 为 0
-        eprintln!("参数错误: {}", message);
-    }
-    Err(e) => {
-        eprintln!("其他错误: {}", e);
-    }
-}
-```
-
----
-
-## 注意事项
-
-**`expiry` 的双重含义**
-
-`lock` 方法的 `expiry` 同时作为两个时长：
-- 锁的失效时长（从获取成功时刻起算）
-- 等待获取锁的最长时间
-
-两者独立计算，等待了较长时间才获取到锁时，锁的 TTL 仍为完整的 `expiry`。
-
-**RedisLock 的 drop 需要 tokio 上下文**
-
-`RedisLock` 的 `LockGuard` 在 drop 时会通过 `tokio::spawn` 发送 DEL 命令。
-如果在非 tokio 异步上下文中 drop（例如普通 `std::thread`），会发生 panic。
-正常在 async 函数或 tokio task 中使用时无需关注此限制。
-
-**InMemoryLock 不支持跨进程互斥**
-
-`InMemoryLock` 的锁状态仅存在于当前进程的内存中，多个进程各自持有独立的锁状态，无法实现分布式互斥。跨进程场景请使用 `RedisLock`。
+明确需要保留冷却时间时，可调用 `guard.leave_until_expiry()`，让租约自然到期。锁不能替代数据库事务或业务幂等；业务执行时间超过租约时仍可能发生重入。

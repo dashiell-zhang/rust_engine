@@ -1,52 +1,70 @@
 # 公共字符串工具
 
-入口为 `common::string_helper`，行为参照 NetEngine 的 `Infrastructure/Common/StringHelper.cs`。
-
-## URL 参数
-
-`model_to_uri_param` 接收实现 `PropertyModel` 的模型，按属性声明顺序和属性名称生成参数；JSON 重命名、忽略和排序规则不参与。属性声明方式见 [公共数据工具](common-data.md)。空值和全空白文本不生成参数，非空白文本保留两端空格。
-
-枚举输出底层数字，布尔输出 `True`/`False`；日期时间输出 `yyyy/MM/dd HH:mm:ss`，带偏移日期时间另附原始偏移；日期输出 `MM/dd/yyyy`，时间输出 `HH:mm`。Decimal 保留自身小数位，有限浮点按默认 G 格式的指数范围选择表示。
-
-参数名称和值都按 HttpUtility.UrlEncode 的规则编码：空格变为 `+`，保留 ASCII 字母数字与 `!()*-._`，其他 UTF-8 字节使用小写百分号编码。URL 没有问号时追加 `?`，已有问号且末尾不是 `?`/`&` 时追加 `&`。沿用源代码的字符串拼接方式，不重新解析片段标识。
-
-## 文本与地址
-
-- 标点过滤只移除 BMP 范围的 Unicode 标点类别，保留数学、货币等符号。数字过滤识别 BMP 十进制数字，包括全角和阿拉伯数字。
-- 中文范围为 U+4E00–U+9FFF；全部中文判断对空字符串返回 true。
-- `remove_emoji` 沿用源正则白名单，只保留上述中文、ASCII 字母数字、普通空格及 `._-`，并非通用 Emoji 分类器。
-- 局域网判断仅包含 IPv4 的 `10/8`、`172.16/12`、`192.168/16` 和 IPv6 的 `fc00::/7`；回环与链路本地地址不包含在内。公网地址判断使用独立规则。
-
-地址文本判断与 CIDR 查询使用共用的兼容解析：IPv4 接受一至四段、`0x`/`0X` 十六进制和前导零八进制；除最后一段外均为一个字节，最后一段占用剩余字节。地址本身不裁剪空白，也不接受 IPv4 端口或 URL 后缀。
-
-IPv6 接受方括号、作用域和源解析允许的括号后端口文本，端口只校验十进制或小写 `0x` 前缀的十六进制字符，不参与地址分类。作用域不参与这些布尔查询；未知接口名沿用源接受规则。内嵌 IPv4 要求四个十进制分段，保留源末段允许单个前导零的规则，不套用独立 IPv4 的八进制/缩写规则。CIDR 前缀支持 ASCII 数字空白、标准正负号及末尾 NUL，并按对应地址族检查范围。
+`common::string_helper` 提供模板替换、URL 参数生成、文本清理、截断、压缩和地址判断，可用于通知模板、导出链接与内容摘要。
 
 ## 模板替换
 
-`replace_placeholders` 使用字面前后缀和非跨行的最短参数名匹配，替换值原样插入，不解释 `$` 等替换语法。遇到第一个缺失参数立即返回 `参数名参数的值未找到`，不会继续扫描后再报告最后一个。
+```rust
+use std::collections::HashMap;
+use common::string_helper::replace_placeholders;
 
-前后缀均允许为空；都为空时，按源 Regex 的 UTF-16 空匹配推进，在每个单元边界插入空名称参数的值。若插入结果产生孤立代理项，String 入口返回错误，不能把这种结果伪装为完整 Unicode 字符串。
+let values = HashMap::from([("name".to_owned(), "小明".to_owned())]);
+let text = replace_placeholders("你好，{{name}}", &values, "{{", "}}")?;
+```
 
-## HTML 清理与转义
+结果为 `你好，小明`。替换值原样插入；缺失参数立即返回错误，不把未赋值占位符留在结果中。前后缀按字面量匹配，参数名不跨行。
 
-`remove_html` 先按 WebUtility 解码实体，再依次处理脚本、标签、换行后的空白、注释片段和源助手指定的实体，最后移除尖括号及 CRLF 并裁剪两端空白。正文中的空格、制表符和单个换行不会统一压缩。实体名称大小写敏感，仅接受 HTML4 的 252 项加 `apos`；数字实体接受合法 Unicode 标量，未知名称或无效数字保留至后续清理。后续正则仍使用源声明的 zh-CN 大小写规则。实体数据和许可证分别位于 `html_entities.rs` 与 `infrastructure/common/DOTNET-RUNTIME-LICENSE.txt`。
+## URL 参数
 
-文章服务在摘要为 null 或空字符串且正文非空时生成摘要，保留清理后得到的空字符串，不再转换为 null；显式摘要原样保留。这里描述应用服务契约，HTTP 输入仍经过共享请求绑定转换器。自动摘要按 UTF-16 的 255 个单元截断；如果截断产生孤立代理项，返回内部错误，对应源 Npgsql 严格编码不能写入该结果的行为。
+`model_to_uri_param` 根据模型的 `PropertyModel` 属性声明生成参数。名称、顺序和显示元数据见[公共数据工具](common-data.md)。
 
-`unicode_to_string` 返回 `Result<String, String>`，按 Regex.Unescape 支持普通控制转义、两位 `\x`、四位 `\u`、最多三位八进制（保留低八位）、`\c` 控制字符及转义标点。未知单词字符转义和不完整十六进制返回错误，单独的尾部反斜杠按源实现丢弃。`unicode_to_utf16` 提供原始 UTF-16 结果以保留孤立代理项；String 入口对这类不能表示为 Rust 字符串的结果返回错误，不替换或遗留原始转义文本。
+空值和全空白文本不生成参数；其他文本保留首尾空白。名称和值按 UTF-8 编码，空格写为 `+`；已有查询串时自动选择 `&`。布尔值输出 `True`/`False`，枚举输出底层数字。
 
-## 截断、隐藏与压缩
+不要用 JSON 重命名规则推断 URL 参数名；此工具读取 `property(name)` 或 Rust 字段名。
 
-`substring_text` 使用 `i32` 长度并返回 `Result<String, String>`，按 UTF-16 单元计数，仅超长时追加三个点，负长度返回错误。`partially_hidden` 同样返回 Result：一个单元全部隐藏，两个单元只隐藏第二个，三个及以上按总单元数除以三，隐藏中间一组。两者遇到拆开的代理项时不能返回 Rust String；`substring_text_utf16` 和 `partially_hidden_utf16` 接收及返回原始 UTF-16 单元，保留源字符串可包含的孤立代理项。
+## 文本清理
 
-`compress_string` 将无 BOM 的 UTF-8 文本压缩为 gzip 再编码为 Base64。`decompress_string` 与短 Guid 解码共用 Base64 空白/填充位规则：忽略普通空格、制表符、CR 和 LF，允许未使用填充位非零，其他无效格式仍报错。
+| 方法 | 用途 |
+| --- | --- |
+| `remove_punctuation` | 移除 BMP 范围的 Unicode 标点 |
+| `remove_number` / `remove_not_number` | 移除数字 / 只保留数字 |
+| `contains_cjk` / `is_all_cjk` | 判断是否包含中文 / 是否全为中文 |
+| `remove_emoji` | 仅保留中文、ASCII 字母数字、空格及 `._-` |
+| `remove_html` | 解码实体并移除 HTML 标记，适合生成纯文本摘要 |
+| `unicode_to_string` | 读取字符转义，非法转义返回错误 |
 
-gzip 使用 flate2 的 zlib-rs 支持直接处理头部与校验和，继续读取相邻 gzip 段，忽略完整段后的非 gzip 尾部。按源项目未启用严格截断验证的默认行为，空输入或流在中途结束时返回已解出的部分；已检测到的格式或校验和错误仍返回错误。压缩输入按 8192 字节补充，文本读取按 1024 字节推进，以保留源读取边界对 BOM 判断的影响。
+```rust
+let digits = common::string_helper::remove_not_number("订单 A123");
+let text = common::string_helper::remove_html("<p>欢迎使用</p>");
+```
 
-文本解码识别 UTF-8、大小端 UTF-16 与 UTF-32 BOM；无 BOM 按 UTF-8 处理，非法序列和不完整尾部使用替换字符。UTF-8 preamble 允许跨读取补齐，其他 BOM 按当前可见字节选择编码。缓冲正文的公共入口为 `decode_bom_text`，WebAPI 的现有正文读取复用此入口。
+`remove_emoji` 是字符白名单过滤器，可能移除非 Emoji 的文字。`remove_html` 用于提取文本，不能作为允许任意 HTML 安全展示的净化器。
 
-## 尚未覆盖的差异
+## 截断与隐藏
 
-属性快照目前借助 JSON 保存值，非有限浮点可能成为空值；自定义对象也未复刻 .NET 的任意 `ToString`/`IFormattable`，属性读取失败未统一包装属性名。浮点舍入边界尚无跨语言运行验证。
+```rust
+let summary = common::string_helper::substring_text("abcdef", 3)?;
+let hidden = common::string_helper::partially_hidden("123456789")?;
+```
 
-HTML 清理、文章摘要、转义、截断、压缩、地址文本及模板替换的证据是源码核对与容器编译，尚未进行跨语言运行验证。CIDR 数字解析未模拟自定义区域的特殊正负号；模板结果受 Rust String 不能表示孤立代理项的限制。压缩后字节受底层实现影响，未证明与 .NET 原生后端逐字节一致；本页不代表整个 StringHelper 已完全等价。
+截断结果为 `abc...`。长度按 UTF-16 单元计算；隐藏方法遮盖中间一组字符。拆开 Unicode 代理对时 String 入口返回错误，需要保留原始 UTF-16 单元时使用对应的 `*_utf16` 入口。
+
+## 压缩与短 ID
+
+`compress_string` 将 UTF-8 文本压缩为 gzip 后编码为 Base64，`decompress_string` 还原文本。解压可能返回截断输入中已读出的部分，因此不能把它当作文件完整性校验。
+
+```rust
+let packed = common::string_helper::compress_string("需要保存的文本")?;
+let restored = common::string_helper::decompress_string(&packed)?;
+```
+
+`compress_guid` 将 UUID 编码为 22 字符短串，`decompress_guid` 还原。短编码采用 Guid 的前三字段小端字节顺序；与 UUID 网络字节序的编码不可互换。详细格式见[Guid 转换与短编码](common-data.md#guid-转换与短编码)。
+
+## 地址判断
+
+```rust
+let local = common::string_helper::is_lan_ip_address("192.168.1.10");
+let matched = common::string_helper::is_ip_in_cidr_range_v4("10.1.2.3", "10.0.0.0/8");
+```
+
+局域网范围包括 IPv4 的 `10/8`、`172.16/12`、`192.168/16` 和 IPv6 的 `fc00::/7`，不包含回环和链路本地地址。地址分类不替代对下载来源、DNS 解析结果和重定向目标的完整校验。

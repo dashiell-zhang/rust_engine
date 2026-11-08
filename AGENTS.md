@@ -14,7 +14,8 @@
 ## 快速链接
 
 - 架构与分层职责：[README.md](README.md)
-- NetEngine 架构差异与后续范围：[docs/netengine-architecture-review.md](docs/netengine-architecture-review.md)
+- 模块使用与扩展：[docs/database-modules.md](docs/database-modules.md)
+- 调用行为宏：[docs/invocation-macros.md](docs/invocation-macros.md)
 - 工作区 crate 列表：[Cargo.toml](Cargo.toml)
 - 可复用的构建与运行任务：[.vscode/tasks.json](.vscode/tasks.json)
 - 容器开发环境：[compose.yaml](compose.yaml)
@@ -51,6 +52,13 @@
 - `deployment` 只生成部署文件，不能在生成器内连接服务器或执行安装、迁移和部署。修改部署内容应改 `deployment/templates`，再在容器运行生成器同步 `generated`；不要只改生成结果。
 - Linux 发布包由容器执行 `deployment/build-release.sh`，包含二进制及保持默认路径的配置。运行环境差异通过服务器 env 或外部 TOML 提供，不将真实连接凭据写入部署参数。
 - `source_generator/source_generator_core` 和 `source_generator/source_generator_runtime` 提供跨服务使用的过程宏与运行时辅助工具。
+
+## 文档约定
+
+- README.md 与 docs 下的文档面向框架使用者，说明模块解决什么问题、如何配置和调用，并提供简洁的使用示例。
+- 文档描述当前可用能力和影响接入的限制，不记录架构对齐编号、开发过程、修复经过、阶段目标、验收日志或对话交接信息。
+- 示例中的类型、配置键和命令应与当前代码一致；Rust 命令始终通过 Docker dev 执行。
+- AGENTS.md 用于协作约束，不作为用户指南；调整文档结构时同步检查链接，避免重复说明。
 
 ## 变更策略
 
@@ -160,7 +168,7 @@
 
 - 文件删除只软删除记录，不删除物理文件或云对象。`GetFile`/`GetImage` 只读取本地文件，不自动把云文件下载到公开根目录；云访问使用 `GetFileUrl`。原文件下载与静态资源的范围处理不可混用，图片缩放返回 PNG，未缩放时保留附件响应。
 - 云存储复用宿主 HTTP 客户端工厂。OSS CRC64 使用反射 ECMA 多项式及前后取反（CRC-64/XZ），按实际传输字节计算；下载重试必须重置摘要并重新覆盖文件，等待上一轮文件写入收尾，不拼接残片。临时地址按配置前缀原文拼接，不自动修正斜杠。
-- 阿里云与腾讯云上传均以远程目录加本地存储文件名作为对象键，展示文件名只设置 Content-Disposition。这是用户明确选择的源项目缺陷修正，不恢复腾讯云直接以目录作为对象名的行为。
+- 阿里云与腾讯云上传均以远程目录加本地存储文件名作为对象键，展示文件名只设置 Content-Disposition。腾讯云不得直接以目录作为对象名。
 - OSS 上传按对象名扩展名使用所属 SDK 的 Content-Type 映射，未知类型回退 `application/octet-stream`；展示文件名只影响 Content-Disposition，不复用 WebAPI 静态文件的类型映射。
 - OSS GET 收到响应头后结束宿主 HTTP 期限，后续读取保留 SDK 期限。203 正文在请求层完整缓冲后才能创建目标文件；缓冲失败属于请求层重试，不提前截断本地文件。
 - COS 默认下载先 HEAD，再按 20 MiB 阈值和 10 MiB 分片、五路并发传输；仅重试失败分片，全部完成后顺序合并并检查总长度。保持 SDK 默认关闭 CRC，Range 参与签名；使用宿主工厂的原始流式客户端，不能自动解压对象或为每片新建长期 HTTP 客户端。取消重试前等待分片文件写入收尾。
@@ -251,7 +259,7 @@
 
 ## 代码生成与宏
 
-- 通用自定义行为使用 `#[behavior]` 与 `InvocationBehavior`，复用稳定方法键；按声明顺序进入、逆序退出。流行为必须显式声明并随枚举生命周期执行，不在后台脱离调用方消费；已有缓存与流日志复用公共管道，禁止另外维护平行实现。使用方式见 [宿主扩展](docs/host-extensions.md)。
+- 通用自定义行为使用 `#[behavior]` 与 `InvocationBehavior`，复用稳定方法键；按声明顺序进入、逆序退出。流行为必须显式声明并随枚举生命周期执行，不在后台脱离调用方消费；已有缓存与流日志复用公共管道，禁止另外维护平行实现。使用方式见 [调用行为宏](docs/invocation-macros.md)。
 - 组合日志、缓存、重试和自定义行为时使用显式 `#[invocation]` 边界，方法键与可选 cancellation 只在边界声明；各行为共享追踪标识、按需快照、参数键及重试次数，嵌套调用创建新上下文，不按方法键复用全局状态。不得默认采集参数或输出参数键，流上下文随返回流持有，重试不重放已消费元素；其他属性宏放在边界外层。
 
 - `#[logging]` 不是默认全量挂载；只在需要的方法上显式 `use source_generator_runtime::logging;` 后再添加属性。
@@ -261,18 +269,16 @@
 - 横切属性必须配置稳定且全局唯一的 `key_scope`；receiver 方法还必须显式配置 `key_include_self = true` 或 `false`。方法自身泛型会自动加入方法键，外围 `impl` 泛型需要通过 `Self` 或显式键维度覆盖。
 - 需要修改横切默认值时，先确认是业务想调单个调用点参数，还是确实要改宏默认行为；优先改属性参数，避免扩大影响面。
 
+- 在手写重复装配代码之前，先确认 `source_generator_runtime` 中是否已有宏覆盖该模式。
+- 现有横切属性包括 `#[logging]`、`#[retry]`、`#[cacheable]` 和 `#[concurrency_limit]`。
+- 服务和任务注册可能已通过宏生成；优先扩展宏输入，而不是手工复制展开后的代码。
+- 修改宏行为时，同时验证过程宏 crate 和运行时辅助 crate，因为它们是协同演进的。
+
 ## 已知兼容性坑
 
 - 角色/权限功能树递归组装时，向下传递子模块名称不能固定传 `None`，否则深层模块名会保留父级前缀。
 - JWT 私钥解析当前同时兼容 PKCS8 DER 和旧的 SEC1 DER，配置值仍是 Base64 文本；处理密钥导入问题时不要先改配置格式。
 - 如果某个接口或查询行为需要和 NetEngine 对齐，优先检查空值语义、字段命名和共享宿主层中间件，而不是直接改表面返回值。
-
-## 代码生成与宏
-
-- 在手写重复装配代码之前，先确认 `source_generator_runtime` 中是否已有宏覆盖该模式。
-- 现有横切属性包括 `#[logging]`、`#[retry]`、`#[cacheable]` 和 `#[concurrency_limit]`。
-- 服务和任务注册可能已通过宏生成；优先扩展宏输入，而不是手工复制展开后的代码。
-- 修改宏行为时，同时验证过程宏 crate 和运行时辅助 crate，因为它们是协同演进的。
 
 ## 实务建议
 

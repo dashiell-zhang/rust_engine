@@ -12,7 +12,7 @@ docker compose exec -T dev cargo run --locked -p deployment
 
 也可以运行 VS Code 的 `container deployment generate` 任务。生成器不接受启动参数，从当前目录或可执行文件目录向上查找包含配置和模板的 `deployment` 目录。
 
-配置项沿用 NetEngine 的名称：
+主要配置项：
 
 | 配置项 | 用途与约束 |
 | --- | --- |
@@ -25,7 +25,7 @@ docker compose exec -T dev cargo run --locked -p deployment
 
 域名不包含协议、端口或路径。证书路径允许上述 Linux 路径字符，可使用绝对路径或相对 Nginx 配置根目录的路径。仓库配置使用 `example.com` 和示例云效标识，需要替换为实际项目参数；连接凭据放在服务器环境文件中。
 
-生成器固定读取 [templates](../deployment/templates)，模板占位符为 `{{配置项}}`。云效参数按 YAML 字符串转义；新增模板变量需要同步生成器的映射。配置无效、缺少模板或存在未替换占位符时，旧结果保持不变。
+生成器固定读取 [templates](../deployment/templates)，模板占位符为 `{{配置项}}`。定制生成内容时编辑对应模板；新增模板变量需提供相应配置映射。配置无效、缺少模板或存在未替换占位符时，旧结果保持不变。
 
 全部文件成功写入临时目录后才替换 `generated`；替换失败会尝试恢复旧结果。生成期间持有目录锁，避免两个生成任务交错覆盖。**每次成功生成会整体替换旧目录，包括自行加入的文件。需要定制时修改模板。**
 
@@ -107,7 +107,7 @@ APP__LOGGER__READ_CONNECTION="postgres://reader:password@log-reader/logs"
 
 ## 首次部署
 
-目标服务器准备 Nginx、systemd、`tar` 和二进制所需运行库。建立部署目录、放置发布包与证书，再将三份服务配置放到 `/etc/systemd/system`。服务模板默认使用 root，与参考项目一致；使用其他账号时，同步设置运行目录、日志及上传目录的访问权限。
+目标服务器准备 Nginx、systemd、`tar` 和二进制所需运行库。建立部署目录、放置发布包与证书，再将三份服务配置放到 `/etc/systemd/system`。服务模板默认使用 root；使用其他账号时，同步设置运行目录、日志及上传目录的访问权限。
 
 将 API 配置放到 Nginx 的 `conf.d` 目录。`nginx.conf` 是主配置参考，包含 API 代理依赖的 `$connection_upgrade`；已有主配置时合并所需内容。检查配置后再重载 Nginx：
 

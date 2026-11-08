@@ -1,6 +1,6 @@
 # PostgreSQL 行版本与并发保存
 
-业务实体、任务实体和日志实体都映射 PostgreSQL 系统列 `xmin`。查询得到的 `row_version` 是无符号事务 ID 的文本表示，仅用于持久化层；不要把它当作业务排序号或时间戳，也不要自行写入该列。
+并发保存用于发现其他事务已经修改的记录，避免覆盖他人的更新。业务实体、任务实体和日志实体都映射 PostgreSQL 系统列 `xmin`。查询得到的 `row_version` 是无符号事务 ID 的文本表示，仅用于持久化层；不要把它当作业务排序号或时间戳，也不要自行写入该列。
 
 ## 实体声明
 
@@ -30,6 +30,19 @@ repository_core::impl_versioned_entity!(Entity, Column::RowVersion);
 如果记录已经被其他事务更新或删除，更新和删除返回 `DbErr::RecordNotUpdated`。调用方应终止当前操作并按业务需要处理冲突，不能静默重试覆盖他人的改动。没有待修改字段时仍验证版本，不绕过并发条件重读并接受新记录。
 
 保存入口保留 `before_save`、`after_save` 和删除钩子。现有带更新时间的实体仅在调用方未明确设置更新时间时自动填入当前时间。
+
+保存片段示例，model 为此前读取的、含版本和删除时间的实体：
+
+```rust
+use sea_orm::{IntoActiveModel, Set};
+use repository_core::versioned::VersionedActiveModel;
+
+let mut active = model.into_active_model();
+active.delete_time = Set(Some(chrono::Utc::now().fixed_offset()));
+let saved = active.update_versioned(db).await?;
+```
+
+上例软删除记录并返回新版本。读取后到保存前若有其他写入，会返回并发冲突。
 
 ## 批量新增与分区
 

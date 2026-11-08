@@ -1,64 +1,80 @@
 # 文件上传与下载
 
-两端通过 `/File/UploadFile` 接收 multipart 表单的 `file` 文件字段，查询参数为 `business`、可空 `key`、`sign` 和 `isPublicRead`。成功结果是 JSON 字符串形式的文件记录 ID。普通上传入口不设置固定大小上限；管理端 Release 签名与临时缓存规则见 [请求签名](webapi-signing.md)。上传临时文件位于文件根目录的 `temps`，处理结束或请求中断时清理；正式文件位于 `uploads/年/月/日`。存储对象名与数据库记录分别使用独立 ID。
+文件模块统一管理本地、阿里云 OSS 和腾讯云 COS 文件，保存文件记录并提供上传、下载和访问地址接口。配置方式见[组件配置](component-configuration.md#文件存储)。
 
-普通上传在调用业务前读完整个表单，按字段名忽略大小写选取第一个 `file` 文件；后续同名文件不会替换首项。缺少文件返回 `file : The file field is required.`；有名称但长度为零的文件在业务阶段返回 `请勿上传空文件`。普通文本字段及空文件名字段不会占用首个文件位置。参数名支持不同大小写和 `filename*` 编码文件名，文件名称不会因空白而被自动裁剪。该规则对应源端的 [IFormFile 绑定](https://github.com/dotnet/aspnetcore/blob/release/10.0/src/Mvc/Mvc.Core/src/ModelBinding/Binders/FormFileModelBinder.cs) 与 [表单读取](https://github.com/dotnet/aspnetcore/blob/release/10.0/src/Http/Http/src/Features/FormFeature.cs)。
+## 上传文件
 
-非空且不匹配 multipart/form-data 的 Content-Type 返回空体 415；未提供 Content-Type 时进入绑定并报告缺少文件。缺少 boundary 或表单截断返回读取表单错误，不能先保存前面的文件再忽略损坏的尾部。普通文件的完整 MIME 语法及所有表单数量、长度限制仍有未覆盖边界，不能据此视为完整替代源 FormOptions。
+两端提供 `POST /File/UploadFile`，使用 multipart 的 file 字段，并传入 business、sign、可空 key 和 isPublicRead。
 
-| 接口 | 行为 |
-|---|---|
-| GET `/File/GetFile?fileId=...` | 读取本地原文件，以保存的文件名作为附件名；不使用 `isInline` 切换展示方式 |
-| GET `/File/GetImage?fileId=...&width=...&height=...` | 返回原文件或缩放 PNG |
-| GET `/File/GetFileUrl?fileId=...&isInline=...` | 返回公开地址，或云组件签发的十分钟临时地址 |
-| DELETE `/File/DeleteFile?id=...` | 软删除记录并记录删除人，不删除本地文件或云对象；未找到有效记录返回 false |
+客户端调用示例，JWT 为登录取得的令牌：
 
-`GetFile` 和 `GetImage` 允许匿名请求；管理端仍经过请求签名过滤器。其他文件接口遵守宿主认证与权限校验。`isPublicRead` 用于云对象上传权限和地址生成，不是这两个本地读取接口的权限开关。
+```powershell
+curl.exe -X POST "http://127.0.0.1:3001/File/UploadFile?business=demo&sign=attachment&isPublicRead=false" -H "Authorization: Bearer <JWT>" -F "file=@C:/files/example.pdf"
+```
 
-原文件响应包含文件长度、最后修改时间和支持中文的附件名，接受日期条件请求；未启用范围下载，也不设置 ETag。普通下载的未知扩展名使用 ZIP MIME 类型；图片接口要求扩展名存在于共享 MIME 映射中。文件不存在或不能读取时进入共享异常响应。云存储不会被自动下载到本地公开目录，云文件通过 `GetFileUrl` 获取访问地址。
+成功返回 JSON 字符串文件 ID。管理端 Release 还需[请求签名](webapi-signing.md)。
 
-图片宽高均为零时返回原文件；任一指定边超过原图时也返回原文件。只指定一边时按单精度比例计算另一边并截断；两边均指定时直接使用指定尺寸。需要变换时采用最近邻缩放并返回 PNG，不附带下载文件名。无效尺寸、无法解码或缩放失败进入共享异常响应。
+普通上传读取第一个名为 file 的文件字段，忽略字段名大小写。缺少文件或文件为空会返回错误；非 multipart Content-Type 返回 415。接口不设置额外固定上传上限，反向代理可另行限制。
 
-公开地址按 `[file].public_base_url` 与记录路径直接拼接，配置基地址时应包含所需的末尾斜杠。文件目录与静态访问范围见 [静态文件说明](webapi-static-files.md)。
+临时文件在根目录的 temps，正式文件位于 uploads/年/月/日。对象存储名称与文件记录使用独立 ID，原上传名用于下载附件名。
 
-阿里云 OSS 上传按对象名最后一个扩展名识别 Content-Type，扩展名不区分大小写；未知扩展名、无扩展名或末尾为点时使用 `application/octet-stream`。对象名由远程目录与本地文件名组成，展示文件名只设置 Content-Disposition，不影响类型识别。云上传使用 OSS 的类型映射，与 WebAPI 静态文件及本地下载映射分别维护。
+## 下载、地址与删除
 
-私有云文件地址同样使用 `public_base_url` 原文作为前缀，不自动增加或删除斜杠。阿里云 OSS 使用 V4 临时签名，区域配置应与桶所在区域一致；腾讯云 COS 按当前宿主约定不将 Host 加入临时地址签名，支持将访问域名替换为配置中的地址。`isInline=true` 会把 `response-content-disposition=inline` 纳入签名；公开文件直接返回地址，不生成临时签名。
+| 接口 | 用途 |
+| --- | --- |
+| GET /File/GetFile?fileId=... | 下载本地原文件 |
+| GET /File/GetImage?fileId=...&width=...&height=... | 原图或缩放 PNG |
+| GET /File/GetFileUrl?fileId=...&isInline=... | 公开地址或十分钟云临时地址 |
+| DELETE /File/DeleteFile?id=... | 软删除记录，不删除物理文件或云对象 |
 
-OSS 的桶名、区域、对象名和访问凭据在实际调用时校验，空凭据或无效桶名不会单独阻止宿主启动。对象名长度为 1 至 1024 个 UTF-16 码元，非 BMP 字符占两个码元。临时签名最长七天，文件接口固定请求十分钟；签名秒数按实际生成时刻到过期时刻的差值截断，因此通常显示为 599 秒。签名、配置或地址构造失败进入共享内部异常响应，只有组件明确返回无地址时才返回“文件临时授权地址获取失败”。公开文件不触发签名配置校验。
+GetFile、GetImage 允许匿名访问，管理端仍检查签名。其他文件接口需要宿主认证和权限。`isPublicRead` 控制云权限及地址生成，不是本地下载的权限开关。
 
-直接使用 `AppFileStorage::get_file_url` 时，有效期参数为 `chrono::TimeDelta`，支持负值，并按 TimeSpan 的有符号 100ns 精度处理。OSS 将负值用于计算已过去的过期时刻；COS 将总秒数按中点到偶数取整，非正值回退到默认密钥的 600 秒区间。COS 的 `q-sign-time` 与 `q-key-time` 分别表示签名和密钥区间，后者不随调用方指定的时长改变；默认永久凭据每次派生，不跨请求缓存。腾讯云凭据先检查空字符串，再去掉两端空白；区域不能为空或包含 `@`。
+GetFile 以保存的文件名作为附件名，提供文件长度和修改时间，不支持范围下载，不设置 ETag。云文件不会自动下载到本地公开目录，应通过 GetFileUrl 访问。
 
-阿里云与腾讯云上传均以远程目录加本地存储文件名作为对象键，与数据库保存的相对路径一致；原始上传名称只写入下载文件名响应头，不参与对象命名。`isPublicRead` 决定对象的 public-read 或 private 权限。云组件通过宿主共享 HTTP 客户端工厂访问服务。业务文件删除仍只软删除记录，不调用云对象删除。
+宽高均为零或指定边超过原图时返回原文件；只指定一边时按比例缩放，两边均指定则使用指定尺寸。变换结果为 PNG。
 
-阿里云上传与下载在服务端返回 `x-oss-hash-crc64ecma` 时检查传输内容，校验不一致按失败处理。上传、下载和删除请求按网络错误、服务状态与错误码判断是否重试，每次请求最多尝试三次；普通 403、404 等错误不会自动重试。服务端指出签名时钟偏差时，会修正后续签名时间。上传重试从同一打开文件的起点重新读取并重置摘要。
+公开地址直接拼接 public_base_url 与相对路径，请在基地址中配置所需末尾斜杠。私有地址生成失败返回错误，不自动退为公开地址。
 
-OSS GET 的宿主 HTTP 超时只覆盖取得响应头；后续读取由 OSS 读写期限控制。普通成功正文流式写入文件；203 正文先完整缓冲，再创建目标文件，缓冲失败按请求层规则重试。成功写入后的返回值仍只对 HTTP 200 为 true。
+## 云存储使用要求
 
-阿里云请求读写期限为 20 秒，至少 256 KiB 的上传文件每次读取有进度时重置，同时遵守宿主 HTTP 客户端的整体请求期限。下载收到响应头后另按每次读写 20 秒控制正文，成功推进后重置；正文读取、落盘或校验失败时，文件拷贝层最多尝试三次下载，每轮重新覆盖目标文件，最终失败保留已写内容。请求层重试与文件拷贝层分别计数。阿里云下载要求调用方预先提供父目录；腾讯云下载会先创建目标路径最后一个 `/` 之前的目录，目标路径需包含目录部分。
+阿里云与腾讯云均以远程目录加本地存储文件名作为对象键，原始展示名只用于 Content-Disposition。云对象访问权限由 isPublicRead 决定。
 
-腾讯云下载先通过 HEAD 取得对象长度，小于 20 MiB 使用单个范围请求，达到 20 MiB 则按 10 MiB 分片，最多并发五片。分片写入目标目录的 `.<文件名>.cosresumable.<序号>`，全部完成后按序合并并检查总长度，成功后清理该文件的分片；传输失败保留已有目标及分片，合并失败可能留下部分目标文件。不要并发下载到同一目标路径。默认不启用 CRC 校验；对象按原始字节传输，不自动解压。
+- OSS 上传、下载按服务端摘要检查内容；下载重试会重新覆盖目标，最终失败可能保留部分内容。直接使用组件下载时预先准备父目录。
+- COS 大文件上传会检查同名未完成上传并校验分片，需要列出上传、列出分片和上传权限。普通失败保留服务端分片会话。
+- COS 下载达到 20 MiB 时分片并发下载，成功后合并；失败可能保留临时分片。不要并发下载到相同目标路径。
+- 上传期间不要修改源文件。业务软删除不会调用云组件的物理删除方法。
 
-COS 分片传输最多处理三轮，每轮只下载未完成分片；HTTP 取响应阶段最多尝试四次，用尽后 4xx 终止传输，客户端失败及 5xx 可以进入下一轮。每轮全部分片发起后，完成数量约 30 秒不再推进时取消未完成请求并重试。Range 和零长度请求头参与签名；零字节对象仍发送 `bytes=0-` 请求，服务端拒绝时按错误处理。
+直接调用 `AppFileStorage::get_file_url` 时，有效期使用 `chrono::TimeDelta`；通常应提供正时长。OSS 最长七天，COS 非正秒数回退到默认 600 秒密钥区间。
 
-COS 上传不大于 5 MiB 时使用单次 PUT，大于 5 MiB 时使用分片上传。默认按 1 MiB 计算分片，余数并入最后一片，因此尾片可能接近 2 MiB；文件必须小于 10000 MiB。上传最多并发三个分片，请求使用正文 Content-MD5，并将 ACL、附件名、内容长度、分片编号和上传编号等实际参数纳入签名。失败重试重新打开本地文件并从该片起点读取，上传期间不要修改源文件。
+## 远程上传
 
-大文件上传默认先查询未完成上传，再核对同名对象已有分片的 ETag 与本地 MD5，一致时跳过这些分片；不一致则创建新上传。需要账号具备列出未完成上传、列出分片和分片上传权限。仅前缀相同但无同名对象时也创建新上传。全部分片完成后按编号顺序提交；普通失败保留服务端未完成上传，不自动删除对象或中止服务端分片会话。
+客户端提供 `POST /File/RemoteUploadFile`：
 
-直接调用 COS 组件的 `AppFileStorage::file_delete` 时，删除请求按 SDK 异步请求规则最多尝试四次，签名包含零长度正文头。返回的 2xx 响应完整读取后视为成功，包括 204；取得成功响应后的正文读取失败直接报错，不再次删除。业务 `/File/DeleteFile` 仍只软删除数据库记录，不调用此云对象删除方法。
+```json
+{
+  "business": "demo",
+  "key": null,
+  "sign": "attachment",
+  "isPublicRead": false,
+  "fileName": "example.pdf",
+  "fileUrl": "https://files.example.com/example.pdf"
+}
+```
 
-Ueditor 的 `/Ueditor/ProcessRequest` 保留认证与权限校验，不要求签名头。配置与上传响应是包含 JSON 的文本，公开的各类文件业务大小上限为 2,147,483,647 字节；普通文件表单按流读取，具体允许扩展名以 `action=config` 返回的列表为准。
+需要认证和权限，成功返回文件 ID。来源可以是宿主可访问的 HTTP/HTTPS 地址，包括内网；不自动跟随重定向。非 2xx 或下载失败返回 400 与“远程文件下载失败”。接口没有额外固定下载上限，空响应可保存为空文件。
 
-UEditor 的 action 必须显式指定为 config、uploadimage、uploadscrawl、uploadvideo、uploadfile 或 catchimage；除 config 外均要求正整数 uploadKey。上传使用 upfile 字段，支持 URL 编码表单和 multipart；普通文件上传需要文件字段，涂鸦上传需要普通字段中的 Base64 文本，不接受 data URL。字段名匹配忽略大小写，重复涂鸦字段的非空值以逗号连接后解码；空字符串不增加分隔符，空白字符串保留。涂鸦解码允许空格、Tab 和换行，保存名称固定为 scrawl.png。
+## UEditor
 
-上传结果包含 state、url、title、original、fileId 和 error，未产生的值保留为 null；成功状态为 SUCCESS。上传失败通常仍为 HTTP 200，应检查 state。URL 编码表单单个编码键最多 2,048 字节、编码值最多 4 MiB、字段最多 1,024 项；multipart 的普通字段不使用该 4 MiB 限制，文件业务限制仍以配置为准。抓图来源用重复的 source[] 普通字段提交，返回列表保留全部来源顺序。
+管理端 `/Ueditor/ProcessRequest` 支持 GET/POST，需要认证和权限，不要求签名，也不出现在公开接口文档中。
 
-远程抓图使用 catchimage 动作。来源必须是公网 HTTP/HTTPS 地址，初始 URL 的文件名扩展名须在 catcherAllowFiles 中；域名解析的全部地址都必须为公网地址。连接使用校验后的地址，不使用系统代理，每次重定向连接重新校验，最多跟随五次，HTTPS 不自动降级到 HTTP。重定向之间保留本次抓图的 Cookie，不与其他来源共享。
+- action=config 获取配置及允许的扩展名。
+- uploadimage、uploadvideo、uploadfile 使用 upfile 文件字段。
+- uploadscrawl 使用 upfile 普通字段中的 Base64 文本，不接受 data URL。
+- catchimage 使用重复的 source[] 字段提交来源。
+- 除 config 外均要求正整数 uploadKey。
 
-抓图仅接受 HTTP 200 和 image/ 内容类型；文件名沿用初始 URL 解码后的名称，不根据最终重定向路径重命名。文件按流保存，大小上限取 catcherMaxSize，并同时检查声明长度与实际接收长度。取得最终响应头的期限为 100 秒，正文随请求取消；下载失败或中断会清理临时文件。每个来源分别返回结果，某一项失败不会中止后续来源，成功 URL 可与 catcherUrlPrefix 直接拼接。
+上传结果是包含 JSON 的文本，HTTP 200 也可能代表业务失败，应检查 state 是否为 SUCCESS。
 
-客户端提供 POST /File/RemoteUploadFile，JSON 包含 business、key、sign、isPublicRead、fileName 和 fileUrl；business、sign、fileName、fileUrl 必填且不能为空白，key 可空。成功结果是 JSON 字符串文件 ID，文件按调用方提供的 fileName 保存。该接口保留客户端认证与权限校验。
+抓图只允许公网 HTTP/HTTPS，校验 DNS 和每次重定向目标，最多五次重定向，不允许 HTTPS 降级。来源扩展名、image/ 响应类型及最大大小须满足 config 中的规则。各来源独立返回结果。
 
-普通远程上传使用宿主 HTTP 客户端，支持宿主可访问的 HTTP/HTTPS 来源，包括内网地址；不采用 UEditor 的公网、图片类型或大小规则。不自动跟随重定向，非 2xx、无效地址及下载异常返回 400 和“远程文件下载失败”。成功的空响应可保存为空文件，下载没有额外固定大小上限。
-
-默认客户端不保存 Cookie，支持 HTTP/2 协商和 gzip、deflate、Brotli 解压；下载保存解压后的原文。取得响应头的默认期限为 100 秒，正文以流方式读取并随请求取消。同目录 .download 文件在完整接收后发布，读取失败、取消以及后续保存失败都会清理本次暂存文件。
+静态目录公开范围及条件下载见[静态文件](webapi-static-files.md)。

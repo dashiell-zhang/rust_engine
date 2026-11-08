@@ -1,65 +1,74 @@
 # 对外 HTTP 调用
 
-共享工厂位于独立组件 `infrastructure/http_client`，导入路径为 `http_client::HttpClientFactory`，不依赖应用上下文、SeaORM 或 JWT。
-
-应用服务使用上下文中的 `http_client_factory` 获取客户端，由宿主创建和共享工厂。不要在每次调用时创建新工厂，也不要长期保存工厂返回的客户端；在需要发出请求时重新获取，才能使用轮换后的连接池。
-
-默认客户端不跟随重定向、不保存 Cookie，支持 gzip、deflate 和 Brotli 解压。普通客户端有 100 秒整体请求期限，连接池空闲期限为 60 秒，工厂每 120 秒按需轮换。可以通过 `HttpClientFactoryOptions` 调整这些选项。
-
-WebAPI 的资源工厂现在直接接收已配置的 `Arc<HttpClientFactory>`，文件提供商与 LLM 默认客户端工厂复用该对象。LLM 应用服务通过注入的 `LlmClientFactory` 创建客户端，不在应用内部固定调用默认协议工厂。具体替换方式见 [宿主资源与 LLM 装配](database-modules.md)。
+`http_client::HttpClientFactory` 统一管理出站 HTTP 连接，适合调用第三方 API、下载文件和使用带签名的命名客户端。宿主创建一个共享工厂，应用在发起请求时获取客户端。
 
 ## 普通请求
 
-`common::http_client_helper` 提供 `get`、`delete`、`post_string`、`post_form` 和 `post_form_data`。这些方法接收工厂提供的 `reqwest::Client`，完整接收响应正文后返回 `reqwest::Response`。请求失败、正文读取失败或超过 2,147,483,647 字节的缓冲上限时返回错误；HTTP 4xx/5xx 响应仍返回给调用方，由业务决定处理方式。
+以下 factory 为宿主注入的工厂：
 
-- `post_string` 的类型参数只接受忽略大小写的 `json` 或 `xml`，分别使用 `application/json; charset=utf-8` 和 `text/xml; charset=utf-8`。
-- `post_form` 使用 `application/x-www-form-urlencoded; charset=utf-8`；空格编码为 `+`，文字按 UTF-8 百分号编码。
-- `post_form_data` 接收有序的 `PostFormDataItem` 列表，允许重复字段名。字段名和文件名不能全为空白；文本值允许空字符串。
-- multipart 文本项使用 `text/plain; charset=utf-8`，文件项不附加 Content-Type。`File` 持有内存字节；`FileStream` 持有 `reqwest::Body`，不必将整个文件预读到内存；`FileHandle` 持有可重新定位的 `tokio::fs::File`，供签名上传使用。`length` 是当前位置起的剩余长度，未知时传 `None`。
+```rust
+let client = factory.client();
+let response = common::http_client_helper::get(
+    &client,
+    "https://api.example.com/items",
+    None,
+).await?;
+let status = response.status();
+let body = response.text().await?;
+```
 
-上传流的所有权交给请求，发送结束、失败或取消后释放。调用方取消时应丢弃请求 Future；如果自行创建后台任务，应同时管理任务取消，不能仅丢弃任务句柄。
+提交 JSON：
 
-已经组装的 `reqwest::RequestBuilder` 可以交给 `send_buffered`，采用相同的完整正文返回语义。需要自定义逐块读取的调用方可以使用 reqwest 自身的流式响应接口。
+```rust
+let response = common::http_client_helper::post_string(
+    &factory.client(),
+    "https://api.example.com/items",
+    r#"{"name":"示例"}"#.to_owned(),
+    "json",
+    None,
+).await?;
+```
 
-自定义请求头按头名称忽略大小写处理：普通请求头追加值，标准内容头替换值。没有正文时忽略内容头，无效的头名称也会忽略；不能被 HTTP 头值类型表示的值返回错误。
+辅助方法完整接收正文后返回响应，4xx/5xx 由调用方检查。可用入口包括 get、delete、post_string、post_form、post_form_data。`post_string` 支持 json 和 xml。
 
-## 文件下载
+默认客户端不保存 Cookie、不跟随重定向，支持 gzip、deflate 和 Brotli 解压；整体请求期限一百秒，连接池空闲期限六十秒，工厂每一百二十秒按需轮换。可通过 HttpClientFactoryOptions 调整。不要长期保存取得的客户端，以便后续调用使用轮换后的池。
 
-文件下载使用 `streaming_client()` 和 `download_file`，并传入工厂的 `request_timeout()` 作为响应头期限。正文按流写入文件，不采用普通请求的完整正文内存缓冲，也不将响应头期限继续套用到正文传输。
+## 上传与下载
 
-`download_file` 返回实际保存路径，只接受 2xx 响应；先写同目录临时文件，完整写入后再替换目标文件，失败和取消会清理未完成的临时文件。调用方若还需将下载结果转交业务存储，应继续持有临时文件清理守卫，覆盖保存失败或取消。
+multipart 使用有序 PostFormDataItem 列表，支持重复字段名：
 
-普通远程上传与 UEditor 抓图使用不同规则，详见 [文件接口](webapi-files.md)。不要把 UEditor 的公网地址限制、重定向和图片校验规则套用到普通 HTTP 工厂。
-
-## 客户端宿主的命名客户端
-
-客户端宿主在同一个工厂中注册以下名称，名称区分大小写；管理端与任务宿主不自动注册它们。
-
-| 名称 | 用途 |
+| 类型 | 内容 |
 | --- | --- |
-| `SkipSsl` | 显式忽略服务端证书校验的调用；普通客户端的校验策略不受影响 |
-| `HttpSign` | 获取并缓存登录令牌，添加 Authorization、Token 和 Time，保存响应中的续签令牌 |
-| `CarryCert` | 使用配置的 PKCS#12 客户端证书和私钥发起 TLS 请求，仍验证服务端证书 |
+| File | 内存字节 |
+| FileStream | reqwest::Body 流 |
+| FileHandle | 可定位的 tokio::fs::File，适合签名上传 |
 
-通过 `state.http_client_factory.named_client("HttpSign")?` 获取客户端。返回对象提供 `get`、`delete`、`post_string`、`post_form`、`post_form_data` 和接收 `reqwest::Request` 的 `execute`；这些入口均经过注册的处理器，普通调用完整接收正文后返回。`execute_streaming` 在处理完响应头后返回，后续正文由调用方读取和取消。
+流的所有权交给请求，结束或取消后释放。未知剩余长度传 None，文件名和字段名不能全为空白。
 
-命名客户端与处理器按名称共享、惰性创建，并遵循工厂的 120 秒轮换期限。获取时创建失败会返回错误。每次新操作应从工厂获取，不要永久保存返回对象。空名称使用普通客户端规则。
+下载使用 `streaming_client()` 和公共 `download_file`，以 `request_timeout()` 作为响应头期限。正文流式写入同目录临时文件，完整后替换目标，失败或取消清理临时文件。它只接受 2xx，不把响应头期限继续用于整段文件传输。
 
-未注册的非空名称会创建独立默认客户端：使用 HTTP/1.1、保存 Cookie、不自动解压，最多跟随 50 次重定向。达到上限、缺少有效 Location 或 HTTPS 降级时返回当前响应。300/301/302 的 POST 和 303 的非 GET/HEAD 请求会转为无正文 GET；每次重定向清除 Authorization 与 Proxy-Authorization。Cookie 按目标地址选择，调用方明确设置的 Cookie 与容器中的 Cookie 合并。同名句柄共享 Cookie，轮换时创建新的 Cookie 容器。
+原始流式读取可使用 reqwest 接口；已有 RequestBuilder 需要完整缓冲时使用 `send_buffered`。普通远程上传与 UEditor 抓图规则不同，见[文件接口](webapi-files.md)。
 
-当前自动重定向能够重放内存请求正文；不可克隆的正文在需要原样重发时返回错误。尤其是 reqwest multipart 编码流，即使底层文件可定位，目前仍不能自动重放。需要重定向的流式上传还不能据此按完整等价能力使用。
+## 命名客户端
 
-## 请求选项
+客户端宿主默认注册以下名称，名称区分大小写：
 
-`common::http_client_helper::RequestOptions` 以区分大小写的名称保存进程内任意类型值，供宿主出站处理器使用，不生成 HTTP 请求头。`try_add` 保留已有值，`set` 显式覆盖，`get::<T>` 按类型读取。
+| 名称 | 功能 |
+| --- | --- |
+| SkipSsl | 显式跳过服务端证书校验 |
+| HttpSign | 获取并缓存令牌，添加签名头，保存续签令牌 |
+| CarryCert | 使用客户端证书发起 TLS 请求，仍验证服务端证书 |
 
-取得命名客户端后调用 `with_request_options(options)`，再使用普通发送入口。每个请求复制选项容器，multipart 准备、请求处理和响应处理使用同一份选项；处理器对容器的增删和替换不影响下一次发送。值本身通过共享引用保存，若值带内部可变状态，其共享生命周期由调用方管理。
+```rust
+let client = factory.named_client("HttpSign")?;
+let response = client.get("https://api.example.com/items", None).await?;
+```
 
-响应的 `extensions().get::<RequestOptions>()` 可读取处理后的选项，完整正文缓冲会保留它。直接使用原生 reqwest 客户端的公共帮助方法不会经过命名处理器；需要处理器选项时使用工厂返回的命名客户端。
+命名客户端提供 get、delete、post_string、post_form、post_form_data 以及接收 reqwest::Request 的 execute。需要只等待响应头时使用 execute_streaming。
 
-## 签名与证书配置
+未注册的非空名称使用独立默认客户端：HTTP/1.1、Cookie、不自动解压，最多五十次重定向。重定向清除认证头；不可重放的流式正文需要原样重发时返回错误。
 
-客户端的配置节如下，密码可分别通过 `APP__HTTP_CLIENTS__HTTP_SIGN__PASSWORD` 和 `APP__HTTP_CLIENTS__CARRY_CERT__PASSWORD` 提供：
+## 签名客户端配置
 
 ```toml
 [http_clients.http_sign]
@@ -67,14 +76,26 @@ token_url = "https://auth.example.com/Authorize/GetToken"
 name = "service-account"
 password = ""
 cache_key = "token"
+```
 
+密码通过 `APP__HTTP_CLIENTS__HTTP_SIGN__PASSWORD` 提供。缓存未命中时用 name、passWord 字段登录，响应为令牌文本。收到 200 且带 NewToken 的响应时更新缓存，不自动重试失败业务请求。
+
+HttpSign 的 token_url 需接受 name/passWord 登录协议；本项目默认 GetToken 接口使用 userName/password，不能直接将两者当作同一请求模型。接入该接口时需适配登录处理器，或由应用预先将已取得令牌写入同一缓存键。
+
+签名文件上传使用内存文件或 FileHandle，文件从起点提交；不可定位流不支持签名。签名协议见[请求签名](webapi-signing.md)。
+
+## 客户端证书
+
+```toml
 [http_clients.carry_cert]
 certificate_path = "/run/secrets/client.p12"
 password = ""
 ```
 
-`HttpSign` 使用当前宿主的分布式缓存。缓存未命中时，以 `name` 和 `passWord` JSON 字段调用 `token_url`，成功响应正文应为令牌文本。仓库没有预设登录密码；先配置实际地址及凭据，或由应用预先写入相同缓存键。响应为 200 且含非空 `NewToken` 时更新缓存，不自动重试失败的业务请求。
+密码使用 `APP__HTTP_CLIENTS__CARRY_CERT__PASSWORD`。相对路径按工作目录解析，证书在首次获取或工厂轮换时加载。配置用于出站身份，与入站 host.tls 独立。
 
-签名包含令牌最后一段、毫秒时间戳、请求路径及查询字符串。JSON 请求加入解码后的正文；multipart 先按字段名排列文本，再按字段名排列文件摘要。签名文件上传使用 `post_form_data` 的内存文件或 `FileHandle`，从文件起点开始提交；普通非可定位的流会被拒绝。文件摘要完成后复位到起点再发送，请求结束或取消时释放文件。其他媒体类型按当前出站处理器规则不加入正文。
+## 请求选项
 
-`CarryCert` 的相对路径基于进程工作目录。证书在第一次获取该客户端或连接池轮换时加载，未使用该客户端时无需提供文件。密码错误、缺少私钥或证书与私钥不匹配都会使获取失败，错误消息不包含密码。该配置用于出站客户端身份，与 `host.tls` 的入站监听证书独立。
+`common::http_client_helper::RequestOptions` 在进程内按名称携带类型化数据，不生成 HTTP 头。使用 try_add、set 和 get 管理值，通过命名客户端的 `with_request_options` 传入。
+
+响应的 extensions 可读取处理后的 RequestOptions。需要这些处理器行为时使用命名客户端；原生 reqwest 调用不经过命名处理器。

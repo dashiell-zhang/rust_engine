@@ -1,5 +1,7 @@
 # 基础数据与图片接口
 
+基础接口提供地区、字典、ID、二维码与验证码，便于客户端复用常见功能。
+
 两个 WebAPI 的 `/Base` 接口通过 `application_interface::services::base::BaseService` 查询基础数据。地区和字典使用 `[database].read_connection` 指向的只读连接，留空时连接主库但保持会话只读；这些查询不保存应用层结果缓存。
 
 | GET 接口 | 参数与返回 |
@@ -16,3 +18,14 @@
 图形验证码为四位非零开头数字，有效期五分钟，保存在宿主缓存中的逻辑键 `VerifyCode{sign}` 下。同一个标记再次请求会覆盖验证码并重新开始计时。调用方应为每次验证流程分配独立 GUID，并使用相同标记完成后续校验。
 
 管理端基础接口需要请求签名，Debug 构建按现有签名规则放行；客户端基础接口公开访问。二维码和验证码返回 `image/png`，其他结果返回 `application/json`。
+
+## 调用示例
+
+客户端基础接口无需登录，例如读取省份和生成二维码：
+
+```powershell
+curl.exe http://127.0.0.1:3001/Base/GetRegion
+curl.exe "http://127.0.0.1:3001/Base/GetQrCode?text=hello" --output qrcode.png
+```
+
+二维码结果保存为当前目录的 qrcode.png。调用管理端相同接口时遵守[请求签名](webapi-signing.md)要求。

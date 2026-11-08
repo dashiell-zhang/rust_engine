@@ -1,6 +1,6 @@
 # PostgreSQL 时间分区
 
-`repository_core::partition` 为预分配雪花 ID 的表提供 RANGE 分区声明、建表语句和后台维护。当前日志组件的 `Log` 表按一个自然月分区。
+时间分区将持续增长的数据按时间段组织，便于管理日志等大表。`repository_core::partition` 为预分配雪花 ID 的表提供 RANGE 分区声明、建表语句和后台维护。当前日志组件的 `Log` 表按一个自然月分区。
 
 ## 分区声明与迁移
 
@@ -24,7 +24,7 @@ pub struct Model {
 日志迁移通过独立目标执行：
 
 ```powershell
-docker compose exec -T dev cargo run --locked -p repository_tool -- --target log migrate
+docker compose exec -T dev cargo run --locked -p repository_tool -- migrate --target log
 ```
 
 工具连接由 `repository_tool/appsettings.toml` 的日志目标决定，历史表为 `__EFMigrationsHistory_Log`。宿主不自动执行迁移。已有普通 `Log` 表不会自动转换为分区表，也不会通过 `IF NOT EXISTS` 跳过结构不一致；已有数据的结构调整应先设计并执行显式数据库迁移。
@@ -39,7 +39,7 @@ docker compose exec -T dev cargo run --locked -p repository_tool -- --target log
 
 ## 日志维护配置
 
-三个宿主选择数据库日志时，在启动阶段执行首轮分区维护，随后每十分钟执行一次。每次保持当前分区及三个连续的未来分区；整个计划超过 32 个新分区时，在执行 DDL 前终止本轮。维护错误会记录到标准错误输出，随后仍会重试。
+三个宿主选择数据库日志时，在启动阶段执行首轮分区维护，随后每十分钟执行一次。每次保持当前分区及三个连续的未来分区；整个计划超过 32 个新分区时，在执行 DDL 前终止本次维护。维护错误会记录到标准错误输出，随后仍会重试。
 
 ```toml
 [logger]
@@ -51,7 +51,7 @@ maintenance_lock_prefix = "NetEngine:PartitionMaintenance:"
 
 维护锁的类型沿用宿主 `[lock].component`。Redis 连接优先使用 `maintenance_lock_connection`，为空时使用 `[lock].connection`。维护锁前缀独立于宿主业务锁前缀；所有维护同一日志库的实例必须使用相同的 Redis 目标、维护前缀和 `database_identity`。内存锁仅用于单进程运行。
 
-锁名包含数据库标识、实际数据库名、解析后的 schema 和父表名。锁租期十分钟，每三分钟续期，未取得锁时跳过本轮；续期失败取消维护事务。每轮建表在事务内提交，同名对象只有在实际父表、schema、名称及边界都与预期一致时才视为已完成。
+锁名包含数据库标识、实际数据库名、解析后的 schema 和父表名。锁租期十分钟，每三分钟续期，未取得锁时跳过本次维护；续期失败取消维护事务。每轮建表在事务内提交，同名对象只有在实际父表、schema、名称及边界都与预期一致时才视为已完成。
 
 已有分区边界保持不变。调整周期后，从最右侧真实边界开始衔接新策略，首个新分区可以是短周期。维护不会删除、归档、拆分或合并分区，不会填补历史空洞；不支持 DEFAULT、LIST、HASH、表达式、多列键或多级分区。日志保留天数通过按项目删除记录执行，不通过删除整个分区执行。
 
