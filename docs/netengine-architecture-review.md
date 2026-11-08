@@ -1,6 +1,6 @@
 # NetEngine 与 rust_engine：框架架构差异清单
 
-更新日期：2026-11-08。AR-01～AR-09 已完成并提交；AR-10、AR-11 已完成并通过容器编译检查，本轮结果与验证见第 16～17 节。第 12～15 节保留此前的判断、范围与停止记录，不代表当前待办。
+更新日期：2026-11-08。AR-01～AR-11 已完成并提交；AR-12 已完成并通过容器编译检查，结果见第 20～21 节。AR-13、AR-14 保留待办。本轮依据与原目标见第 18～19 节；早期章节保留当时的判断、范围与停止记录，不代表当前待办。
 
 ## 1. 当前方向与基线
 
@@ -42,6 +42,9 @@
 | AR-09 | LLM 客户端工厂及模型配置解析不能独立替换 | 组件替换能力；优先处理 | 已完成；本轮容器验证通过 |
 | AR-10 | 缺少统一的通用后台服务扩展入口 | 生命周期扩展 | 已完成，验证见第 17 节 |
 | AR-11 | 横切能力缺少通用自定义行为扩展机制 | 调用管道扩展 | 已完成，验证见第 17 节 |
+| AR-12 | 具体组件配置仍集中在公共宿主并存在重复定义 | 配置归属与扩展边界 | 已完成；容器验证见第 21 节 |
+| AR-13 | 横切行为共享的调用上下文及内置行为统一程度仍有限 | 管道进一步统一；按需求处理 | 已静态确认；本目标不实施 |
+| AR-14 | 软删除规则依靠显式查询入口，缺少同等默认保障 | 持久化默认约束；后续限定范围 | 已静态确认；本目标不实施 |
 
 ### AR-01：应用契约层混入运行时实现
 
@@ -377,4 +380,105 @@
 
 本轮没有新增或运行测试，没有在本机安装工具，没有连接真实业务数据库、执行迁移、部署或修改 NetEngine。容器编译与静态复核不等同于真实宿主的故障注入、取消时序验证或所有外部自定义行为组合的运行验收。扩展代码应遵守协作式取消；异步 Drop 不会等待清理，阻塞工作不能靠 abort 强制停止。
 
-AR-10、AR-11 的登记范围已完成。AR-01～AR-11 当前均无未实施条目；本轮保留未提交改动供阶段性审查，不自动启动下一批业务对齐或全仓库循环复核。
+AR-10、AR-11 的登记范围已完成。该阶段结束时 AR-01～AR-11 均无未实施条目，保留工作区供阶段性审查；用户随后已提交并推送。新一轮复核与有限目标见第 18～19 节。
+
+## 18. 再次提交后的架构复核：AR-12～AR-14
+
+Rust 基线为 `adf1b03f5a5bd3774cf144a3a7d307bbd95f8600`，用户已提交并推送 AR-10、AR-11，复核开始时工作区干净。NetEngine 仍为 `23a7d0002938d0308c975dc48c04ac66aae0dda8` 及此前六处未提交修改。本轮只做源码结构复核，排除 Admin.App，未修改生产代码、未重新编译、未拉取远端。
+
+主要分层与宿主扩展入口已基本对应。以下是剩余的扩展和默认约束差异，不是已经复现的业务故障，也不推翻 AR-01～AR-11 按各自范围完成的记录。显式工厂与借用上下文、SeaORM 显式事务继续保留，不为形式一致实现完整 DI 容器或 EF 变更跟踪。
+
+### AR-12：具体组件配置仍集中在公共宿主并存在重复定义
+
+**双方依据**：NetEngine 的文件提供商在组件内定义 [FileStorageSetting](D:/ZWork/NetEngine/Infrastructure/FileStorage.AliCloud/Models/FileStorageSetting.cs)，经组件的 [注册扩展](D:/ZWork/NetEngine/Infrastructure/FileStorage.AliCloud/IServiceCollectionExtensions.cs) 接收配置，由 [Admin.WebAPI](D:/ZWork/NetEngine/Presentation/Admin.WebAPI/Program.cs) 选择装配。短信同样在 [SMS.AliCloud](D:/ZWork/NetEngine/Infrastructure/SMS.AliCloud/IServiceCollectionExtensions.cs) 中声明配置与注册。
+
+Rust 的 [WebAPI Settings](../project_core/webapi_core/src/host/runtime/settings.rs) 与 [TaskService Settings](../project_core/task_service_core/src/settings.rs) 仍声明文件提供商枚举、云存储字段、SMTP 配置，任务核心另声明短信提供商及具体字段。与此同时，[阿里云文件](../infrastructure/file_storage_ali_cloud/src/lib.rs)、[腾讯云文件](../infrastructure/file_storage_tencent_cloud/src/lib.rs)、[阿里云短信](../infrastructure/sms_ali_cloud/src/lib.rs)、[腾讯云短信](../infrastructure/sms_tencent_cloud/src/lib.rs)、[SMTP](../infrastructure/email_smtp/src/lib.rs) 已各有运行配置类型。
+
+**影响与边界**：AR-06、AR-08 已完成运行时资源装配解耦，这里关注配置模型归属。当前新增提供商若沿用标准配置入口，仍可能需要修改公共核心；重复的字段和默认值也容易漂移。既有宿主并不因此不能运行。公共监听、鉴权、健康检查和静态文件确实使用的配置仍应留在公共边界，不应把所有 file 字段机械移出。
+
+**建议**：具体提供商参数由所属组件持有；提供商选择、组合配置与兼容转换由 presentation 或相应装配层负责。公共核心提供读取共同配置源及取得宿主扩展配置的必要入口，不引用具体云存储、短信或 SMTP 实现，不把耦合简单转移为另一个全量配置汇总 crate。
+
+**完成标准**：
+
+- 两类公共宿主不再枚举或定义具体文件、短信、SMTP 提供商参数；新增此类提供商可以只改所属组件及入口装配。
+- 三个现有宿主实际接入新的配置路径；组件配置复用已有类型或有明确职责的兼容映射，不保留多份独立维护的同义字段和默认值。
+- 保持现有 TOML 的节名、字段名、component 值、默认值、路径和凭据传递语义；环境文件、环境变量、旧配置兼容及覆盖顺序不变。核心配置和业务扩展配置复用同一来源与覆盖规则，不重复建立互相不一致的加载链。
+- 保持本地文件模式、静态资源是否公开、任务内容根目录、共享 HTTP 工厂、日志过滤重载及取消/停机行为；不新增提供商，不自动热切换资源。
+- 不恢复公共宿主到业务运行时、仓储或具体提供商的反向依赖；完成容器检查、编译和依赖复核。
+
+### AR-13：横切行为共享的调用上下文及内置行为统一程度仍有限
+
+**双方依据**：NetEngine 的 [InvocationContext](D:/ZWork/NetEngine/SourceGenerator/SourceGenerator.Runtime/Pipeline/InvocationContext.cs) 包含参数快照、参数键、取消令牌、TraceId 和特性存储，[InvocationPipeline](D:/ZWork/NetEngine/SourceGenerator/SourceGenerator.Runtime/Pipeline/InvocationPipeline.cs) 将同一上下文传给各行为。Rust 的 [pipeline](../source_generator/source_generator_runtime/src/pipeline.rs) 当前只共享稳定方法键；[日志运行时](../source_generator/source_generator_runtime/src/logging.rs) 与 [重试宏](../source_generator/source_generator_core/src/attributes/retry.rs) 仍分别建立部分调用信息，其他值由行为显式捕获。
+
+**影响与边界**：AR-11 已提供可用的自定义扩展入口，缓存和流日志也已复用。复杂行为组合仍需额外传递参数键、取消和关联信息；一次调用的多个内置行为没有统一上下文保障。这是进一步统一的机会，不是已有缓存、日志或重试缺失。不能据此默认采集所有参数或引入服务定位器。
+
+**后续完成标准**：先限定实际需要共享的调用元数据及其所有权，选择现有内置行为接入；明确嵌套调用、重试次数、取消和流枚举的上下文生命周期。复用现有稳定键与快照规则，保留敏感信息边界和具体错误类型，不要求复制 .NET 的全部反射与代理设施。本目标仅登记，不实施。
+
+### AR-14：软删除规则依靠显式查询入口，缺少同等默认保障
+
+**双方依据**：NetEngine 的 [SoftDeleteFilterGenerator](D:/ZWork/NetEngine/SourceGenerator/SourceGenerator.Core/EntityFrameworkCore/SoftDeleteFilterGenerator.cs) 按上下文生成 `HasQueryFilter`，由 [DatabaseContext](D:/ZWork/NetEngine/Repository/DatabaseContext.cs) 注册。Rust 在 [repository::extensions](../repository/src/extensions.rs) 为实体声明软删除扩展，由 [repository_core::extensions](../infrastructure/repository_core/src/extensions.rs) 提供 `find_active`、`find_by_id_active` 和显式过滤；直接调用 SeaORM 的普通查询入口不会自动获得这些过滤。
+
+**影响与边界**：现有查询可以与源项目一致，但后续新增查询容易漏过滤，关联查询也需明确各实体的过滤。此次没有逐条证明业务查询存在遗漏，不能把这个结构判断写成已发现数据泄露。历史记录、管理查询和恢复流程可能需要包含已删除记录，不能全局机械加过滤。
+
+**后续完成标准**：限定实体声明和常见查询入口的统一方式，明确查询活跃数据与显式包含删除记录的区别，并覆盖关联查询的使用约定；接入受影响生产路径，保留合法的历史查询。保持 SeaORM 显式查询及既有 xmin 保护，不借此实现 EF 变更跟踪或全量业务重写。本目标仅登记，不实施。
+
+## 19. 下一目标：仅连续完成 AR-12
+
+用户随后启用本目标，AR-12 已连续实施完成，结果见第 20～21 节。本节保留原范围及停止条件；AR-13、AR-14 未纳入实施范围。
+
+以本清单第 18 节 AR-12 的依据和完成标准为范围，完成 rust_engine 的具体组件配置归属调整：把文件存储、短信、SMTP 的具体提供商参数归还所属组件，把提供商选择、组合配置和兼容映射放到 presentation 或相应业务装配层，使 WebAPI 与 TaskService 公共核心不再因新增这些提供商而修改。三个现有宿主必须实际接入，不以未使用的抽象或仅移动类型后继续由核心汇总全部提供商代替完成。
+
+实施开始先核对两仓库当前基线，保留本次清单文档及其他已有改动。先整理现有字段、默认值、覆盖顺序与消费者，再进行最小必要调整。保持现有 TOML、环境覆盖、旧配置兼容、目录与文件公开策略、共享 HTTP 工厂、日志过滤重载和停机预算；具体资源继续由入口选择，不引入完整配置框架、DI 容器、自动热切换或新提供商。公共宿主实际使用的通用配置仍留在公共层。
+
+连续推进至完成，不逐阶段等待确认；常规方案选择、兼容映射和编译问题自主处理。只有确实阻塞执行的外部条件、破坏性操作或超出范围的决定需要用户介入。AR-13、AR-14 仅保留待办；无关发现只登记，不扩大目标，不从零循环审查全仓库。
+
+全部 Rust 工具链操作在 Docker Compose `dev` 中执行，不在本机安装 Rust、Cargo、SDK、构建依赖或其他组件；保持 stable 工具链、latest 镜像和 `/cargo-target` 命名卷。遵守 AGENTS.md，不新增或运行测试，不添加测试依赖或模拟验证程序。
+
+完成后在容器内通过：
+
+- `cargo fmt --all -- --check`
+- `cargo check --workspace --locked`
+- `cargo build --workspace --locked`
+- `cargo clippy --workspace --lib --bins --locked -- -D warnings`
+
+同时对受影响的核心及组件做必要的独立编译和依赖检查，静态核对三个宿主的配置兼容映射；不连接真实业务服务，不输出凭据。检查通过后只因新的改动、失败或未解疑点重复验证。
+
+更新本清单的 AR-12 状态、实施落点、验证依据及剩余边界，按需同步 README、AGENTS.md 和配置接入文档。完成标准达到、容器验证通过、文档更新后结束并交付可审查的工作区；不提交、推送、部署，不修改 NetEngine，不执行数据库迁移，不自动开始 AR-13 或 AR-14。
+
+## 20. AR-12 完成结果
+
+本轮以 `adf1b03f5a5bd3774cf144a3a7d307bbd95f8600` 为基线，保留开始时两份清单文档改动，未修改 NetEngine。生产改动仅涉及组件配置归属、三个入口装配及公共配置扩展入口。
+
+| 完成项 | 当前实现与依据 |
+| --- | --- |
+| 提供商参数归属组件 | 云文件组件的运行配置增加 Deserialize/Default，承接原有空值及 false 默认；短信与 SMTP 直接复用组件已有配置类型，不再由宿主复制字段 |
+| 表现层选择文件提供商 | 新增 [file_storage_support](../presentation/file_storage_support/src/lib.rs)，三个入口共用 local/aliyun_oss/tencent_cos 选择与构造；它只装配文件组件，不汇总其他业务配置，不依赖公共宿主 |
+| 公共 WebAPI 配置收敛 | [Settings](../project_core/webapi_core/src/host/runtime/settings.rs) 移除具体提供商类型和未使用的邮件配置；保留静态资源及业务上下文需要的文件路径、公开地址 |
+| 公共任务配置收敛 | [任务 Settings](../project_core/task_service_core/src/settings.rs) 移除文件、短信、SMTP 类型及文件根目录档案字段；[任务入口配置](../presentation/task_service/src/configuration.rs) 负责组合及旧根目录回退 |
+| 同源配置解析与早期校验 | 两个 Settings 保留同一次加载的合并快照，通过 `extension<T>()` 交给入口解析；三个档案的 `validate_configuration` 在资源连接创建前校验业务配置，不另读文件或环境变量 |
+| 实际装配接入 | [管理端](../presentation/admin_webapi/src/llm_support.rs)、[客户端](../presentation/client_webapi/src/host_support.rs)、[任务入口](../presentation/task_service/src/host_support.rs) 均使用新配置路径，文件和短信继续复用原 HTTP 工厂 |
+
+配置文件、部署模板、业务接口、提供商请求与发送逻辑均未修改。兼容映射详见[组件配置](component-configuration.md)，包括原 component 值、SMTP 587、云字段默认值、WebAPI/任务根目录回退、公开地址传入 url、旧 endpoint 继续不参与 API 地址构造。邮件附件继续以工作目录为内容根目录，不使用任务文件存储根目录。
+
+配置入口变化：运行态 Settings 不再直接 Deserialize，必须经 `Settings::load` 建立含快照的完整配置；公共启动日志不再枚举具体文件提供商。WebAPI 无邮件发送用例，旧 `[message.smtp]` 可继续保留，但未使用节的字段类型不再由公共核心校验；任务入口仍校验 SMTP。没有新增提供商热切换，日志过滤重载继续沿用原来源与监听。
+
+## 21. AR-12 验证与停止记录
+
+所有 Rust 操作在现有 Docker Compose `dev` 内执行，保持 stable/latest、`/cargo-target`，未在本机安装任何组件。
+
+| 验证 | 结果 |
+| --- | --- |
+| `cargo check --workspace --locked` | 通过 |
+| `cargo build --workspace --locked` | 通过，包含三个宿主及工作区工具 |
+| `cargo clippy --workspace --lib --bins --locked -- -D warnings` | 通过；校验回调用具名类型别名，未关闭诊断 |
+| `cargo fmt --all -- --check`、`git diff --check` | 通过 |
+| 独立 `cargo check --locked -p <crate>` | file_storage_support、webapi_core、task_service_core 均通过 |
+| 独立依赖图 | 两个公共核心均无 file_storage_support、具体云文件/短信/SMTP、application_runtime/application_service 或业务 repository 依赖；WebAPI 经契约层保留文件/短信/邮件契约的间接依赖，未声称完全不引用这些契约 |
+| Cargo.lock 对照 | 仅本地工作区成员及依赖边变化；外部包版本、来源与 checksum 集合未变，锁文件在容器离线更新后使用 locked 完成验证 |
+| 源码兼容性复核 | 逐项核对默认值、URL/endpoint 映射、根目录回退、同源加载、早期验证、HTTP 工厂和内容目录；公共设置已无具体提供商类型残留 |
+
+本轮没有新增或运行测试、模拟验证程序，没有连接真实数据库、云存储、短信或 SMTP 服务，没有执行迁移或部署。配置兼容性证据是源码对照与编译，不代表已完成所有环境覆盖组合或外部服务的运行联调。
+
+提交前复核修正：TaskService 原先通过 `serde(flatten)` 合并文件提供商配置，导致环境变量字符串无法沿用 config 的布尔值转换。现改为路径/消息配置与 `FileStorageConfiguration` 分别从同一启动快照直接解析，再组合为运行态配置；保留 `[file]` 字段、默认值、根目录回退及覆盖顺序。修复后已在容器重新通过工作区 check、build、Clippy（`-D warnings`）与格式检查；未新增测试或运行真实宿主联调。
+
+AR-12 完成标准已达到，更新 README、AGENTS.md、任务文档和组件配置文档后停止，保留未提交改动供统一审查。AR-13、AR-14 仍为待办，未自动实施；不启动新的全仓库循环对齐。

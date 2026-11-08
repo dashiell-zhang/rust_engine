@@ -27,20 +27,6 @@ pub enum CacheComponent {
     Redis,
 }
 
-/// 文件存储组件类型
-#[derive(Deserialize, Clone)]
-#[serde(rename_all = "snake_case")]
-pub enum FileStorageComponent {
-    /// 本地文件存储
-    Local,
-
-    /// 阿里云 OSS 文件存储
-    AliyunOss,
-
-    /// 腾讯云 COS 文件存储
-    TencentCos,
-}
-
 /// 数据库配置
 #[derive(Deserialize, Clone, Default)]
 pub struct DatabaseSettings {
@@ -103,10 +89,6 @@ pub struct LegacyRedisSettings {
 /// 文件存储配置
 #[derive(Deserialize, Clone)]
 pub struct FileSettings {
-    /// 文件存储组件类型
-    #[serde(default = "default_file_storage_component")]
-    pub component: FileStorageComponent,
-
     /// 文件根目录
     #[serde(default = "default_file_root_path")]
     pub root_path: String,
@@ -114,70 +96,6 @@ pub struct FileSettings {
     /// 对外访问基地址
     #[serde(default)]
     pub public_base_url: String,
-
-    /// 阿里云 OSS 配置
-    #[serde(default)]
-    pub aliyun_oss: AliyunOssFileStorageSettings,
-
-    /// 腾讯云 COS 配置
-    #[serde(default)]
-    pub tencent_cos: TencentCosFileStorageSettings,
-}
-
-/// 阿里云 OSS 文件存储配置
-#[derive(Deserialize, Clone)]
-pub struct AliyunOssFileStorageSettings {
-    /// OSS 存储区域
-    #[serde(default)]
-    pub region: String,
-
-    /// 是否使用内网节点
-    #[serde(default)]
-    pub use_internal_endpoint: bool,
-
-    /// AccessKeyId
-    #[serde(default)]
-    pub access_key_id: String,
-
-    /// AccessKeySecret
-    #[serde(default)]
-    pub access_key_secret: String,
-
-    /// 存储桶名称
-    #[serde(default)]
-    pub bucket_name: String,
-
-    /// 自定义请求基地址
-    #[serde(default)]
-    pub endpoint: String,
-}
-
-/// 腾讯云 COS 文件存储配置
-#[derive(Deserialize, Clone)]
-pub struct TencentCosFileStorageSettings {
-    /// 腾讯云账户 AppId
-    #[serde(default)]
-    pub app_id: String,
-
-    /// COS 存储区域
-    #[serde(default)]
-    pub region: String,
-
-    /// SecretId
-    #[serde(default)]
-    pub secret_id: String,
-
-    /// SecretKey
-    #[serde(default)]
-    pub secret_key: String,
-
-    /// 存储桶名称
-    #[serde(default)]
-    pub bucket_name: String,
-
-    /// 自定义请求基地址
-    #[serde(default)]
-    pub endpoint: String,
 }
 
 /// 缓存配置
@@ -204,80 +122,38 @@ pub struct CorsSettings {
     pub allowed_origin_list: Vec<String>,
 }
 
-/// 邮件消息配置
-#[derive(Deserialize, Clone, Default)]
-pub struct MessageSettings {
-    /// SMTP 配置
-    #[serde(default)]
-    pub smtp: SmtpSettings,
-}
-
-/// SMTP 配置
-#[derive(Deserialize, Clone)]
-pub struct SmtpSettings {
-    /// SMTP 服务器地址
-    #[serde(default)]
-    pub host: String,
-
-    /// SMTP 端口
-    #[serde(default = "default_smtp_port")]
-    pub port: u16,
-
-    /// SMTP 登录用户名
-    #[serde(default)]
-    pub username: String,
-
-    /// SMTP 登录密码
-    #[serde(default)]
-    pub password: String,
-}
-
 /// 全局应用配置
-#[derive(Deserialize, Clone)]
+#[derive(Clone)]
 pub struct Settings {
+    /// 已按宿主规则合并的启动快照；具体业务配置由入口解析。
+    configuration: config::Config,
     /// 宿主公共配置
-    #[serde(default)]
     pub host: HostSettings,
     /// 权限模块名
-    #[serde(default)]
     pub permission_module: String,
     /// 数据库配置
-    #[serde(default)]
     pub database: DatabaseSettings,
     /// JWT 配置
     pub jwt: JwtSettings,
     /// 按需启用的请求字段解密配置
-    #[serde(default)]
     pub rsa: Option<crate::rsa_decrypt::RsaSettings>,
     /// 锁配置
-    #[serde(default)]
     pub lock: LockSettings,
     /// 日志配置
-    #[serde(default)]
     pub logger: LoggerSettings,
     /// 跨进程广播配置
-    #[serde(default)]
     pub event_bus: event_bus::EventBusOptions,
     /// 文件配置
-    #[serde(default)]
     pub file: FileSettings,
     /// 缓存配置
-    #[serde(default)]
     pub cache: CacheSettings,
     /// CORS 配置
-    #[serde(default)]
     pub cors: CorsSettings,
     /// 标识生成器配置
-    #[serde(default)]
     pub identifier_generator: IdentifierGeneratorSettings,
-    /// 邮件消息配置
-    #[serde(default)]
-    pub message: MessageSettings,
     /// 限流配置
-    #[serde(default)]
     pub rate_limit: RateLimitSettings,
     /// 运行入口负责解析的命名 HTTP 客户端配置。
-    #[serde(default)]
     pub http_clients: std::collections::HashMap<String, serde_json::Value>,
 }
 
@@ -320,9 +196,6 @@ struct RawSettings {
     /// 标识生成器配置
     #[serde(default)]
     pub identifier_generator: IdentifierGeneratorSettings,
-    /// 邮件消息配置
-    #[serde(default)]
-    pub message: MessageSettings,
     /// 限流配置
     #[serde(default)]
     pub rate_limit: RateLimitSettings,
@@ -346,39 +219,8 @@ impl Default for FileSettings {
     /// 创建默认文件配置
     fn default() -> Self {
         Self {
-            component: default_file_storage_component(),
             root_path: default_file_root_path(),
             public_base_url: String::new(),
-            aliyun_oss: AliyunOssFileStorageSettings::default(),
-            tencent_cos: TencentCosFileStorageSettings::default(),
-        }
-    }
-}
-
-impl Default for AliyunOssFileStorageSettings {
-    /// 创建默认阿里云 OSS 配置
-    fn default() -> Self {
-        Self {
-            region: String::new(),
-            use_internal_endpoint: false,
-            access_key_id: String::new(),
-            access_key_secret: String::new(),
-            bucket_name: String::new(),
-            endpoint: String::new(),
-        }
-    }
-}
-
-impl Default for TencentCosFileStorageSettings {
-    /// 创建默认腾讯云 COS 配置
-    fn default() -> Self {
-        Self {
-            app_id: String::new(),
-            region: String::new(),
-            secret_id: String::new(),
-            secret_key: String::new(),
-            bucket_name: String::new(),
-            endpoint: String::new(),
         }
     }
 }
@@ -403,19 +245,17 @@ impl Default for CorsSettings {
     }
 }
 
-impl Default for SmtpSettings {
-    /// 创建默认 SMTP 配置
-    fn default() -> Self {
-        Self {
-            host: String::new(),
-            port: default_smtp_port(),
-            username: String::new(),
-            password: String::new(),
-        }
-    }
-}
-
 impl Settings {
+    /// 从同一启动快照解析入口拥有的配置，不重新读取文件或环境变量。
+    pub fn extension<T: serde::de::DeserializeOwned>(&self) -> Result<T, String> {
+        self.configuration.clone().try_deserialize().map_err(|_| {
+            format!(
+                "扩展配置 {} 格式不正确，请检查配置字段类型",
+                std::any::type_name::<T>()
+            )
+        })
+    }
+
     /// 加载配置，默认从 appsettings.toml 读取
     ///
     /// 配置文件路径优先级
@@ -435,6 +275,7 @@ impl Settings {
             logger::load_host_configuration(&config_path, Some(environment_name))
                 .expect("配置文件加载失败，请检查 appsettings.toml 是否存在");
         let raw_settings: RawSettings = configuration
+            .clone()
             .try_deserialize()
             .expect("配置文件解析失败，请检查字段格式是否正确");
 
@@ -457,6 +298,7 @@ impl Settings {
 
         // 汇总新旧配置后再填充与宿主相关的默认值
         let mut settings = Self {
+            configuration,
             host: raw_settings.host,
             permission_module: raw_settings.permission_module,
             database: raw_settings.database,
@@ -469,7 +311,6 @@ impl Settings {
             cache: raw_settings.cache.unwrap_or_default(),
             cors: raw_settings.cors,
             identifier_generator: raw_settings.identifier_generator,
-            message: raw_settings.message,
             rate_limit: raw_settings.rate_limit,
             http_clients: raw_settings.http_clients,
         };
@@ -497,6 +338,9 @@ impl Settings {
             settings.cache.prefix = profile.host_name.to_string();
         }
 
+        if let Some(validate) = profile.validate_configuration {
+            validate(&settings).expect("业务组件配置解析失败");
+        }
         settings
     }
 }
@@ -516,11 +360,6 @@ fn default_file_root_path() -> String {
     "data/files".to_string()
 }
 
-/// 获取默认文件存储组件类型
-fn default_file_storage_component() -> FileStorageComponent {
-    FileStorageComponent::Local
-}
-
 /// 获取默认缓存组件类型
 fn default_cache_component() -> CacheComponent {
     CacheComponent::InMemory
@@ -534,9 +373,4 @@ fn default_cache_prefix() -> String {
 /// 获取默认允许的跨域来源列表
 fn default_cors_allowed_origin_list() -> Vec<String> {
     vec!["*.xxx.com".to_string()]
-}
-
-/// 获取默认 SMTP 端口
-fn default_smtp_port() -> u16 {
-    587
 }

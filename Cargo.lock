@@ -30,8 +30,7 @@ dependencies = [
  "event_bus_database",
  "event_bus_redis",
  "file_storage",
- "file_storage_ali_cloud",
- "file_storage_tencent_cloud",
+ "file_storage_support",
  "futures-util",
  "http_client",
  "llm",
@@ -1072,8 +1071,7 @@ dependencies = [
  "event_bus_database",
  "event_bus_redis",
  "file_storage",
- "file_storage_ali_cloud",
- "file_storage_tencent_cloud",
+ "file_storage_support",
  "futures-util",
  "http",
  "http_client",
@@ -2141,9 +2139,21 @@ dependencies = [
  "quick-xml",
  "rand 0.10.3",
  "reqwest",
+ "serde",
  "sha2 0.11.1",
  "tokio",
  "tokio-util",
+]
+
+[[package]]
+name = "file_storage_support"
+version = "0.1.0"
+dependencies = [
+ "file_storage",
+ "file_storage_ali_cloud",
+ "file_storage_tencent_cloud",
+ "http_client",
+ "serde",
 ]
 
 [[package]]
@@ -5751,8 +5761,7 @@ dependencies = [
  "event_bus_database",
  "event_bus_redis",
  "file_storage",
- "file_storage_ali_cloud",
- "file_storage_tencent_cloud",
+ "file_storage_support",
  "http_client",
  "logger",
  "logger_database",
@@ -5761,6 +5770,7 @@ dependencies = [
  "repository",
  "repository_core",
  "sea-orm",
+ "serde",
  "sms",
  "sms_ali_cloud",
  "sms_tencent_cloud",

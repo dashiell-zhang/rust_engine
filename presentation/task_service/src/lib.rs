@@ -5,6 +5,7 @@ pub mod service_factory;
 /// TaskService 内置任务实现
 pub mod tasks;
 
+pub mod configuration;
 /// TaskService 宿主装配
 pub mod host_support;
 
@@ -15,12 +16,12 @@ use task_service_core::{
 
 /// TaskService 宿主档案
 pub const TASK_SERVICE_PROFILE: TaskServiceHostProfile = TaskServiceHostProfile {
+    validate_configuration: Some(configuration::validate),
     build_databases: host_support::build_databases,
     host_name: "task_service",
     default_config_path: "presentation/task_service/appsettings",
     default_lock_prefix: "task_service",
     default_logger_project: "task_service",
-    default_file_root: "presentation/task_service/storage",
     build_distributed_lock: host_support::build_distributed_lock,
     build_distributed_cache: host_support::build_distributed_cache,
     build_logger_runtime: host_support::build_logger_runtime,

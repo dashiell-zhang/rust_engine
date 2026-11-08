@@ -1,0 +1,11 @@
+[package]
+name = "file_storage_support"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+file_storage = { path = "../../infrastructure/file_storage", default-features = false }
+file_storage_ali_cloud = { path = "../../infrastructure/file_storage_ali_cloud" }
+file_storage_tencent_cloud = { path = "../../infrastructure/file_storage_tencent_cloud" }
+http_client = { path = "../../infrastructure/http_client" }
+serde = { version = "1.0.229", features = ["derive"] }

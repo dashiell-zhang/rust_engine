@@ -72,8 +72,13 @@ pub type BuildWebApiResources = for<'a> fn(
     Box<dyn Future<Output = Result<resources::WebApiResources, String>> + Send + 'a>,
 >;
 
+/// 入口拥有的配置校验，不绑定具体业务组件。
+pub type ValidateConfiguration = fn(&Settings) -> Result<(), String>;
+
 /// WebAPI 宿主配置档案
 pub struct WebApiHostProfile {
+    /// 入口在任何资源连接建立前验证自己的扩展配置。
+    pub validate_configuration: Option<ValidateConfiguration>,
     pub build_resources: BuildWebApiResources,
     pub application: fn() -> Arc<dyn application::WebApiApplication>,
     /// 宿主名称

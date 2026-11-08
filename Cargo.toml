@@ -15,6 +15,7 @@ members = [
   "project_core/webapi_core",
   "project_core/task_service_core",
   "presentation/webapi_support",
+  "presentation/file_storage_support",
   "presentation/admin_webapi",
   "presentation/client_webapi",
   "presentation/task_service",

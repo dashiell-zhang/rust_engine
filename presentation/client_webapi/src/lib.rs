@@ -27,6 +27,11 @@ use webapi_core::host::{WebApiHostProfile, run_webapi_host};
 
 /// 客户端 WebAPI 宿主档案
 pub const CLIENT_WEBAPI_PROFILE: WebApiHostProfile = WebApiHostProfile {
+    validate_configuration: Some(|settings| {
+        settings
+            .extension::<file_storage_support::FileStorageConfiguration>()
+            .map(|_| ())
+    }),
     configure_http_clients: Some(http_clients::configure),
     application: webapi_support::application,
     build_resources: business_resources::build,

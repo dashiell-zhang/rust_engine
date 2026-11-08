@@ -17,6 +17,8 @@
 
 常驻服务注册与自定义横切行为见 [宿主扩展](docs/host-extensions.md)。
 
+文件、短信与邮件配置的归属和兼容映射见 [组件配置](docs/component-configuration.md)。
+
 按需启用的请求字段解密见 [RSA 请求字段解密](docs/webapi-rsa.md)。
 
 模型属性读取、显示名称和 Excel 导出见 [公共数据工具](docs/common-data.md)。
@@ -58,6 +60,7 @@ rust_engine/
 │   ├── repository_core
 │   └── sms*
 ├── presentation/
+│   ├── file_storage_support
 │   ├── admin_webapi
 │   ├── client_webapi
 │   ├── task_service

@@ -111,6 +111,8 @@
 - 新增常驻后台服务通过 `common::background_service` 和宿主构建器或 Feature 钩子显式注册；注册时不 spawn，名称不得重复。错误和 panic 交给宿主停机，清理共用宿主绝对期限，超时 abort；不要绕开注册表另写不受管理的监听循环。`webapi.health` 已使用此机制，保留原有检查周期与项目。
 - `webapi_core` 不得依赖 application_runtime、repository_core 或 SeaORM。CurrentUser 直接来自 application_model；JWT 编解码使用 jwt_auth，原 application_runtime::auth 仅兼容导出。
 - WebAPI 资源工厂接收宿主已配置的共享 HTTP 工厂，文件提供商通过 `FileStorageResource` 显式注册；本地存储注册 `FileStorageResource(None)`，不能把缺少注册当作本地模式。邮件能力由有实际需要的入口装配，不回填到公共 AppState。
+- 文件、短信、SMTP 的具体配置归属各组件；文件提供商选择复用 `presentation/file_storage_support`，短信/邮件组合配置归属任务入口，不在公共宿主重新声明具体提供商枚举或参数。`Settings::load` 保留合并后的启动快照，入口通过 `extension<T>()` 解析并用 `validate_configuration` 在资源创建前校验，不另读文件或环境变量；配置映射见 [组件配置](docs/component-configuration.md)。
+- 云文件配置中的旧 `endpoint` 仍仅兼容解析，不能因配置搬迁启用它；运行时 `url` 继续取 `file.public_base_url`。WebAPI 仍持有通用文件路径和公开地址；任务文件配置归属表现层，邮件附件内容根目录仍取工作目录。
 - 数据库纯配置位于 `common::database_settings`，连接选项由 `repository_core::connection` 构造；WebAPI、任务和工具保留各自默认参数，None 的 acquire/max_lifetime 不得擅自改为 WebAPI 默认值。
 - LLM 运行调用通过 `llm::LlmClientFactory` 与 `llm::LlmModelConfigResolver`；具体实现由入口分别注册到 LlmClientFactoryResource、LlmModelConfigResource。数据库解析器留在 application_service_llm，不在服务内部绕过注入调用默认工厂或查询函数。默认解析器复用业务写池、不增加缓存。
 - `application_runtime::context::LlmContext` 需启用 llm 特性；模型 CRUD 使用不含运行依赖的 LlmModelContext。LLM 应用与调用能力在启动阶段检查两个运行依赖，纯模型及会话查询不强制装配它们；保持既有取消包装和流生命周期。

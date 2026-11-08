@@ -3,8 +3,13 @@ use identifier_generator::IdentifierGeneratorSettings;
 use logger::LoggerSettings;
 use serde::Deserialize;
 
+/// 入口拥有的配置校验，不绑定具体业务组件。
+pub type ValidateConfiguration = fn(&Settings) -> Result<(), String>;
+
 /// 任务宿主配置档案
 pub struct TaskServiceHostProfile {
+    /// 入口在任何资源连接建立前验证自己的扩展配置。
+    pub validate_configuration: Option<ValidateConfiguration>,
     pub build_databases: crate::BuildTaskServiceDatabases,
     /// 宿主名称
     pub host_name: &'static str,
@@ -17,9 +22,6 @@ pub struct TaskServiceHostProfile {
 
     /// 默认日志项目名
     pub default_logger_project: &'static str,
-
-    /// 默认文件根目录
-    pub default_file_root: &'static str,
 
     /// 分布式锁构建方法
     pub build_distributed_lock: crate::BuildTaskServiceLock,
@@ -55,20 +57,6 @@ pub enum CacheComponent {
 
     /// Redis 缓存
     Redis,
-}
-
-/// 文件存储组件类型
-#[derive(Deserialize, Clone)]
-#[serde(rename_all = "snake_case")]
-pub enum FileStorageComponent {
-    /// 本地文件存储
-    Local,
-
-    /// 阿里云 OSS 文件存储
-    AliyunOss,
-
-    /// 腾讯云 COS 文件存储
-    TencentCos,
 }
 
 /// 数据库配置
@@ -139,172 +127,37 @@ pub struct PollSettings {
     pub schedule_interval_milliseconds: u64,
 }
 
-/// 文件存储配置
-#[derive(Deserialize, Clone)]
-pub struct FileSettings {
-    /// 文件存储组件类型
-    #[serde(default = "default_file_storage_component")]
-    pub component: FileStorageComponent,
-
-    /// 文件根目录
-    #[serde(default = "default_file_root_path")]
-    pub root_path: String,
-
-    /// 对外访问基地址
-    #[serde(default)]
-    pub public_base_url: String,
-
-    /// 阿里云 OSS 配置
-    #[serde(default)]
-    pub aliyun_oss: AliyunOssFileStorageSettings,
-
-    /// 腾讯云 COS 配置
-    #[serde(default)]
-    pub tencent_cos: TencentCosFileStorageSettings,
-}
-
-/// 短信组件类型
-#[derive(Deserialize, Clone)]
-#[serde(rename_all = "snake_case")]
-pub enum SmsComponent {
-    /// 阿里云短信组件
-    Aliyun,
-
-    /// 腾讯云短信组件
-    Tencent,
-}
-
-/// 短信配置
-#[derive(Deserialize, Clone)]
-pub struct SmsSettings {
-    /// 短信组件类型
-    #[serde(default = "default_sms_component")]
-    pub component: SmsComponent,
-
-    /// 阿里云配置
-    #[serde(default)]
-    pub aliyun: AliyunSmsSettings,
-
-    /// 腾讯云配置
-    #[serde(default)]
-    pub tencent: TencentSmsSettings,
-}
-
-/// 邮件配置
-#[derive(Deserialize, Clone)]
-pub struct MessageSettings {
-    /// SMTP 配置
-    #[serde(default)]
-    pub smtp: SmtpSettings,
-}
-
-/// SMTP 配置
-#[derive(Deserialize, Clone)]
-pub struct SmtpSettings {
-    /// SMTP 主机地址
-    #[serde(default)]
-    pub host: String,
-
-    /// SMTP 端口
-    #[serde(default = "default_smtp_port")]
-    pub port: u16,
-
-    /// 用户名
-    #[serde(default)]
-    pub username: String,
-
-    /// 密码
-    #[serde(default)]
-    pub password: String,
-}
-
-/// 阿里云 OSS 文件存储配置
-#[derive(Deserialize, Clone)]
-pub struct AliyunOssFileStorageSettings {
-    /// OSS 存储区域
-    #[serde(default)]
-    pub region: String,
-
-    /// 是否使用内网节点
-    #[serde(default)]
-    pub use_internal_endpoint: bool,
-
-    /// AccessKeyId
-    #[serde(default)]
-    pub access_key_id: String,
-
-    /// AccessKeySecret
-    #[serde(default)]
-    pub access_key_secret: String,
-
-    /// 存储桶名称
-    #[serde(default)]
-    pub bucket_name: String,
-
-    /// 自定义请求基地址
-    #[serde(default)]
-    pub endpoint: String,
-}
-
-/// 腾讯云 COS 文件存储配置
-#[derive(Deserialize, Clone)]
-pub struct TencentCosFileStorageSettings {
-    /// 腾讯云账户 AppId
-    #[serde(default)]
-    pub app_id: String,
-
-    /// COS 存储区域
-    #[serde(default)]
-    pub region: String,
-
-    /// SecretId
-    #[serde(default)]
-    pub secret_id: String,
-
-    /// SecretKey
-    #[serde(default)]
-    pub secret_key: String,
-
-    /// 存储桶名称
-    #[serde(default)]
-    pub bucket_name: String,
-
-    /// 自定义请求基地址
-    #[serde(default)]
-    pub endpoint: String,
-}
-
-/// 阿里云短信配置
-#[derive(Deserialize, Clone)]
-pub struct AliyunSmsSettings {
-    /// 访问密钥标识
-    #[serde(default)]
-    pub access_key_id: String,
-
-    /// 访问密钥内容
-    #[serde(default)]
-    pub access_key_secret: String,
-}
-
-/// 腾讯云短信配置
-#[derive(Deserialize, Clone)]
-pub struct TencentSmsSettings {
-    /// 短信应用标识
-    #[serde(default)]
-    pub app_id: String,
-
-    /// 密钥标识
-    #[serde(default)]
-    pub secret_id: String,
-
-    /// 密钥内容
-    #[serde(default)]
-    pub secret_key: String,
-}
-
 /// 全局应用配置
-#[derive(Deserialize, Clone)]
+#[derive(Clone)]
 pub struct Settings {
+    /// 已按宿主规则合并的启动快照；具体业务配置由入口解析。
+    configuration: config::Config,
+    /// 宿主公共配置
+    pub host: HostSettings,
+
+    /// 数据库配置
+    pub database: DatabaseSettings,
+
+    /// 锁配置
+    pub lock: LockSettings,
+    /// 缓存配置
+    pub cache: CacheSettings,
+
+    /// 标识生成器配置
+    pub identifier_generator: IdentifierGeneratorSettings,
+
+    /// 轮询配置
+    pub poll: PollSettings,
+
+    /// 日志配置
+    pub logger: LoggerSettings,
+    /// 跨进程广播配置
+    pub event_bus: event_bus::EventBusOptions,
+}
+
+/// 仅用于读取公共配置字段；具体组件字段留在原始快照。
+#[derive(Deserialize, Clone)]
+struct RawSettings {
     /// 宿主公共配置
     #[serde(default)]
     pub host: HostSettings,
@@ -320,10 +173,6 @@ pub struct Settings {
     #[serde(default)]
     pub cache: CacheSettings,
 
-    /// 文件配置
-    #[serde(default)]
-    pub file: FileSettings,
-
     /// 标识生成器配置
     #[serde(default)]
     pub identifier_generator: IdentifierGeneratorSettings,
@@ -338,14 +187,6 @@ pub struct Settings {
     /// 跨进程广播配置
     #[serde(default)]
     pub event_bus: event_bus::EventBusOptions,
-
-    /// 短信配置
-    #[serde(default)]
-    pub sms: SmsSettings,
-
-    /// 邮件配置
-    #[serde(default)]
-    pub message: MessageSettings,
 }
 
 impl Default for PollSettings {
@@ -396,101 +237,17 @@ impl Default for CacheSettings {
     }
 }
 
-impl Default for FileSettings {
-    /// 创建默认文件配置
-    fn default() -> Self {
-        Self {
-            component: default_file_storage_component(),
-            root_path: default_file_root_path(),
-            public_base_url: String::new(),
-            aliyun_oss: AliyunOssFileStorageSettings::default(),
-            tencent_cos: TencentCosFileStorageSettings::default(),
-        }
-    }
-}
-
-impl Default for SmsSettings {
-    /// 创建默认短信配置
-    fn default() -> Self {
-        Self {
-            component: default_sms_component(),
-            aliyun: AliyunSmsSettings::default(),
-            tencent: TencentSmsSettings::default(),
-        }
-    }
-}
-
-impl Default for MessageSettings {
-    /// 创建默认邮件配置
-    fn default() -> Self {
-        Self {
-            smtp: SmtpSettings::default(),
-        }
-    }
-}
-
-impl Default for SmtpSettings {
-    /// 创建默认 SMTP 配置
-    fn default() -> Self {
-        Self {
-            host: String::new(),
-            port: default_smtp_port(),
-            username: String::new(),
-            password: String::new(),
-        }
-    }
-}
-
-impl Default for AliyunOssFileStorageSettings {
-    /// 创建默认阿里云 OSS 文件存储配置
-    fn default() -> Self {
-        Self {
-            region: String::new(),
-            use_internal_endpoint: false,
-            access_key_id: String::new(),
-            access_key_secret: String::new(),
-            bucket_name: String::new(),
-            endpoint: String::new(),
-        }
-    }
-}
-
-impl Default for TencentCosFileStorageSettings {
-    /// 创建默认腾讯云 COS 文件存储配置
-    fn default() -> Self {
-        Self {
-            app_id: String::new(),
-            region: String::new(),
-            secret_id: String::new(),
-            secret_key: String::new(),
-            bucket_name: String::new(),
-            endpoint: String::new(),
-        }
-    }
-}
-
-impl Default for AliyunSmsSettings {
-    /// 创建默认阿里云短信配置
-    fn default() -> Self {
-        Self {
-            access_key_id: String::new(),
-            access_key_secret: String::new(),
-        }
-    }
-}
-
-impl Default for TencentSmsSettings {
-    /// 创建默认腾讯云短信配置
-    fn default() -> Self {
-        Self {
-            app_id: String::new(),
-            secret_id: String::new(),
-            secret_key: String::new(),
-        }
-    }
-}
-
 impl Settings {
+    /// 从同一启动快照解析入口拥有的配置，不重新读取文件或环境变量。
+    pub fn extension<T: serde::de::DeserializeOwned>(&self) -> Result<T, String> {
+        self.configuration.clone().try_deserialize().map_err(|_| {
+            format!(
+                "扩展配置 {} 格式不正确，请检查配置字段类型",
+                std::any::type_name::<T>()
+            )
+        })
+    }
+
     /// 加载配置，默认从 appsettings.toml 读取
     pub fn load(profile: &TaskServiceHostProfile) -> Self {
         let config_path = std::env::var("APP_CONFIG_PATH")
@@ -500,10 +257,22 @@ impl Settings {
         let (configuration, reload_source) =
             logger::load_host_configuration(&config_path, Some(&environment_name))
                 .expect("配置文件加载失败，请检查 appsettings.toml 是否存在");
-        let mut settings: Self = configuration
+        let raw: RawSettings = configuration
+            .clone()
             .try_deserialize()
             .expect("配置文件解析失败，请检查字段格式是否正确");
 
+        let mut settings = Self {
+            configuration,
+            host: raw.host,
+            database: raw.database,
+            lock: raw.lock,
+            cache: raw.cache,
+            identifier_generator: raw.identifier_generator,
+            poll: raw.poll,
+            logger: raw.logger,
+            event_bus: raw.event_bus,
+        };
         settings.logger.set_filter_reload_source(reload_source);
         if settings.logger.project.trim().is_empty() {
             settings.logger.project = profile.default_logger_project.to_string();
@@ -519,12 +288,6 @@ impl Settings {
             settings.cache.prefix = profile.host_name.to_string();
         }
 
-        if settings.file.root_path.trim().is_empty()
-            || settings.file.root_path == default_file_root_path()
-        {
-            settings.file.root_path = profile.default_file_root.to_string();
-        }
-
         if settings.poll.schedule_interval_seconds.is_some()
             && settings.poll.schedule_interval_milliseconds
                 == default_schedule_interval_milliseconds()
@@ -537,6 +300,9 @@ impl Settings {
                 .unwrap_or_else(default_schedule_interval_milliseconds);
         }
 
+        if let Some(validate) = profile.validate_configuration {
+            validate(&settings).expect("业务组件配置解析失败");
+        }
         settings
     }
 }
@@ -561,11 +327,6 @@ fn default_cache_component() -> CacheComponent {
     CacheComponent::InMemory
 }
 
-/// 获取默认文件存储组件类型
-fn default_file_storage_component() -> FileStorageComponent {
-    FileStorageComponent::Local
-}
-
 fn resolve_config_environment() -> String {
     ["APP_ENVIRONMENT", "DOTNET_ENVIRONMENT"]
         .into_iter()
@@ -573,21 +334,6 @@ fn resolve_config_environment() -> String {
         .map(|value| value.trim().to_string())
         .find(|value| !value.is_empty())
         .unwrap_or_else(|| "Production".to_string())
-}
-
-/// 获取默认短信组件类型
-fn default_sms_component() -> SmsComponent {
-    SmsComponent::Aliyun
-}
-
-/// 获取默认 SMTP 端口
-fn default_smtp_port() -> u16 {
-    587
-}
-
-/// 获取默认文件根目录
-fn default_file_root_path() -> String {
-    "storage".to_string()
 }
 
 /// 获取默认锁前缀

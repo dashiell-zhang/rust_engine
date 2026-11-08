@@ -38,7 +38,8 @@ const COS_ENCODE_SET: &AsciiSet = &NON_ALPHANUMERIC
     .remove(b'~');
 
 /// 腾讯云 COS 文件存储配置
-#[derive(Clone)]
+#[derive(Clone, Default, serde::Deserialize)]
+#[serde(default)]
 pub struct TencentCosFileStorageSettings {
     /// 腾讯云账户 AppId
     pub app_id: String,
@@ -56,7 +57,10 @@ pub struct TencentCosFileStorageSettings {
     pub bucket_name: String,
 
     /// 访问地址前缀
+    #[serde(skip_deserializing)]
     pub url: String,
+    /// 兼容旧 TOML 字段，不改变现有 API 地址构造规则。
+    pub endpoint: String,
 }
 
 /// 腾讯云 COS 文件存储

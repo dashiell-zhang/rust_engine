@@ -47,6 +47,8 @@
 
 SMTP 由任务宿主的 `[message.smtp]` 配置提供，默认端口为 587，使用 STARTTLS。未配置时发送失败，按队列规则重试。`FromDisplayName` 留空表示不添加显示名称，附件使用记录中的名称及 `application/octet-stream` 类型。
 
+文件、短信、SMTP 的组合配置由任务入口持有，具体字段与默认值复用提供商组件；公共任务核心只保留配置快照。字段归属、加载与旧配置兼容规则见[组件配置](component-configuration.md)。
+
 ## 队列持久化
 
 Worker 通过 `QueueTaskStore` 契约领取、开始、续租、完成或失败任务；默认实现为 `DatabaseQueueTaskStore`。应用入队继续使用 `QueueTaskProducer`：`create` 要求传入所属模块的 `ModuleTransaction<M>`，并验证与生产者使用同一连接池；`create_single` 独立保存。宿主通过 `build_databases` 和 `TaskServiceDatabases::for_module::<M>` 选择队列目标，详见[业务模块说明](database-modules.md)。

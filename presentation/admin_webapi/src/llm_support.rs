@@ -8,8 +8,6 @@ use distributed_lock::DistributedLock;
 use distributed_lock_memory::InMemoryLock;
 use distributed_lock_redis::RedisLock;
 use file_storage::AppFileStorage;
-use file_storage_ali_cloud::{AliyunOssFileStorage, AliyunOssFileStorageSettings};
-use file_storage_tencent_cloud::{TencentCosFileStorage, TencentCosFileStorageSettings};
 use logger::{LoggerComponent, LoggerRuntime};
 use logger_database::init_database_logger;
 use logger_local_file::init_local_file_logger;
@@ -116,37 +114,10 @@ pub fn build_file_storage(
     settings: &Settings,
     http_clients: Arc<http_client::HttpClientFactory>,
 ) -> Result<Option<Arc<dyn AppFileStorage>>, String> {
-    match settings.file.component {
-        webapi_core::settings::FileStorageComponent::Local => Ok(None),
-        webapi_core::settings::FileStorageComponent::AliyunOss => Ok(Some(Arc::new(
-            AliyunOssFileStorage::new(
-                AliyunOssFileStorageSettings {
-                    region: settings.file.aliyun_oss.region.clone(),
-                    use_internal_endpoint: settings.file.aliyun_oss.use_internal_endpoint,
-                    access_key_id: settings.file.aliyun_oss.access_key_id.clone(),
-                    access_key_secret: settings.file.aliyun_oss.access_key_secret.clone(),
-                    bucket_name: settings.file.aliyun_oss.bucket_name.clone(),
-                    url: settings.file.public_base_url.clone(),
-                },
-                http_clients,
-            )
-            .map_err(|error| error.message().to_string())?,
-        ))),
-        webapi_core::settings::FileStorageComponent::TencentCos => Ok(Some(Arc::new(
-            TencentCosFileStorage::new(
-                TencentCosFileStorageSettings {
-                    app_id: settings.file.tencent_cos.app_id.clone(),
-                    region: settings.file.tencent_cos.region.clone(),
-                    secret_id: settings.file.tencent_cos.secret_id.clone(),
-                    secret_key: settings.file.tencent_cos.secret_key.clone(),
-                    bucket_name: settings.file.tencent_cos.bucket_name.clone(),
-                    url: settings.file.public_base_url.clone(),
-                },
-                http_clients,
-            )
-            .map_err(|error| error.message().to_string())?,
-        ))),
-    }
+    let config = settings.extension::<file_storage_support::FileStorageConfiguration>()?;
+    config
+        .file
+        .build(&settings.file.public_base_url, http_clients)
 }
 
 /// 管理端 LLM 应用服务适配器

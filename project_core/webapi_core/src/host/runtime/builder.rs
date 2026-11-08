@@ -7,7 +7,7 @@ use crate::api_doc::ApiDoc;
 use crate::host::{
     BuildWebApiCache, BuildWebApiLock, BuildWebApiLoggerRuntime, WebApiLoggerBuilderContext,
     features::{WebApiFeature, WebApiRoutePermission},
-    settings::{CacheComponent, FileStorageComponent, Settings},
+    settings::{CacheComponent, Settings},
     state::AppState,
 };
 use crate::rate_limit::RateLimiter;
@@ -238,7 +238,6 @@ impl WebApiHostBuilder {
             lock_component = %lock_component_name(&self.settings),
             cache_component = %cache_component_name(&self.settings),
             logger_component = ?self.settings.logger.component,
-            file_component = %file_component_name(&self.settings),
             file_root_path = %self.settings.file.root_path,
             max_connections = self.settings.host.database_pool.max_connections,
             min_connections = self.settings.host.database_pool.min_connections,
@@ -485,14 +484,5 @@ fn cache_component_name(settings: &Settings) -> &'static str {
     match settings.cache.component {
         CacheComponent::InMemory => "in_memory",
         CacheComponent::Redis => "redis",
-    }
-}
-
-/// 获取文件存储组件名称
-fn file_component_name(settings: &Settings) -> &'static str {
-    match settings.file.component {
-        FileStorageComponent::Local => "local",
-        FileStorageComponent::AliyunOss => "aliyun_oss",
-        FileStorageComponent::TencentCos => "tencent_cos",
     }
 }

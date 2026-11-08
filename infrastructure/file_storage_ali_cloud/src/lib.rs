@@ -34,7 +34,8 @@ const READ_WRITE_TIMEOUT: Duration = Duration::from_secs(20);
 const DOWNLOAD_ATTEMPTS: usize = 3;
 
 /// 阿里云 OSS 文件存储配置。
-#[derive(Clone)]
+#[derive(Clone, Default, serde::Deserialize)]
+#[serde(default)]
 pub struct AliyunOssFileStorageSettings {
     /// OSS 存储区域。
     pub region: String,
@@ -47,7 +48,10 @@ pub struct AliyunOssFileStorageSettings {
     /// 存储桶名称。
     pub bucket_name: String,
     /// 对外访问前缀，按配置原文拼接对象路径及查询串。
+    #[serde(skip_deserializing)]
     pub url: String,
+    /// 兼容旧 TOML 字段，原装配没有使用它，保持按区域构造 API 地址。
+    pub endpoint: String,
 }
 
 /// OSS V4 存储适配器，连接池由宿主共享。

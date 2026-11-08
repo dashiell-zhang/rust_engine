@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+serde = { version = "1.0.229", features = ["derive"] }
 file_storage = { path = "../file_storage", default-features = false }
 http_client = { path = "../http_client" }
 common = { path = "../common" }
