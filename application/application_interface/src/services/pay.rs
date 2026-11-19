@@ -1,6 +1,4 @@
-use application_model::pay::models::{
-    WxPayAppDto, WxPayJsapiDto, WxPayNotifyDto, WxPayNotifyRetDto,
-};
+use application_model::pay::models::{WxPayAppDto, WxPayJsapiDto};
 use async_trait::async_trait;
 use common::app_error::AppError;
 use std::collections::HashMap;
@@ -29,7 +27,7 @@ pub trait PayService: Send + Sync {
     async fn process_alipay_notify(
         &self,
         parameters: HashMap<String, String>,
-    ) -> Result<Option<String>, AppError>;
+    ) -> Result<bool, AppError>;
     async fn create_wx_pay_jsapi(
         &self,
         order_no: &str,
@@ -55,16 +53,7 @@ pub trait PayService: Send + Sync {
     async fn process_wx_pay_notify(
         &self,
         mch_id: &str,
-        notify_dto: WxPayNotifyDto,
         headers: &HashMap<String, String>,
         body: &str,
-    ) -> Result<WxPayNotifyRetDto, AppError>;
-    /// 微信退款模板入口。
-    async fn wx_pay_refund(&self) -> Result<(), AppError>;
-    /// 微信退款查询模板入口。
-    async fn wx_pay_refund_query(&self) -> Result<(), AppError>;
-    /// 支付宝退款模板入口。
-    async fn alipay_refund(&self) -> Result<(), AppError>;
-    /// 支付宝退款查询模板入口。
-    async fn alipay_refund_query(&self) -> Result<(), AppError>;
+    ) -> Result<bool, AppError>;
 }

@@ -16,6 +16,7 @@ application_model = { path = "../../application/application_model" }
 webapi_core = { path = "../../project_core/webapi_core" }
 application_interface = { path = "../../application/application_interface" }
 application_service = { path = "../../application/application_service" }
+application_service_payment = { path = "../../application/application_service_payment" }
 source_generator_runtime = { path = "../../source_generator/source_generator_runtime" }
 async-trait = "0.1.92"
 

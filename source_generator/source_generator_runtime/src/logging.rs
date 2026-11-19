@@ -100,9 +100,9 @@ impl InvocationLog {
         }
         if let Some(exception) = exception {
             payload["exception"] = exception;
-            tracing::error!("{payload}");
+            tracing::error!(invocation = %payload, "{payload}");
         } else {
-            tracing::info!("{payload}");
+            tracing::info!(invocation = %payload, "{payload}");
         }
     }
 }

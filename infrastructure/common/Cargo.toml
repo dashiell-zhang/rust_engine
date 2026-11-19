@@ -19,7 +19,7 @@ distributed_cache = { path = "../distributed_cache", optional = true }
 distributed_lock = { path = "../distributed_lock", optional = true }
 identifier_generator = { path = "../identifier_generator", optional = true }
 source_generator_core = { path = "../../source_generator/source_generator_core" }
-indexmap = "2.14.2"
+indexmap = { version = "2.14.2", features = ["serde"] }
 rust_decimal = "1.43.0"
 
 aes = { version = "0.9.4", optional = true }

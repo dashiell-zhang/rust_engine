@@ -1,0 +1,18 @@
+[
+  {
+    "kind": "Sql",
+    "value": "ALTER TABLE \"DataUpdateLog\" ADD COLUMN \"IpAddress\" text"
+  },
+  {
+    "kind": "Sql",
+    "value": "ALTER TABLE \"DataUpdateLog\" ADD COLUMN \"DeviceMark\" text"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"DataUpdateLog\".\"IpAddress\" IS E'IP \u5730\u5740'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"DataUpdateLog\".\"DeviceMark\" IS E'\u8bbe\u5907\u6807\u8bc6'"
+  }
+]

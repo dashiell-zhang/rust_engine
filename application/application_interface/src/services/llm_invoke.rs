@@ -1,3 +1,4 @@
+use application_model::llm::decision::LlmDecisionResponseDto;
 use application_model::llm::invocation::{AppLlmChatResponse, AppLlmStreamChunk};
 use application_model::llm::parameters::LlmParameters;
 use async_trait::async_trait;
@@ -8,6 +9,21 @@ use futures_util::stream::BoxStream;
 /// LLM 对话与流式调用应用契约。
 #[async_trait]
 pub trait LlmInvokeService: Send + Sync {
+    async fn decide(
+        &self,
+        code: &str,
+        parameters: LlmParameters,
+        create_user_id: Option<i64>,
+    ) -> Result<LlmDecisionResponseDto, AppError>;
+    async fn decide_with_cancellation(
+        &self,
+        code: &str,
+        parameters: LlmParameters,
+        create_user_id: Option<i64>,
+        token: CancellationToken,
+    ) -> Result<LlmDecisionResponseDto, AppError> {
+        cancellation::run(&token, self.decide(code, parameters, create_user_id)).await
+    }
     async fn chat(
         &self,
         code: &str,

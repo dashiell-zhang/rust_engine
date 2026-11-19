@@ -39,7 +39,7 @@ pub struct Model {
     #[sea_orm(column_name = "ApiKey", column_type = "Text")]
     pub api_key: String,
 
-    /// 协议类型（0=Chat, 1=Responses, 2=Anthropic）
+    /// 协议类型（0=Chat, 1=Responses, 2=Anthropic, 3=SystemOne）
     #[sea_orm(column_name = "ProtocolType")]
     pub protocol_type: i32,
 

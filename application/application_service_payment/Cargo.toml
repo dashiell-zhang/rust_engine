@@ -1,0 +1,26 @@
+[package]
+name = "application_service_payment"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+distributed_lock = { path = "../../infrastructure/distributed_lock" }
+application_runtime = { path = "../application_runtime" }
+async-trait = "0.1.92"
+repository_core = { path = "../../infrastructure/repository_core" }
+application_interface = { path = "../application_interface" }
+application_model = { path = "../application_model" }
+common = { path = "../../infrastructure/common" }
+distributed_cache = { path = "../../infrastructure/distributed_cache" }
+repository = { path = "../../repository" }
+base64 = "0.23.1"
+chrono = "0.4.45"
+rsa = { version = "0.9.10", features = ["pem", "sha2"] }
+pem = "4.0.0"
+reqwest = { version = "0.13.5", default-features = false, features = ["json", "query", "rustls"] }
+sea-orm = { version = "2.0.4", features = ["sqlx-postgres", "runtime-tokio-rustls", "macros"] }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = { version = "1.0.154", features = ["raw_value"] }
+tracing = "0.1.44"
+url = "2.5.8"
+x509-cert = { version = "0.3.0", features = ["pem"] }

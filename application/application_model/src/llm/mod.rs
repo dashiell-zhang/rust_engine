@@ -6,3 +6,5 @@ pub mod invocation;
 
 /// 调用方选择比较规则的提示词参数。
 pub mod parameters;
+
+pub mod decision;

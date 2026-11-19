@@ -60,6 +60,14 @@ impl LlmParameters {
         self.values.get(&self.key(key))
     }
 
+    pub fn into_ignore_case(self) -> Result<Self, AppError> {
+        if self.comparison == LlmParameterComparison::OrdinalIgnoreCase {
+            Ok(self)
+        } else {
+            Self::from_map(self.values, LlmParameterComparison::OrdinalIgnoreCase)
+        }
+    }
+
     pub fn comparison(&self) -> LlmParameterComparison {
         self.comparison
     }

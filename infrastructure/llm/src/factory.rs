@@ -6,6 +6,12 @@ use http_client::HttpClientFactory;
 use std::sync::Arc;
 
 pub trait LlmClientFactory: Send + Sync {
+    fn create_decision_client(
+        &self,
+        _config: LlmModelConfig,
+    ) -> Result<Arc<dyn crate::decision::DecisionClient>, LlmError> {
+        Err(LlmError::InvalidRequest("工厂未注册决策客户端".into()))
+    }
     fn create_client(&self, config: LlmModelConfig) -> Result<Arc<dyn LlmClient>, LlmError>;
 }
 
@@ -19,6 +25,29 @@ impl DynamicLlmClientFactory {
     }
 }
 impl LlmClientFactory for DynamicLlmClientFactory {
+    fn create_decision_client(
+        &self,
+        config: LlmModelConfig,
+    ) -> Result<Arc<dyn crate::decision::DecisionClient>, LlmError> {
+        crate::protocol::validate_config(&config)?;
+        if config.protocol()? != crate::LlmProtocolType::SystemOne {
+            return Err(LlmError::InvalidRequest(
+                "该应用不是决策应用，请使用聊天接口".into(),
+            ));
+        }
+        if config.model_id.trim().is_empty()
+            || !reqwest::Url::parse(&config.endpoint)
+                .is_ok_and(|url| matches!(url.scheme(), "http" | "https") && url.has_host())
+        {
+            return Err(LlmError::InvalidRequest(
+                "决策模型的 Endpoint 或 ModelId 无效".into(),
+            ));
+        }
+        Ok(Arc::new(crate::decision::SystemOneClient::new(
+            self.http_clients.streaming_client(),
+            config,
+        )))
+    }
     fn create_client(&self, config: LlmModelConfig) -> Result<Arc<dyn LlmClient>, LlmError> {
         crate::create_client(self.http_clients.streaming_client(), config)
     }

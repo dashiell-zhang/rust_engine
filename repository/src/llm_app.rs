@@ -39,7 +39,7 @@ pub struct Model {
     #[sea_orm(column_name = "SystemPromptTemplate", column_type = "Text", nullable)]
     pub system_prompt_template: Option<String>,
 
-    /// User 提示词模板
+    /// 用户提示词或完整决策 JSON 请求模板
     #[sea_orm(column_name = "PromptTemplate", column_type = "Text")]
     pub prompt_template: String,
 

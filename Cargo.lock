@@ -257,9 +257,9 @@ dependencies = [
  "application_interface",
  "application_model",
  "application_runtime",
+ "application_service_payment",
  "async-recursion",
  "async-trait",
- "base64 0.23.1",
  "chrono",
  "common",
  "distributed_cache",
@@ -268,23 +268,17 @@ dependencies = [
  "event_bus",
  "indexmap",
  "logger_database",
- "pem 4.0.0",
  "queue_task_database",
  "rand 0.10.3",
  "repository",
  "repository_core",
- "reqwest",
- "rsa",
  "sea-orm",
  "serde",
  "serde_json",
- "sha2 0.11.1",
  "source_generator_runtime",
  "tokio",
  "tracing",
- "url",
  "uuid",
- "x509-cert",
 ]
 
 [[package]]
@@ -306,6 +300,32 @@ dependencies = [
  "sea-orm",
  "serde_json",
  "tracing",
+]
+
+[[package]]
+name = "application_service_payment"
+version = "0.1.0"
+dependencies = [
+ "application_interface",
+ "application_model",
+ "application_runtime",
+ "async-trait",
+ "base64 0.23.1",
+ "chrono",
+ "common",
+ "distributed_cache",
+ "distributed_lock",
+ "pem 4.0.0",
+ "repository",
+ "repository_core",
+ "reqwest",
+ "rsa",
+ "sea-orm",
+ "serde",
+ "serde_json",
+ "tracing",
+ "url",
+ "x509-cert",
 ]
 
 [[package]]
@@ -6564,6 +6584,7 @@ dependencies = [
  "application_runtime",
  "application_service",
  "application_service_llm",
+ "application_service_payment",
  "async-trait",
  "event_bus",
  "file_storage",

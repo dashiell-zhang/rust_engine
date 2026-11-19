@@ -29,11 +29,11 @@ pub struct Model {
     #[sea_orm(column_name = "SystemContent", column_type = "Text")]
     pub system_content: String,
 
-    /// 用户消息内容
+    /// 用户消息或决策请求 JSON 原文
     #[sea_orm(column_name = "UserContent", column_type = "Text")]
     pub user_content: String,
 
-    /// 助手回复内容
+    /// 助手回复或决策响应 JSON 原文
     #[sea_orm(column_name = "AssistantContent", column_type = "Text")]
     pub assistant_content: String,
 

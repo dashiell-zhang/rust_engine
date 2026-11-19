@@ -1,6 +1,6 @@
 # LLM 模型与应用调用
 
-LLM 模块将模型连接、提示词模板和调用用例分开。管理端维护模型与应用，业务代码通过应用 Code 发起普通或流式对话，无需在处理器中判断具体协议。
+LLM 模块将模型连接、提示词模板和调用用例分开。管理端维护模型与应用，业务代码通过应用 Code 发起普通对话、流式对话或结构化决策，无需在处理器中判断具体协议。
 
 ## 准备配置
 
@@ -54,6 +54,34 @@ while let Some(chunk) = stream.next().await {
 需要中止时对令牌副本调用 `cancel()`。取消覆盖配置读取、提供商调用和会话保存。普通调用也有 `chat_with_cancellation`、`chat_content_with_cancellation`。
 
 正式流式调用仅在完整消费、收到非空结束原因后保存会话，并聚合第一个候选。提前丢弃、取消或只收到结束标记不保证保存。管理端试用不保存会话。
+
+## 结构化决策
+
+在模型管理中选择 System One（协议值 3），填写完整的决策 API 地址、模型标识和密钥。创建应用时把整个 JSON 请求写入模板，系统提示词与额外请求参数留空。下面的应用按工单内容给出分类。
+
+```json
+{
+  "state": { "message": "{{*content}}" },
+  "questions": {
+    "category": {
+      "type": "choice",
+      "instructions": "选择最符合工单内容的类别",
+      "criteria": { "billing": "账单或扣款", "delivery": "配送进度" }
+    }
+  }
+}
+```
+
+```rust
+let mut parameters = LlmParameters::default();
+parameters.insert("content", Some("我想查询快递进度".into()));
+let result = service.decide("ticket-routing", parameters, None).await?;
+let category = result.answers.get("category").and_then(|a| a.choice.as_deref());
+```
+
+`choice` 返回选项、概率分布和置信度。`noul` 返回为真的概率。`score` 接收由低到高的等级说明数组，返回连续评分和等级分布。模型标识取自关联模型，模板字段名、问题标识和题型须固定。文本参数按名称忽略大小写匹配，替换值作为 JSON 字符串处理。
+
+管理端试用返回供应商响应原文与可用的 Token 用量。正式调用保存完整请求和响应作为会话，可通过 `decide_with_cancellation` 取消。有应用引用的模型，须先解除引用才能在聊天与决策协议之间切换。
 
 ## 扩展与使用限制
 

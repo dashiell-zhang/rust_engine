@@ -16,6 +16,7 @@ pub enum LlmProtocolType {
 
     /// Anthropic Messages API 协议
     Anthropic = 2,
+    SystemOne = 3,
 }
 
 impl TryFrom<i32> for LlmProtocolType {
@@ -26,6 +27,7 @@ impl TryFrom<i32> for LlmProtocolType {
             0 => Ok(Self::Chat),
             1 => Ok(Self::Responses),
             2 => Ok(Self::Anthropic),
+            3 => Ok(Self::SystemOne),
             other => Err(LlmError::UnsupportedProtocol(other)),
         }
     }
@@ -63,6 +65,7 @@ pub fn create_client(
     let protocol = config.protocol()?;
 
     match protocol {
+        LlmProtocolType::SystemOne => Err(LlmError::InvalidRequest("决策应用请使用 decide".into())),
         LlmProtocolType::Chat => Ok(Arc::new(
             OpenAiCompatibleClient::new(
                 http_client,
@@ -78,7 +81,7 @@ pub fn create_client(
 }
 
 /// 校验 LLM 模型运行时配置
-fn validate_config(config: &LlmModelConfig) -> Result<(), LlmError> {
+pub(crate) fn validate_config(config: &LlmModelConfig) -> Result<(), LlmError> {
     if config.endpoint.trim().is_empty() {
         return Err(LlmError::InvalidRequest(
             "LLM model endpoint is required".to_string(),

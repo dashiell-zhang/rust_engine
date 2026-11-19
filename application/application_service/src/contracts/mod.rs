@@ -7,7 +7,6 @@ mod file;
 mod link;
 mod log;
 mod message;
-mod pay;
 mod permission_route;
 mod region;
 mod role;

@@ -100,6 +100,8 @@ impl<'a> LlmModelService<'a> {
                     .map(|item| LlmModelSelectDto {
                         id: item.id.to_string(),
                         name: item.name,
+                        model_id: item.model_id,
+                        protocol_type: item.protocol_type,
                     })
                     .collect()
             })
@@ -220,6 +222,22 @@ impl<'a> LlmModelService<'a> {
                             "当前模型下存在已启用的 LLM 应用，无法禁用",
                         ));
                     }
+                }
+
+                let decision = llm::LlmProtocolType::SystemOne as i32;
+                if model.protocol_type != dto.protocol_type
+                    && [model.protocol_type, dto.protocol_type].contains(&decision)
+                    && llm_app::Entity::find()
+                        .filter(llm_app::Column::LlmModelId.eq(id))
+                        .not_deleted(llm_app::Column::DeleteTime)
+                        .count(self.context.app.db)
+                        .await
+                        .map_err(to_app_error)?
+                        > 0
+                {
+                    return Err(AppError::bad_request(
+                        "该模型仍被应用引用，请先调整关联应用再切换决策协议",
+                    ));
                 }
 
                 // EF 只有实际字段或修改者变化时才更新行版本与更新时间。

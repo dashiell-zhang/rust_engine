@@ -1,3 +1,4 @@
+use application_service_payment::pay::service::PayService;
 #[cfg(feature = "llm")]
 pub mod llm_resources;
 pub mod resources;
@@ -16,7 +17,6 @@ use application_service::{
     file::service::FileService,
     link::service::LinkWebApiService,
     log::service::LogManageService,
-    pay::service::PayService,
     permission_route::service::PermissionRouteService,
     role::service::RoleService,
     site::service::SiteWebApiService,

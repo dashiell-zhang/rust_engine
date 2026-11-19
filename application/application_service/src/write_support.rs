@@ -162,8 +162,6 @@ where
         table_id: Set(table_id),
         content: Set(content),
         action_user_id: Set(current_user.map(|item| item.user_id)),
-        ip_address: Set(None),
-        device_mark: Set(None),
         create_time: Set(Utc::now().into()),
         delete_time: Set(None),
     }

@@ -88,10 +88,10 @@ impl LogQueryService {
             query = query.filter(log::Column::Level.eq(level));
         }
         if let Some(time) = request.start_time {
-            query = query.filter(log::Column::CreateTime.gte(time));
+            query = query.filter(log::Column::CreateTime.gte(time.to_utc()));
         }
         if let Some(time) = request.end_time {
-            query = query.filter(log::Column::CreateTime.lte(time));
+            query = query.filter(log::Column::CreateTime.lte(time.to_utc()));
         }
         let total =
             repository_core::pagination::count_i32(query.clone().count(self.connection()).await?)?;

@@ -195,6 +195,59 @@ pub fn parse_json_value(json: &str) -> Result<serde_json::Value, serde_json::Err
     Ok(value)
 }
 
+/// 需要编辑文本节点并保持对象声明顺序的 JSON 文档。
+#[derive(Serialize)]
+#[serde(untagged)]
+pub enum OrderedJson {
+    Null,
+    Bool(bool),
+    Number(serde_json::Number),
+    String(String),
+    Array(Vec<OrderedJson>),
+    Object(indexmap::IndexMap<String, OrderedJson>),
+}
+impl OrderedJson {
+    pub fn as_str(&self) -> Option<&str> {
+        if let Self::String(s) = self {
+            Some(s)
+        } else {
+            None
+        }
+    }
+    pub fn as_object(&self) -> Option<&indexmap::IndexMap<String, Self>> {
+        if let Self::Object(o) = self {
+            Some(o)
+        } else {
+            None
+        }
+    }
+}
+/// 保留数字和字段顺序，同时拒绝任意层级的重复键。
+pub fn parse_unique_json(json: &str) -> Result<OrderedJson, serde_json::Error> {
+    fn convert(node: Value) -> Result<OrderedJson, serde_json::Error> {
+        Ok(match node {
+            Value::Object(fields) => {
+                let mut map = indexmap::IndexMap::with_capacity(fields.len());
+                for (key, value) in fields {
+                    if map.contains_key(&key) {
+                        return Err(de::Error::custom(format!("重复的 JSON 属性 {key}")));
+                    }
+                    map.insert(key, convert(value)?);
+                }
+                OrderedJson::Object(map)
+            }
+            Value::Array(items) | Value::QueryValues(items) => {
+                OrderedJson::Array(items.into_iter().map(convert).collect::<Result<_, _>>()?)
+            }
+            Value::Null => OrderedJson::Null,
+            Value::Bool(v) => OrderedJson::Bool(v),
+            Value::String(v) => OrderedJson::String(v),
+            Value::Number(v) => OrderedJson::Number(v),
+        })
+    }
+    convert(serde_json::from_str::<Value>(json)?)
+}
+
 /// 按声明顺序保留对象项，供调用方区分重复键；子节点不丢失重复属性。
 pub type RawJsonObjectEntries = Vec<(String, Box<serde_json::value::RawValue>)>;
 

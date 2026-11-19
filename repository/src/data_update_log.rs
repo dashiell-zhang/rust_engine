@@ -35,14 +35,6 @@ pub struct Model {
     #[sea_orm(column_name = "ActionUserId")]
     pub action_user_id: Option<i64>,
 
-    /// IP 地址
-    #[sea_orm(column_name = "IpAddress", column_type = "Text", nullable)]
-    pub ip_address: Option<String>,
-
-    /// 设备标识
-    #[sea_orm(column_name = "DeviceMark", column_type = "Text", nullable)]
-    pub device_mark: Option<String>,
-
     /// 创建时间
     #[sea_orm(column_name = "CreateTime")]
     pub create_time: DateTimeWithTimeZone,

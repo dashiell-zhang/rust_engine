@@ -1,0 +1,10 @@
+[
+  {
+    "kind": "Sql",
+    "value": "ALTER TABLE \"DataUpdateLog\" DROP COLUMN \"IpAddress\""
+  },
+  {
+    "kind": "Sql",
+    "value": "ALTER TABLE \"DataUpdateLog\" DROP COLUMN \"DeviceMark\""
+  }
+]

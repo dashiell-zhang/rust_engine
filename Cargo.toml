@@ -7,6 +7,7 @@ members = [
   "application/application_interface",
   "application/application_runtime",
   "application/application_service",
+  "application/application_service_payment",
   "application/application_service_sms",
   "application/application_service_llm",
   "repository",

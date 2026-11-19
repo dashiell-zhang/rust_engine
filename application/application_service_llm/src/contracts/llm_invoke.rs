@@ -1,3 +1,4 @@
+use application_model::llm::decision::LlmDecisionResponseDto;
 use application_model::llm::invocation::{AppLlmChatResponse, AppLlmStreamChunk};
 use application_model::llm::parameters::LlmParameters;
 use async_trait::async_trait;
@@ -8,6 +9,14 @@ use futures_util::stream::BoxStream;
 impl application_interface::services::llm_invoke::LlmInvokeService
     for crate::llm::invoke_service::LlmInvokeService<'_>
 {
+    async fn decide(
+        &self,
+        code: &str,
+        parameters: LlmParameters,
+        create_user_id: Option<i64>,
+    ) -> Result<LlmDecisionResponseDto, AppError> {
+        self.decide(code, parameters, create_user_id).await
+    }
     async fn chat(
         &self,
         code: &str,

@@ -1,3 +1,4 @@
+use application_model::llm::decision::{LlmDecisionAnswerDto, LlmDecisionResponseDto};
 use application_model::llm::parameters::LlmParameters;
 use repository_core::versioned::VersionedActiveModel;
 
@@ -138,6 +139,96 @@ impl<'a> LlmInvokeService<'a> {
         }))
     }
 
+    async fn resolve_app(
+        &self,
+        code: &str,
+    ) -> Result<(llm_app::Model, llm::LlmModelConfig), AppError> {
+        let app = llm_app::Entity::find()
+            .filter(llm_app::Column::Code.eq(code))
+            .filter(llm_app::Column::IsEnable.eq(true))
+            .not_deleted(llm_app::Column::DeleteTime)
+            .one(self.context.app.db)
+            .await
+            .map_err(|e| AppError::internal(format!("读取 LLM 应用配置失败: {e}")))?
+            .ok_or_else(|| AppError::internal(format!("LLM app not found or disabled: {code}")))?;
+
+        let model_config = self
+            .context
+            .model_config_resolver
+            .get_config(app.llm_model_id)
+            .await?
+            .ok_or_else(|| {
+                AppError::internal(format!(
+                    "LLM model config not found or disabled for app: {code}"
+                ))
+            })?;
+
+        Ok((app, model_config))
+    }
+
+    pub async fn decide(
+        &self,
+        code: &str,
+        parameters: LlmParameters,
+        create_user_id: Option<i64>,
+    ) -> Result<LlmDecisionResponseDto, AppError> {
+        let (app, config) = self.resolve_app(code).await?;
+        if config.protocol_type != llm::LlmProtocolType::SystemOne as i32 {
+            return Err(AppError::internal("该应用不是决策应用，请使用聊天接口"));
+        }
+        let parameters = parameters.into_ignore_case()?;
+        let (request, _) = super::decision::prepare(
+            &app.prompt_template,
+            app.system_prompt_template.as_deref(),
+            app.extra_body_json
+                .as_deref()
+                .is_some_and(|v| !v.trim().is_empty()),
+            Some(&parameters),
+        )?;
+        let client = self
+            .context
+            .client_factory
+            .create_decision_client(config)
+            .map_err(|e| AppError::internal(e.to_string()))?;
+        let result = client
+            .decide(request)
+            .await
+            .map_err(|e| AppError::internal(e.to_string()))?;
+        self.save_conversation(
+            app.id,
+            String::new(),
+            result.request_json,
+            result.raw_content,
+            create_user_id,
+        )
+        .await;
+        Ok(LlmDecisionResponseDto {
+            model: result.model,
+            request_id: result.request_id,
+            latency_ms: result.latency_ms,
+            input_tokens: result.usage.as_ref().and_then(|u| u.input_tokens),
+            output_tokens: result.usage.and_then(|u| u.output_tokens),
+            answers: result
+                .answers
+                .into_iter()
+                .map(|(id, a)| {
+                    (
+                        id,
+                        LlmDecisionAnswerDto {
+                            kind: a.kind,
+                            choice: a.choice,
+                            yes_probability: a.noul,
+                            confidence: a.confidence,
+                            score: a.score,
+                            probabilities: a.probabilities,
+                            legend: a.legend,
+                        },
+                    )
+                })
+                .collect(),
+        })
+    }
+
     /// 保存对话记录
     async fn save_conversation(
         &self,
@@ -148,7 +239,7 @@ impl<'a> LlmInvokeService<'a> {
         create_user_id: Option<i64>,
     ) {
         let Ok(conversation_id) = self.context.app.id_generator.get_id().await else {
-            tracing::error!(target: "llm.invoke", "生成对话记录 ID 失败，跳过保存");
+            tracing::error!(target: "llm.invoke", llm_app_id, "生成对话记录 ID 失败，跳过保存");
             return;
         };
 
@@ -168,7 +259,7 @@ impl<'a> LlmInvokeService<'a> {
         .await;
 
         if let Err(error) = result {
-            tracing::error!(target: "llm.invoke", %error, "保存对话记录失败");
+            tracing::error!(target: "llm.invoke", llm_app_id, %error, "保存对话记录失败");
         }
     }
 
@@ -178,15 +269,10 @@ impl<'a> LlmInvokeService<'a> {
         code: &str,
         parameters: LlmParameters,
     ) -> Result<PreparedChat, AppError> {
-        let app = llm_app::Entity::find()
-            .filter(llm_app::Column::Code.eq(code))
-            .filter(llm_app::Column::IsEnable.eq(true))
-            .not_deleted(llm_app::Column::DeleteTime)
-            .one(self.context.app.db)
-            .await
-            .map_err(|e| AppError::internal(format!("读取 LLM 应用配置失败: {e}")))?
-            .ok_or_else(|| AppError::internal(format!("LLM app not found or disabled: {code}")))?;
-
+        let (app, model_config) = self.resolve_app(code).await?;
+        if model_config.protocol_type == llm::LlmProtocolType::SystemOne as i32 {
+            return Err(AppError::internal("该应用为决策应用，请使用决策接口"));
+        }
         let prompt_template = app.prompt_template.as_str();
         if prompt_template.trim().is_empty() {
             return Err(AppError::internal(format!(
@@ -226,17 +312,6 @@ impl<'a> LlmInvokeService<'a> {
         });
 
         let extra_body = parse_runtime_extra_body(app.extra_body_json.as_deref(), code)?;
-        let model_config = self
-            .context
-            .model_config_resolver
-            .get_config(app.llm_model_id)
-            .await?
-            .ok_or_else(|| {
-                AppError::internal(format!(
-                    "LLM model config not found or disabled for app: {code}"
-                ))
-            })?;
-
         let request = AppLlmChatRequest {
             model: model_config.model_id.clone(),
             messages,

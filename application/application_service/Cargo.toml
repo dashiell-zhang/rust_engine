@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+application_service_payment = { path = "../application_service_payment" }
 email = { path = "../../infrastructure/email" }
 application_runtime = { path = "../application_runtime" }
 async-trait = "0.1.92"
@@ -19,20 +20,13 @@ distributed_lock = { path = "../../infrastructure/distributed_lock" }
 repository = { path = "../../repository" }
 source_generator_runtime = { path = "../../source_generator/source_generator_runtime" }
 
-base64 = "0.23.1"
 chrono = "0.4.45"
 indexmap = { version = "2.14.2", features = ["serde"] }
 async-recursion = "1.2.0"
-rsa = { version = "0.9.10", features = ["pem", "sha2"] }
 rand = "0.10.3"
-pem = "4.0.0"
-reqwest = { version = "0.13.5", default-features = false, features = ["json", "query", "rustls"] }
 tokio = { version = "1.54.1", features = ["rt", "fs", "io-util", "macros"] }
 sea-orm = { version = "2.0.4", features = ["sqlx-postgres", "runtime-tokio-rustls", "macros"] }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = { version = "1.0.154", features = ["raw_value"] }
-sha2 = "0.11.1"
 tracing = "0.1.44"
-url = "2.5.8"
 uuid = { version = "1.29.0", features = ["v4"] }
-x509-cert = { version = "0.3.0", features = ["pem"] }

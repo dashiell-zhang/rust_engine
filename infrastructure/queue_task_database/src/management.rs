@@ -75,10 +75,10 @@ impl<'a> QueueTaskManagement<'a> {
             });
         }
         if let Some(start) = request.start {
-            query = query.filter(queue_task::Column::CreateTime.gte(start));
+            query = query.filter(queue_task::Column::CreateTime.gte(start.to_utc()));
         }
         if let Some(end) = request.end {
-            query = query.filter(queue_task::Column::CreateTime.lte(end));
+            query = query.filter(queue_task::Column::CreateTime.lte(end.to_utc()));
         }
         if let Some(keyword) = request
             .parameter_keyword

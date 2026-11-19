@@ -74,7 +74,7 @@ pub struct LlmModelDto {
     /// API 端点地址
     pub endpoint: String,
 
-    /// 协议类型（0=Chat, 1=Responses, 2=Anthropic）
+    /// 协议类型（0=Chat, 1=Responses, 2=Anthropic, 3=SystemOne）
     pub protocol_type: i32,
 
     /// 是否启用
@@ -117,7 +117,7 @@ pub struct EditLlmModelDto {
     )]
     pub api_key: Option<String>,
 
-    /// 协议类型（0=Chat, 1=Responses, 2=Anthropic）
+    /// 协议类型（0=Chat, 1=Responses, 2=Anthropic, 3=SystemOne）
     #[serde(default)]
     #[schema(default = 0)]
     pub protocol_type: i32,
@@ -144,6 +144,8 @@ pub struct LlmModelSelectDto {
 
     /// 模型显示名称
     pub name: String,
+    pub model_id: String,
+    pub protocol_type: i32,
 }
 
 /// LLM 模型配置分页返回模型
@@ -223,11 +225,12 @@ pub struct LlmAppDto {
 
     /// 关联的 LLM 模型名称
     pub llm_model_name: String,
+    pub model_id: String,
 
     /// System 提示词模板
     pub system_prompt_template: Option<String>,
 
-    /// User 提示词模板
+    /// 用户提示词或完整决策 JSON 请求模板
     pub prompt_template: String,
 
     /// 额外请求参数 JSON 字符串
@@ -246,6 +249,7 @@ pub struct LlmAppDto {
     /// 更新时间
     #[serde(serialize_with = "common::json_helper::date_time::serialize_optional_offset_string")]
     pub update_time: Option<String>,
+    pub protocol_type: i32,
 }
 
 /// 创建或更新 LLM 应用配置请求体
@@ -273,7 +277,7 @@ pub struct EditLlmAppDto {
     )]
     pub system_prompt_template: Option<String>,
 
-    /// User 提示词模板
+    /// 用户提示词或完整决策 JSON 请求模板
     #[json(required = "PromptTemplate 不可以空")]
     pub prompt_template: String,
 
@@ -317,7 +321,7 @@ pub struct TestLlmAppRequest {
     )]
     pub system_prompt_template: Option<String>,
 
-    /// User 提示词模板
+    /// 用户提示词或完整决策 JSON 请求模板
     pub prompt_template: String,
 
     /// 额外请求参数
@@ -444,10 +448,10 @@ pub struct LlmConversationDto {
     /// 系统提示词内容
     pub system_content: String,
 
-    /// 用户消息内容
+    /// 用户消息或决策请求 JSON 原文
     pub user_content: String,
 
-    /// 助手回复内容
+    /// 助手回复或决策响应 JSON 原文
     pub assistant_content: String,
 }
 

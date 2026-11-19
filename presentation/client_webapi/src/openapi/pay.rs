@@ -1,6 +1,5 @@
 use application_model::pay::models::{
-    CreateWxPayJsapiQuery, PaymentOrderQuery, WxPayAppDto, WxPayJsapiDto, WxPayNotifyDto,
-    WxPayNotifyRetDto,
+    CreateWxPayJsapiQuery, PaymentOrderQuery, WxPayAppDto, WxPayJsapiDto,
 };
 use utoipa::OpenApi;
 
@@ -15,8 +14,6 @@ use utoipa::OpenApi;
             CreateWxPayJsapiQuery,
             WxPayJsapiDto,
             WxPayAppDto,
-            WxPayNotifyDto,
-            WxPayNotifyRetDto,
         )
     ),
     tags(

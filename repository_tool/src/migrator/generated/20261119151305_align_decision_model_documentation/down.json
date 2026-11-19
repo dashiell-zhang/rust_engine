@@ -1,0 +1,18 @@
+[
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"LlmApp\".\"PromptTemplate\" IS E'User 提示词模板'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"LlmConversation\".\"UserContent\" IS E'用户消息内容'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"LlmConversation\".\"AssistantContent\" IS E'助手回复内容'"
+  },
+  {
+    "kind": "Sql",
+    "value": "COMMENT ON COLUMN \"LlmModel\".\"ProtocolType\" IS E'协议类型（0=Chat, 1=Responses, 2=Anthropic）'"
+  }
+]

@@ -37,9 +37,6 @@ pub mod link;
 /// 文件模块应用服务
 pub mod file;
 
-/// 支付模块应用服务
-pub mod pay;
-
 /// 权限路由应用服务
 pub mod permission_route;
 
@@ -62,3 +59,6 @@ pub mod base;
 pub mod message;
 
 mod contracts;
+
+/// 支付模块兼容入口。
+pub use application_service_payment::pay;

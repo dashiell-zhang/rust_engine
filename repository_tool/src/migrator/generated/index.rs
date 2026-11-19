@@ -6,4 +6,6 @@
     include!("20261107142136_align_source_business_indexes/migration.rs"),
     include!("20261107143359_align_model_documentation/migration.rs"),
     include!("20261107144333_align_constraint_names/migration.rs"),
+    include!("20261119150023_RemoveDataUpdateLogClientFields/migration.rs"),
+    include!("20261119151305_align_decision_model_documentation/migration.rs"),
 ]

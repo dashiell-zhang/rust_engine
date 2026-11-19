@@ -18,3 +18,5 @@ pub mod invoke_service;
 
 /// 默认数据库模型配置解析器。
 pub mod model_config_resolver;
+
+mod decision;

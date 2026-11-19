@@ -10,7 +10,8 @@ use regex::Regex;
 use repository::extensions::SoftDeleteQueryExt;
 use repository::{llm_app, llm_model};
 use sea_orm::{
-    ColumnTrait, ExprTrait, IntoActiveModel, PaginatorTrait, QueryFilter, QueryOrder, Set,
+    ColumnTrait, ExprTrait, IntoActiveModel, PaginatorTrait, QueryFilter, QueryOrder, QuerySelect,
+    Set,
 };
 
 use application_interface::{
@@ -91,7 +92,7 @@ impl<'a> LlmAppService<'a> {
             .await
             .map_err(to_app_error)?;
 
-        let model_names = load_model_names(
+        let model_details = load_model_details(
             self.context.app.db,
             apps.iter().map(|item| item.llm_model_id).collect(),
         )
@@ -99,7 +100,7 @@ impl<'a> LlmAppService<'a> {
 
         let list = apps
             .into_iter()
-            .map(|app| to_llm_app_dto(app, &model_names))
+            .map(|app| to_llm_app_dto(app, &model_details))
             .collect();
 
         Ok(PageListDto {
@@ -125,9 +126,10 @@ impl<'a> LlmAppService<'a> {
             return Ok(None);
         };
 
-        let model_names = load_model_names(self.context.app.db, vec![model.llm_model_id]).await?;
+        let model_details =
+            load_model_details(self.context.app.db, vec![model.llm_model_id]).await?;
 
-        Ok(Some(to_llm_app_dto(model, &model_names)))
+        Ok(Some(to_llm_app_dto(model, &model_details)))
     }
 
     /// 创建 LLM 应用配置，返回新配置 ID
@@ -173,8 +175,23 @@ impl<'a> LlmAppService<'a> {
                     return Err(AppError::bad_request("Code 已存在"));
                 }
 
-                validate_llm_model_state(self.context.app.db, dto.llm_model_id, dto.is_enable)
-                    .await?;
+                let protocol =
+                    validate_llm_model_state(self.context.app.db, dto.llm_model_id, dto.is_enable)
+                        .await?;
+                let template = dto.prompt_template.trim();
+                let template = if protocol == llm::LlmProtocolType::SystemOne as i32 {
+                    super::decision::prepare(
+                        template,
+                        dto.system_prompt_template.as_deref(),
+                        dto.extra_body_json
+                            .as_deref()
+                            .is_some_and(|v| !v.trim().is_empty()),
+                        None,
+                    )?
+                    .1
+                } else {
+                    template.to_owned()
+                };
 
                 let id = self
                     .context
@@ -192,7 +209,7 @@ impl<'a> LlmAppService<'a> {
                     name: Set(dto.name.trim().to_string()),
                     llm_model_id: Set(dto.llm_model_id),
                     system_prompt_template: Set(dto.system_prompt_template),
-                    prompt_template: Set(dto.prompt_template.trim().to_string()),
+                    prompt_template: Set(template),
                     extra_body_json: Set(dto.extra_body_json),
                     is_enable: Set(dto.is_enable),
                     remark: Set(dto.remark),
@@ -277,14 +294,29 @@ impl<'a> LlmAppService<'a> {
                     return Err(AppError::bad_request("Code 已存在"));
                 }
 
-                validate_llm_model_state(self.context.app.db, dto.llm_model_id, dto.is_enable)
-                    .await?;
+                let protocol =
+                    validate_llm_model_state(self.context.app.db, dto.llm_model_id, dto.is_enable)
+                        .await?;
+                let template = dto.prompt_template.trim();
+                let template = if protocol == llm::LlmProtocolType::SystemOne as i32 {
+                    super::decision::prepare(
+                        template,
+                        dto.system_prompt_template.as_deref(),
+                        dto.extra_body_json
+                            .as_deref()
+                            .is_some_and(|v| !v.trim().is_empty()),
+                        None,
+                    )?
+                    .1
+                } else {
+                    template.to_owned()
+                };
 
                 if model.code == code
                     && model.name == dto.name.trim()
                     && model.llm_model_id == dto.llm_model_id
                     && model.system_prompt_template == dto.system_prompt_template
-                    && model.prompt_template == dto.prompt_template.trim()
+                    && model.prompt_template == template
                     && model.extra_body_json == dto.extra_body_json
                     && model.is_enable == dto.is_enable
                     && model.remark == dto.remark
@@ -297,7 +329,7 @@ impl<'a> LlmAppService<'a> {
                 active.name = Set(dto.name.trim().to_string());
                 active.llm_model_id = Set(dto.llm_model_id);
                 active.system_prompt_template = Set(dto.system_prompt_template);
-                active.prompt_template = Set(dto.prompt_template.trim().to_string());
+                active.prompt_template = Set(template);
                 active.extra_body_json = Set(dto.extra_body_json);
                 active.is_enable = Set(dto.is_enable);
                 active.remark = Set(dto.remark);
@@ -362,13 +394,46 @@ impl<'a> LlmAppService<'a> {
             .get_config(request.llm_model_id)
             .await?
             .ok_or_else(|| AppError::bad_request("无效的 LlmModelId 或模型已禁用"))?;
-        let client =
-            ModelConfigAppLlmClient::new(model_config.clone(), self.context.client_factory)?;
-
+        if request.prompt_template.trim().is_empty() {
+            return Err(AppError::bad_request("待调用的内容模板不能为空"));
+        }
         let parameters = LlmParameters::from_map(
             request.parameters.unwrap_or_default(),
             LlmParameterComparison::OrdinalIgnoreCase,
         )?;
+        if model_config.protocol_type == llm::LlmProtocolType::SystemOne as i32 {
+            let (decision, _) = super::decision::prepare(
+                &request.prompt_template,
+                request.system_prompt_template.as_deref(),
+                request.extra_body.is_some(),
+                Some(&parameters),
+            )?;
+            let client = self
+                .context
+                .client_factory
+                .create_decision_client(model_config)
+                .map_err(|e| AppError::internal(e.to_string()))?;
+            let result = client.decide(decision).await.map_err(|e| match e {
+                llm::LlmError::ApiError { message, .. } => AppError::bad_request(message),
+                other => AppError::internal(other.to_string()),
+            })?;
+            return Ok(TestLlmAppResult {
+                model: result.model,
+                response_id: result.request_id,
+                content: Some(result.raw_content),
+                usage: result.usage.map(|u| TestLlmAppUsage {
+                    prompt_tokens: u.input_tokens,
+                    completion_tokens: u.output_tokens,
+                    total_tokens: u
+                        .input_tokens
+                        .zip(u.output_tokens)
+                        .map(|(a, b)| a.wrapping_add(b)),
+                }),
+            });
+        }
+        let client =
+            ModelConfigAppLlmClient::new(model_config.clone(), self.context.client_factory)?;
+
         validate_required_parameters(
             request.system_prompt_template.as_deref(),
             Some(request.prompt_template.as_str()),
@@ -545,7 +610,7 @@ pub(crate) fn render_template(
 }
 
 /// 获取占位符正则
-fn placeholder_regex() -> &'static Regex {
+pub(super) fn placeholder_regex() -> &'static Regex {
     static PLACEHOLDER_REGEX: OnceLock<Regex> = OnceLock::new();
 
     PLACEHOLDER_REGEX.get_or_init(|| {
@@ -566,17 +631,22 @@ fn to_test_usage(usage: AppLlmUsage) -> TestLlmAppUsage {
 /// 将实体模型转换为返回模型
 fn to_llm_app_dto(
     model: llm_app::Model,
-    model_names: &std::collections::HashMap<i64, String>,
+    model_details: &std::collections::HashMap<i64, (String, String, i32)>,
 ) -> LlmAppDto {
     LlmAppDto {
         id: model.id.to_string(),
         code: model.code,
         name: model.name,
         llm_model_id: model.llm_model_id.to_string(),
-        llm_model_name: model_names
+        llm_model_name: model_details
             .get(&model.llm_model_id)
-            .cloned()
+            .map(|v| v.0.clone())
             .unwrap_or_default(),
+        model_id: model_details
+            .get(&model.llm_model_id)
+            .map(|v| v.1.clone())
+            .unwrap_or_default(),
+        protocol_type: model_details.get(&model.llm_model_id).map_or(-1, |v| v.2),
         system_prompt_template: model.system_prompt_template,
         prompt_template: model.prompt_template,
         extra_body_json: model.extra_body_json,
@@ -588,23 +658,31 @@ fn to_llm_app_dto(
 }
 
 /// 加载模型名称映射
-async fn load_model_names(
+async fn load_model_details(
     db: &sea_orm::DatabaseConnection,
     model_ids: Vec<i64>,
-) -> Result<std::collections::HashMap<i64, String>, AppError> {
+) -> Result<std::collections::HashMap<i64, (String, String, i32)>, AppError> {
     if model_ids.is_empty() {
         return Ok(std::collections::HashMap::new());
     }
 
     let models = llm_model::Entity::find()
         .filter(llm_model::Column::Id.is_in(model_ids))
+        .not_deleted(llm_model::Column::DeleteTime)
+        .select_only()
+        .columns([
+            llm_model::Column::Id,
+            llm_model::Column::Name,
+            llm_model::Column::ModelId,
+            llm_model::Column::ProtocolType,
+        ])
+        .into_tuple::<(i64, String, String, i32)>()
         .all(db)
         .await
         .map_err(to_app_error)?;
-
     Ok(models
         .into_iter()
-        .map(|model| (model.id, model.name))
+        .map(|(id, name, model_id, protocol)| (id, (name, model_id, protocol)))
         .collect())
 }
 
@@ -613,7 +691,7 @@ async fn validate_llm_model_state(
     db: &sea_orm::DatabaseConnection,
     model_id: i64,
     app_is_enable: bool,
-) -> Result<(), AppError> {
+) -> Result<i32, AppError> {
     let model = llm_model::Entity::find()
         .filter(llm_model::Column::Id.eq(model_id))
         .not_deleted(llm_model::Column::DeleteTime)
@@ -629,7 +707,7 @@ async fn validate_llm_model_state(
         return Err(AppError::bad_request("启用的 LLM 应用不可以关联已禁用模型"));
     }
 
-    Ok(())
+    Ok(model.protocol_type)
 }
 
 /// 将数据库错误转换为应用层错误
