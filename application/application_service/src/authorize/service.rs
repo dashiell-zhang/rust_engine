@@ -24,7 +24,7 @@ use serde_json::json;
 use std::collections::HashMap;
 
 use crate::{
-    task_center::{models::CreateQueueTaskDto, service::TaskCenterService},
+    task_center::{models::CreateQueueTaskDto, service::create_queue_task_single},
     write_support::{build_system_create_audit_fields, write_data_update_log},
 };
 use application_interface::error::AppError;
@@ -514,15 +514,17 @@ impl<'a> AuthorizeService<'a> {
         }
         .to_queue_json()
         .map_err(|error| AppError::internal(format!("短信任务参数序列化失败: {error}")))?;
-        let task_center_service = TaskCenterService::new(self.context.app);
-        let task = task_center_service.create_queue_task_single(CreateQueueTaskDto {
-            name: "MessageTask.SendSMS".to_string(),
-            parameter: Some(payload),
-            plan_time: None,
-            callback_name: None,
-            callback_parameter: None,
-            parent_task_id: None,
-        });
+        let task = create_queue_task_single(
+            self.context.app,
+            CreateQueueTaskDto {
+                name: "MessageTask.SendSMS".to_string(),
+                parameter: Some(payload),
+                plan_time: None,
+                callback_name: None,
+                callback_parameter: None,
+                parent_task_id: None,
+            },
+        );
         let cache_write = cache.set_string_with_options(
             &code_key,
             &code,

@@ -101,4 +101,6 @@ publisher.publish_with_cancellation(&message, &cancellation).await?;
 
 模型字段名不区分大小写，合法重复字段取末值，较早的非法值仍报错。字典键原样保留，数值字段可接收数字字符串，容器深度上限为 64。
 
-事件发布拒绝非有限浮点数，不将它们静默转换成 null。事件名必须非空白；数据库后端字段上限为 1024 字符。默认模板只装配广播能力，具体业务事件由应用自行注册。
+事件发布拒绝非有限浮点数，不将它们静默转换成 null。事件名必须非空白；数据库后端字段上限为 1024 字符。
+
+任务中心内置 `Application.Model.Events.TaskSettingChangedEvent`，保存任务配置后发布，负载为 `{}`。各 Release [任务实例](task-service.md)收到后从数据库读取最新配置。

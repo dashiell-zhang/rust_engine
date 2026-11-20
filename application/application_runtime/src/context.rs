@@ -23,6 +23,13 @@ pub struct AppContext<'a> {
     pub current_user: Option<CurrentUser>,
 }
 
+/// 任务配置提交后通过宿主的事件总线通知各任务实例。
+#[derive(Clone, Copy)]
+pub struct TaskCenterContext<'a> {
+    pub app: AppContext<'a>,
+    pub event_publisher: &'a application_interface::events::EventPublisher,
+}
+
 /// 应用配置模块上下文
 #[derive(Clone, Copy)]
 pub struct AppSettingContext<'a> {

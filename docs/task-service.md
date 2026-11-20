@@ -18,7 +18,9 @@ Debug 模式通过菜单选择当前进程启用的任务，不更新数据库�
 docker compose exec -T dev cargo run --release --locked -p task_service
 ```
 
-Release 从数据库读取配置，每六十秒刷新并补齐缺少的定义。新增定义默认禁用，需在任务管理中启用。运行环境依次取 APP_ENVIRONMENT、DOTNET_ENVIRONMENT，默认 Production；它与 Debug/Release 构建模式独立。
+Release 在启动时读取数据库配置，补齐缺少的任务定义。新增定义默认禁用。例如，在管理端启用一个定时任务后，各 Release 任务实例收到变更广播就会重新读取配置。管理端与任务实例需要使用同一[事件总线](event-bus.md)。即使通知发布失败，任务实例仍会每隔 60 秒从数据库刷新配置。
+
+运行环境依次取 APP_ENVIRONMENT、DOTNET_ENVIRONMENT，默认 Production，与 Debug/Release 构建模式独立。
 
 ## 默认任务
 

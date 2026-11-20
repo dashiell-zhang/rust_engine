@@ -7,7 +7,7 @@ use application_interface::error::AppError;
 use application_model::authorize::models::PermissionRouteSyncItem;
 use application_runtime::context::{
     AppContext, AppSettingContext, AuthorizeContext, CurrentUser, FileContext, PayContext,
-    RoleContext,
+    RoleContext, TaskCenterContext,
 };
 use application_service::{
     app_setting::service::AppSettingService,
@@ -123,8 +123,11 @@ generate_direct_service_factory! {
         base: BaseService<'a> => dyn application_interface::services::base::BaseService + 'a
     }
 
+    (TaskCenterContext { app: self.primary_app_context(), event_publisher: &self.state.event_publisher }) {
+        task_center: TaskCenterService<'a> => dyn application_interface::services::task_center::TaskCenterService + 'a
+    }
+
     (self.primary_app_context()) {
-        task_center: TaskCenterService<'a> => dyn application_interface::services::task_center::TaskCenterService + 'a,
         permission_route: PermissionRouteService<'a> => dyn application_interface::services::permission_route::PermissionRouteService + 'a
     }
 

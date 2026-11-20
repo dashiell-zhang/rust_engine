@@ -1,5 +1,6 @@
 use application_runtime::context::{
     AppContext, AppSettingContext, FileContext, MessageContext, PayContext, RoleContext,
+    TaskCenterContext,
 };
 use source_generator_runtime::generate_service_factory;
 
@@ -57,13 +58,23 @@ impl<'a, TState> ApplicationServiceFactory<'a, TState> {
     }
 }
 
+impl<'a, TState: AppContextProvider + event_bus::EventPublisherProvider>
+    ApplicationServiceFactory<'a, TState>
+{
+    pub fn task_center(&self) -> crate::task_center::service::TaskCenterService<'a> {
+        crate::task_center::service::TaskCenterService::new(TaskCenterContext {
+            app: self.state.app_context(),
+            event_publisher: self.state.event_publisher(),
+        })
+    }
+}
+
 generate_service_factory! {
     factory = ApplicationServiceFactory<'a, TState>;
     state = TState;
 
     AppContextProvider => (self.state.app_context()) {
         user: crate::user::service::UserService<'a>,
-        task_center: crate::task_center::service::TaskCenterService<'a>,
         article: crate::article::service::ArticleService<'a>,
         link: crate::link::service::LinkService<'a>,
         site: crate::site::service::SiteService<'a>,

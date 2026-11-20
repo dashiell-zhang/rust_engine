@@ -1,5 +1,6 @@
 use crate::registry::{RegisteredTaskKind, TaskRegistry};
-use event_bus::CancellationToken;
+use application_model::events::TaskSettingChangedEvent;
+use event_bus::{CancellationToken, EventListenerRegistry};
 use queue_task_database::{
     ARGS_DEFAULT_PARAMETER, QueueTaskStore, TaskSettingDefinition, task_setting,
 };
@@ -35,7 +36,10 @@ struct ConfigurationSnapshot {
 
 /// 调度读取内存快照；数据库同步与 Debug 进程选择共用此运行配置。
 #[derive(Clone, Default)]
-pub(crate) struct TaskRuntimeConfiguration(Arc<RwLock<ConfigurationSnapshot>>);
+pub(crate) struct TaskRuntimeConfiguration {
+    snapshot: Arc<RwLock<ConfigurationSnapshot>>,
+    changed: Arc<tokio::sync::Notify>,
+}
 
 impl TaskRuntimeConfiguration {
     pub fn initialize(registry: &TaskRegistry, settings: &[task_setting::Model]) -> Self {
@@ -47,8 +51,26 @@ impl TaskRuntimeConfiguration {
         result
     }
 
+    pub fn register_change_listener(
+        &self,
+        listeners: &mut EventListenerRegistry,
+    ) -> Result<(), String> {
+        let changed = self.changed.clone();
+        listeners.subscribe::<TaskSettingChangedEvent, _, _>(
+            "task-service.settings-changed",
+            move |_, _| {
+                // notify_one 在同步期间至多保留一个待处理通知。
+                changed.notify_one();
+                std::future::ready(Ok(()))
+            },
+        )
+    }
+
     fn apply(&self, registry: &TaskRegistry, settings: &[task_setting::Model], debug: bool) {
-        let mut state = self.0.write().unwrap_or_else(|error| error.into_inner());
+        let mut state = self
+            .snapshot
+            .write()
+            .unwrap_or_else(|error| error.into_inner());
         // 保留已发现的带参实例，删除配置后禁用它，而不是改变运行身份。
         for task in state.schedule.values_mut() {
             task.is_enable = false;
@@ -124,7 +146,7 @@ impl TaskRuntimeConfiguration {
     }
 
     pub fn queue(&self) -> Vec<QueueConfiguration> {
-        self.0
+        self.snapshot
             .read()
             .unwrap_or_else(|error| error.into_inner())
             .queue
@@ -135,7 +157,7 @@ impl TaskRuntimeConfiguration {
     }
 
     pub fn schedules(&self) -> Vec<ScheduleConfiguration> {
-        self.0
+        self.snapshot
             .read()
             .unwrap_or_else(|error| error.into_inner())
             .schedule
@@ -147,7 +169,7 @@ impl TaskRuntimeConfiguration {
 
     pub fn disable_schedule(&self, name: &str) {
         if let Some(task) = self
-            .0
+            .snapshot
             .write()
             .unwrap_or_else(|error| error.into_inner())
             .schedule
@@ -158,7 +180,10 @@ impl TaskRuntimeConfiguration {
     }
 
     pub fn menu(&self) -> Vec<(RegisteredTaskKind, String, bool)> {
-        let state = self.0.read().unwrap_or_else(|error| error.into_inner());
+        let state = self
+            .snapshot
+            .read()
+            .unwrap_or_else(|error| error.into_inner());
         state
             .queue
             .values()
@@ -174,7 +199,10 @@ impl TaskRuntimeConfiguration {
     }
 
     pub fn enable(&self, kind: RegisteredTaskKind, name: &str) {
-        let mut state = self.0.write().unwrap_or_else(|error| error.into_inner());
+        let mut state = self
+            .snapshot
+            .write()
+            .unwrap_or_else(|error| error.into_inner());
         match kind {
             RegisteredTaskKind::Queue => {
                 if let Some(task) = state.queue.get_mut(name) {
@@ -209,6 +237,7 @@ impl TaskRuntimeConfiguration {
             }
             tokio::select! {
                 _ = stopping.cancelled() => return,
+                _ = self.changed.notified() => {},
                 _ = tokio::time::sleep(Duration::from_secs(60)) => {},
             }
         }

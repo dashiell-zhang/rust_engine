@@ -3,7 +3,11 @@ name = "application_model"
 version = "0.1.0"
 edition = "2024"
 
+[features]
+events = ["dep:event_bus"]
+
 [dependencies]
+event_bus = { path = "../../infrastructure/event_bus", optional = true }
 chrono = "0.4.45"
 common = { path = "../../infrastructure/common", default-features = false }
 indexmap = { version = "2.14.2", features = ["serde"] }

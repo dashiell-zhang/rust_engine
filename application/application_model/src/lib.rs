@@ -16,6 +16,10 @@ pub mod user;
 /// 任务中心模块数据模型
 pub mod task_center;
 
+/// 跨宿主的应用事件协议
+#[cfg(feature = "events")]
+pub mod events;
+
 /// 日志管理模块数据模型
 pub mod log;
 

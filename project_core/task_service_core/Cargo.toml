@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+application_model = { path = "../../application/application_model", features = ["events"] }
 event_bus = { path = "../../infrastructure/event_bus" }
 queue_task_database = { path = "../../infrastructure/queue_task_database" }
 common = { path = "../../infrastructure/common" }

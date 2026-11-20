@@ -9,7 +9,8 @@ use crate::write_support::{
     write_data_update_log_with_connection,
 };
 use application_interface::error::AppError;
-use application_runtime::context::{AppContext, CurrentUser};
+use application_model::events::TaskSettingChangedEvent;
+use application_runtime::context::{AppContext, CurrentUser, TaskCenterContext};
 use chrono::Utc;
 use queue_task_database::{
     NewQueueTask, NewScheduleTask, QueueTaskManagement, QueueTaskProducer, QueueTaskQuery,
@@ -20,10 +21,24 @@ use serde_json::{Value, json};
 /// 任务中心只负责业务 DTO 和审计装配，管理规则由通用任务组件实现。
 pub struct TaskCenterService<'a> {
     context: AppContext<'a>,
+    event_publisher: &'a event_bus::EventPublisher,
 }
 impl<'a> TaskCenterService<'a> {
-    pub fn new(context: AppContext<'a>) -> Self {
-        Self { context }
+    pub fn new(context: TaskCenterContext<'a>) -> Self {
+        Self {
+            context: context.app,
+            event_publisher: context.event_publisher,
+        }
+    }
+
+    async fn notify_setting_changed(&self, id: i64) {
+        if let Err(error) = self
+            .event_publisher
+            .publish(&TaskSettingChangedEvent {})
+            .await
+        {
+            tracing::warn!(task_setting_id = id, %error, "任务配置已保存，变更通知发布失败，将由定期刷新同步");
+        }
     }
     fn management(&self) -> QueueTaskManagement<'_> {
         QueueTaskManagement::new(self.context.db, self.context.id_generator)
@@ -85,6 +100,7 @@ impl<'a> TaskCenterService<'a> {
         )
         .await?;
         tx.commit().await.map_err(to_app_error)?;
+        self.notify_setting_changed(id).await;
         Ok(true)
     }
 
@@ -124,6 +140,7 @@ impl<'a> TaskCenterService<'a> {
         )
         .await?;
         tx.commit().await.map_err(to_app_error)?;
+        self.notify_setting_changed(model.id).await;
         Ok(model.id.to_string())
     }
 
@@ -149,6 +166,7 @@ impl<'a> TaskCenterService<'a> {
         )
         .await?;
         tx.commit().await.map_err(to_app_error)?;
+        self.notify_setting_changed(id).await;
         Ok(true)
     }
 
@@ -193,18 +211,25 @@ impl<'a> TaskCenterService<'a> {
         &self,
         dto: CreateQueueTaskDto,
     ) -> Result<String, AppError> {
-        validate_create_queue_task(&dto)?;
-        QueueTaskProducer::new(self.context.db, self.context.id_generator)
-            .create_single(queue_request(dto))
-            .await
-            .map(|id| id.to_string())
-            .map_err(to_app_error)
+        create_queue_task_single(self.context, dto).await
     }
 
     pub async fn retry_queue_task(&self, id: i64) -> Result<bool, AppError> {
         self.management().retry(id).await?;
         Ok(true)
     }
+}
+
+pub(crate) async fn create_queue_task_single(
+    context: AppContext<'_>,
+    dto: CreateQueueTaskDto,
+) -> Result<String, AppError> {
+    validate_create_queue_task(&dto)?;
+    QueueTaskProducer::new(context.db, context.id_generator)
+        .create_single(queue_request(dto))
+        .await
+        .map(|id| id.to_string())
+        .map_err(to_app_error)
 }
 
 fn setting_snapshot(model: &task_setting::Model) -> Value {

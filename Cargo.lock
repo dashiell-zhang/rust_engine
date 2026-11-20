@@ -224,6 +224,7 @@ version = "0.1.0"
 dependencies = [
  "chrono",
  "common",
+ "event_bus",
  "indexmap",
  "serde",
  "serde_json",
@@ -5804,6 +5805,7 @@ dependencies = [
 name = "task_service_core"
 version = "0.1.0"
 dependencies = [
+ "application_model",
  "async-trait",
  "chrono",
  "common",

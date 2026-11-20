@@ -232,6 +232,9 @@ impl TaskServiceHostBuilder {
             .await
             .map_err(|error| format!("任务配置初始化失败: {error}"))?;
         let configuration = TaskRuntimeConfiguration::initialize(&registry, &settings);
+        if !cfg!(debug_assertions) {
+            configuration.register_change_listener(&mut event_listeners)?;
+        }
 
         let runner = TaskServiceRunner::new(
             store,
