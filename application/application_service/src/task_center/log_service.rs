@@ -2,7 +2,7 @@ use super::models::{
     TaskExecutionLogDto, TaskExecutionLogPageListDto, TaskExecutionLogPageRequest,
 };
 use crate::user::models::PageListDto;
-use crate::write_support::{page_offset, validate_page_request};
+use crate::write_support::page_offset;
 use common::app_error::AppError;
 use logger_database::{log, query::LogQueryService};
 use repository::extensions::SoftDeleteQueryExt;
@@ -22,7 +22,7 @@ impl<'a> TaskExecutionLogService<'a> {
         &self,
         params: TaskExecutionLogPageRequest,
     ) -> Result<TaskExecutionLogPageListDto, AppError> {
-        validate_page_request(params.page, params.page_size)?;
+        let skip = page_offset(params.page, params.page_size)?;
 
         let mut query = log::Entity::find()
             .not_deleted(log::Column::DeleteTime)
@@ -104,14 +104,13 @@ impl<'a> TaskExecutionLogService<'a> {
             .map_err(to_app_error)?;
         let total = repository_core::pagination::count_i32(total).map_err(to_app_error)?;
 
-        if total == 0 {
+        if skip >= total {
             return Ok(PageListDto {
-                total: 0,
-                list: Some(vec![]),
+                total,
+                list: Some(Vec::new()),
             });
         }
 
-        let skip = page_offset(params.page, params.page_size);
         let list = query
             .order_by_desc(log::Column::Id)
             .signed_page(skip, params.page_size)

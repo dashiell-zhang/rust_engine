@@ -2,7 +2,7 @@ use common::img_helper;
 use common::io_helper::{self, TemporaryFileGuard};
 use repository::extensions::SoftDeleteQueryExt;
 use repository_core::versioned::VersionedActiveModel;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
 use application_interface::error::AppError;
@@ -11,8 +11,8 @@ use chrono::{TimeDelta, Utc};
 use common::io_helper::file_length_to_string;
 use repository::file;
 use sea_orm::{
-    ActiveValue::Set, ColumnTrait, Condition, ConnectionTrait, IntoActiveModel, QueryFilter,
-    QueryOrder,
+    ActiveValue::Set, ColumnTrait, Condition, ConnectionTrait, DerivePartialModel, IntoActiveModel,
+    QueryFilter, QueryOrder, QuerySelect,
 };
 use serde_json::json;
 use tokio::fs;
@@ -24,6 +24,18 @@ use super::models::{
 use crate::write_support::{
     apply_soft_delete_audit_fields, build_create_audit_fields, write_data_update_log,
 };
+
+#[derive(DerivePartialModel)]
+#[sea_orm(entity = "file::Entity")]
+struct FileListRow {
+    id: i64,
+    table_id: Option<i64>,
+    name: String,
+    length: i64,
+    path: String,
+    sign: String,
+    is_public_read: bool,
+}
 
 /// 文件应用服务
 pub struct FileService<'a> {
@@ -171,47 +183,65 @@ impl<'a> FileService<'a> {
     ) -> Result<Vec<FileInfoDto>, AppError> {
         validate_business(&business)?;
 
-        let mut db_query = file::Entity::find()
-            .not_deleted(file::Column::DeleteTime)
-            .filter(file::Column::Table.eq(business))
-            .order_by_asc(file::Column::Sort)
-            .order_by_asc(file::Column::Id);
-
-        db_query = match key {
-            Some(key) => db_query.filter(file::Column::TableId.eq(key)),
-            None => db_query.filter(file::Column::TableId.is_null()),
+        let query = file_list_query(&business, sign.as_deref());
+        let query = match key {
+            Some(key) => query.filter(file::Column::TableId.eq(key)),
+            None => query.filter(file::Column::TableId.is_null()),
         };
 
-        if let Some(sign) = sign {
-            db_query = db_query.filter(file::Column::Sign.eq(sign));
-        }
+        query
+            .into_partial_model::<FileListRow>()
+            .all(self.context.app.db)
+            .await
+            .map_err(|error| AppError::internal(format!("查询文件列表失败: {error}")))?
+            .into_iter()
+            .map(|row| self.file_list_item(row, is_get_url))
+            .collect()
+    }
 
-        let models = db_query
+    /// 按业务记录批量加载文件，保留每组的排序和原有 URL 规则。
+    pub(crate) async fn get_file_lists(
+        &self,
+        business: &str,
+        sign: &str,
+        keys: &[i64],
+    ) -> Result<HashMap<i64, Vec<FileInfoDto>>, AppError> {
+        if keys.is_empty() {
+            return Ok(HashMap::new());
+        }
+        validate_business(business)?;
+        let rows = file_list_query(business, Some(sign))
+            .filter(file::Column::TableId.is_in(keys.iter().copied()))
+            .into_partial_model::<FileListRow>()
             .all(self.context.app.db)
             .await
             .map_err(|error| AppError::internal(format!("查询文件列表失败: {error}")))?;
 
-        let mut file_list = Vec::with_capacity(models.len());
-
-        for model in models {
-            let url = if is_get_url {
-                Some(self.get_file_url(model.id, false).await?)
-            } else {
-                None
-            };
-
-            file_list.push(FileInfoDto {
-                id: model.id.to_string(),
-                name: model.name,
-                length: model.length,
-                length_text: file_length_to_string(model.length as u64),
-                path: model.path,
-                sign: model.sign,
-                url,
-            });
+        let mut groups: HashMap<i64, Vec<FileInfoDto>> = HashMap::new();
+        for row in rows {
+            if let Some(key) = row.table_id {
+                groups
+                    .entry(key)
+                    .or_default()
+                    .push(self.file_list_item(row, true)?);
+            }
         }
+        Ok(groups)
+    }
 
-        Ok(file_list)
+    fn file_list_item(&self, row: FileListRow, is_get_url: bool) -> Result<FileInfoDto, AppError> {
+        let url = is_get_url
+            .then(|| self.file_url_for_path(&row.path, row.is_public_read, false))
+            .transpose()?;
+        Ok(FileInfoDto {
+            id: row.id.to_string(),
+            name: row.name,
+            length: row.length,
+            length_text: file_length_to_string(row.length as u64),
+            path: row.path,
+            sign: row.sign,
+            url,
+        })
     }
 
     /// 获取文件公开相对路径
@@ -453,14 +483,29 @@ impl<'a> FileService<'a> {
 
     /// 获取文件访问地址
     pub async fn get_file_url(&self, file_id: i64, is_inline: bool) -> Result<String, AppError> {
-        let model = self.get_file_model(file_id).await?;
+        let (path, is_public_read) = file::Entity::find_by_id(file_id)
+            .select_only()
+            .columns([file::Column::Path, file::Column::IsPublicRead])
+            .into_tuple::<(String, bool)>()
+            .one(self.context.app.db)
+            .await
+            .map_err(|error| AppError::internal(format!("查询文件失败: {error}")))?
+            .ok_or_else(|| AppError::bad_request("通过指定的文件ID未找到任何文件"))?;
+        self.file_url_for_path(&path, is_public_read, is_inline)
+    }
 
+    fn file_url_for_path(
+        &self,
+        path: &str,
+        is_public_read: bool,
+        is_inline: bool,
+    ) -> Result<String, AppError> {
         let file_storage = match self.context.file_storage {
-            Some(storage) if !model.is_public_read => storage,
-            _ => return Ok(format!("{}{}", self.context.public_base_url, model.path)),
+            Some(storage) if !is_public_read => storage,
+            _ => return Ok(format!("{}{}", self.context.public_base_url, path)),
         };
         file_storage
-            .get_file_url(&model.path, TimeDelta::minutes(10), is_inline)?
+            .get_file_url(path, TimeDelta::minutes(10), is_inline)?
             .ok_or_else(|| AppError::bad_request("文件临时授权地址获取失败"))
     }
 
@@ -664,4 +709,16 @@ fn validate_business(business: &str) -> Result<(), AppError> {
     }
 
     Ok(())
+}
+
+fn file_list_query(business: &str, sign: Option<&str>) -> sea_orm::Select<file::Entity> {
+    let query = file::Entity::find()
+        .not_deleted(file::Column::DeleteTime)
+        .filter(file::Column::Table.eq(business))
+        .order_by_asc(file::Column::Sort)
+        .order_by_asc(file::Column::Id);
+    match sign {
+        Some(sign) => query.filter(file::Column::Sign.eq(sign)),
+        None => query,
+    }
 }

@@ -12,7 +12,7 @@ use application_runtime::context::{AppContext, CurrentUser};
 use crate::user::models::PageListDto;
 use crate::write_support::{
     apply_soft_delete_audit_fields, apply_update_user_audit_field, page_offset,
-    validate_page_request, write_data_update_log,
+    write_data_update_log,
 };
 
 use super::models::{
@@ -44,7 +44,7 @@ impl<'a> OrderService<'a> {
         &self,
         params: OrderPageRequest,
     ) -> Result<OrderPageListDto, AppError> {
-        validate_page_request(params.page, params.page_size)?;
+        let skip = page_offset(params.page, params.page_size)?;
 
         let mut query = order::Entity::find().not_deleted(order::Column::DeleteTime);
 
@@ -73,14 +73,13 @@ impl<'a> OrderService<'a> {
             .map_err(to_app_error)?;
         let total = repository_core::pagination::count_i32(total).map_err(to_app_error)?;
 
-        if total == 0 {
+        if skip >= total {
             return Ok(PageListDto {
-                total: 0,
-                list: Some(vec![]),
+                total,
+                list: Some(Vec::new()),
             });
         }
 
-        let skip = page_offset(params.page, params.page_size);
         let list = query
             .order_by_desc(order::Column::Id)
             .signed_page(skip, params.page_size)

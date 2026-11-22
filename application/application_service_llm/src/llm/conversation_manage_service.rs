@@ -5,7 +5,7 @@ use sea_orm::{
     ColumnTrait, Condition, ExprTrait, PaginatorTrait, QueryFilter, QueryOrder, QuerySelect,
 };
 
-use application_model::shared::models::{page_offset, validate_page_request};
+use application_model::shared::models::page_offset;
 use application_model::user::models::PageListDto;
 use common::app_error::AppError;
 use repository_core::ReadDatabaseConnection;
@@ -33,7 +33,7 @@ impl<'a> LlmConversationManageService<'a> {
         &self,
         params: LlmConversationPageRequest,
     ) -> Result<LlmConversationPageListDto, AppError> {
-        validate_page_request(params.page, params.page_size)?;
+        let skip = page_offset(params.page, params.page_size)?;
 
         let mut query =
             llm_conversation::Entity::find().not_deleted(llm_conversation::Column::DeleteTime);
@@ -85,14 +85,13 @@ impl<'a> LlmConversationManageService<'a> {
         let total = repository_core::pagination::count_i32(total)
             .map_err(|error| AppError::internal(error.to_string()))?;
 
-        if total == 0 {
+        if skip >= total {
             return Ok(PageListDto {
-                total: 0,
-                list: None,
+                total,
+                list: (total != 0).then(Vec::new),
             });
         }
 
-        let skip = page_offset(params.page, params.page_size);
         let conversations = query
             .order_by_desc(llm_conversation::Column::Id)
             .signed_page(skip, params.page_size)

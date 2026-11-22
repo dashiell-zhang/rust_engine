@@ -17,8 +17,8 @@ use repository::{
 };
 use sea_orm::{
     ColumnTrait, ConnectionTrait, DatabaseConnection, DbErr, EntityTrait, IntoActiveModel,
-    QueryFilter, QueryOrder, Set, TransactionTrait, prelude::DateTimeWithTimeZone,
-    sea_query::Condition,
+    QueryFilter, QueryOrder, QuerySelect, Select, Set, TransactionTrait,
+    prelude::DateTimeWithTimeZone, sea_query::Condition,
 };
 use serde_json::json;
 use std::collections::HashMap;
@@ -44,6 +44,49 @@ const FUNCTION_TYPE_MODULE: i32 = 1;
 
 /// 功能类型
 const FUNCTION_TYPE_FUNCTION: i32 = 2;
+
+fn role_id_query(user_id: i64) -> Select<user_role::Entity> {
+    user_role::Entity::find()
+        .select_only()
+        .column(user_role::Column::RoleId)
+        .filter(user_role::Column::UserId.eq(user_id))
+        .not_deleted(user_role::Column::DeleteTime)
+}
+
+async fn active_role_ids(user_id: i64, db: &DatabaseConnection) -> Result<Vec<i64>, AppError> {
+    role_id_query(user_id)
+        .into_tuple::<i64>()
+        .all(db)
+        .await
+        .map_err(|error| AppError::internal(format!("用户角色查询失败: {error}")))
+}
+
+fn active_grants(user_id: i64, role_ids: Vec<i64>) -> Select<function_authorize::Entity> {
+    let mut matches_user = Condition::any().add(function_authorize::Column::UserId.eq(user_id));
+    if !role_ids.is_empty() {
+        matches_user = matches_user.add(function_authorize::Column::RoleId.is_in(role_ids));
+    }
+    function_authorize::Entity::find()
+        .not_deleted(function_authorize::Column::DeleteTime)
+        .filter(matches_user)
+}
+
+fn function_list_query(
+    user_id: i64,
+    role_ids: Vec<i64>,
+    sign: Option<&str>,
+) -> Select<function_authorize::Entity> {
+    // 被删除或不存在的功能不返回，等价于原来跳过左连接中不存在的功能。
+    let mut query = active_grants(user_id, role_ids)
+        .inner_join(function::Entity)
+        .not_deleted(function::Column::DeleteTime)
+        .select_only()
+        .columns([function::Column::Sign, function::Column::Name]);
+    if let Some(sign) = sign {
+        query = query.filter(function::Column::Sign.eq(sign));
+    }
+    query
+}
 
 /// 授权模块应用服务
 pub struct AuthorizeService<'a> {
@@ -738,54 +781,33 @@ impl<'a> AuthorizeService<'a> {
         _allow_unbound: bool,
     ) -> Result<bool, AppError> {
         // 与源服务一致，授权判断读取当前数据库状态，不缓存授权结果。
-        let route_record = function_route::Entity::find()
+        let function_id = function_route::Entity::find()
+            .select_only()
+            .column(function_route::Column::FunctionId)
             .filter(function_route::Column::Module.eq(module))
             .filter(function_route::Column::Route.eq(route))
             .not_deleted(function_route::Column::DeleteTime)
+            .into_tuple::<Option<i64>>()
             .one(self.context.app.db)
             .await
-            .map_err(|error| AppError::internal(format!("路由权限信息查询失败: {error}")))?;
+            .map_err(|error| AppError::internal(format!("路由权限信息查询失败: {error}")))?
+            .flatten();
 
-        let result = match route_record {
-            // 路由存在且已绑定功能 需要校验权限
-            Some(route) if route.function_id.is_some() => {
-                let function_id = route.function_id.unwrap();
-
-                // 已绑定功能时 同时检查用户直授和角色继承的权限
-                let role_ids = user_role::Entity::find()
-                    .filter(user_role::Column::UserId.eq(current_user.user_id))
-                    .not_deleted(user_role::Column::DeleteTime)
-                    .all(self.context.app.db)
-                    .await
-                    .map_err(|error| AppError::internal(format!("用户角色查询失败: {error}")))?
-                    .into_iter()
-                    .map(|item| item.role_id)
-                    .collect::<Vec<_>>();
-
-                let mut authorize_condition = Condition::any()
-                    .add(function_authorize::Column::UserId.eq(current_user.user_id));
-
-                if !role_ids.is_empty() {
-                    authorize_condition =
-                        authorize_condition.add(function_authorize::Column::RoleId.is_in(role_ids));
-                }
-
-                function_authorize::Entity::find()
-                    .filter(function_authorize::Column::FunctionId.eq(function_id))
-                    .not_deleted(function_authorize::Column::DeleteTime)
-                    .filter(authorize_condition)
-                    .one(self.context.app.db)
-                    .await
-                    .map_err(|error| AppError::internal(format!("权限数据查询失败: {error}")))?
-                    .is_some()
-            }
-            // 路由存在但未绑定功能 视为公开接口 直接放行 故意这样设计的
-            Some(_) => true,
-            // 路由不存在 视为公开接口 直接放行 故意这样设计的
-            None => true,
+        // 路由不存在或未绑定功能时，保留已有的放行规则。
+        let Some(function_id) = function_id else {
+            return Ok(true);
         };
 
-        Ok(result)
+        let role_ids = active_role_ids(current_user.user_id, self.context.app.db).await?;
+        let grant = active_grants(current_user.user_id, role_ids)
+            .select_only()
+            .column(function_authorize::Column::Id)
+            .filter(function_authorize::Column::FunctionId.eq(function_id))
+            .into_tuple::<i64>()
+            .one(self.context.app.db)
+            .await
+            .map_err(|error| AppError::internal(format!("权限数据查询失败: {error}")))?;
+        Ok(grant.is_some())
     }
 
     /// 获取当前用户可访问的功能列表
@@ -794,47 +816,17 @@ impl<'a> AuthorizeService<'a> {
         current_user: CurrentUser,
         sign: Option<&str>,
     ) -> Result<HashMap<String, String>, AppError> {
-        let role_ids = user_role::Entity::find()
-            .filter(user_role::Column::UserId.eq(current_user.user_id))
-            .not_deleted(user_role::Column::DeleteTime)
+        let role_ids = active_role_ids(current_user.user_id, self.context.app.db).await?;
+        let rows = function_list_query(current_user.user_id, role_ids, sign)
+            .into_tuple::<(String, String)>()
             .all(self.context.app.db)
             .await
-            .map_err(|error| AppError::internal(format!("用户角色查询失败: {error}")))?
-            .into_iter()
-            .map(|item| item.role_id)
-            .collect::<Vec<_>>();
-
-        let mut authorize_condition =
-            Condition::any().add(function_authorize::Column::UserId.eq(current_user.user_id));
-
-        if !role_ids.is_empty() {
-            authorize_condition =
-                authorize_condition.add(function_authorize::Column::RoleId.is_in(role_ids));
-        }
-
-        let mut query = function_authorize::Entity::find()
-            .find_also_related_active(repository::function::Entity)
-            .not_deleted(function_authorize::Column::DeleteTime)
-            .filter(repository::function::Column::DeleteTime.is_null())
-            .filter(authorize_condition);
-
-        if let Some(sign) = sign {
-            query = query.filter(repository::function::Column::Sign.eq(sign));
-        }
+            .map_err(|error| AppError::internal(format!("功能权限列表查询失败: {error}")))?;
 
         // 同一功能可能通过多条授权命中 这里用 Map 去重
         let mut result = HashMap::new();
-
-        for (_, function) in query
-            .all(self.context.app.db)
-            .await
-            .map_err(|error| AppError::internal(format!("功能权限列表查询失败: {error}")))?
-        {
-            let Some(function) = function else {
-                continue;
-            };
-
-            result.entry(function.sign).or_insert(function.name);
+        for (sign, name) in rows {
+            result.entry(sign).or_insert(name);
         }
 
         Ok(result)

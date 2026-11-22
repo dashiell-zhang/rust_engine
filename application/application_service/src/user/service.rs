@@ -1,26 +1,25 @@
-use async_recursion::async_recursion;
 use common::crypto_helper::hash_password_pbkdf2_sha256;
-use common::string_helper::trim_prefix_name;
 use repository::extensions::{SoftDeleteQueryExt, not_deleted_expr};
 use repository::{
-    function, function_authorize, region_area, region_city, region_province, role, user, user_info,
-    user_role,
+    function_authorize, region_area, region_city, region_province, role, user, user_info, user_role,
 };
 use repository_core::pagination::SignedPage;
 use repository_core::versioned::VersionedActiveModel;
 use sea_orm::{
-    ColumnTrait, ConnectionTrait, DatabaseConnection, DbErr, IntoActiveModel, PaginatorTrait,
-    QueryFilter, QueryOrder, Set, sea_query::Condition,
+    ColumnTrait, ConnectionTrait, DatabaseConnection, DbErr, DerivePartialModel, IntoActiveModel,
+    JoinType, PaginatorTrait, PartialModelTrait, QueryFilter, QueryOrder, QuerySelect,
+    RelationTrait, Set, prelude::DateTimeWithTimeZone, sea_query::Condition,
 };
 use serde_json::json;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use application_interface::error::AppError;
 use application_runtime::context::{AppContext, CurrentUser};
 
+use crate::permission_tree::load_permission_tree;
 use crate::write_support::{
     apply_soft_delete_audit_fields, apply_update_user_audit_field, begin_transaction,
-    build_create_full_audit_fields, normalize_optional_text, page_offset, validate_page_request,
+    build_create_full_audit_fields, normalize_optional_text, page_offset,
     write_data_update_log_with_connection,
 };
 
@@ -28,12 +27,6 @@ use super::models::{
     EditUserDto, EditUserProfileDto, PageListDto, SetUserFunctionDto, SetUserRoleDto, UserDto,
     UserFunctionDto, UserPageRequest, UserProfileDto, UserRoleDto,
 };
-
-/// 模块类型
-const FUNCTION_TYPE_MODULE: i32 = 1;
-
-/// 功能类型
-const FUNCTION_TYPE_FUNCTION: i32 = 2;
 
 /// 用户模块应用服务
 pub struct UserService<'a> {
@@ -45,11 +38,6 @@ impl<'a> UserService<'a> {
     /// 创建用户模块应用服务
     pub fn new(context: AppContext<'a>) -> Self {
         Self { context }
-    }
-
-    /// 校验分页请求
-    fn validate_user_page_request(params: &UserPageRequest) -> Result<(), AppError> {
-        validate_page_request(params.page, params.page_size)
     }
 
     /// 校验编辑用户请求
@@ -105,7 +93,7 @@ impl<'a> UserService<'a> {
         &self,
         params: UserPageRequest,
     ) -> Result<PageListDto<UserDto>, AppError> {
-        Self::validate_user_page_request(&params)?;
+        let skip = page_offset(params.page, params.page_size)?;
 
         // 关键字为空时仅按未删除条件查询
         let keyword = params
@@ -116,36 +104,38 @@ impl<'a> UserService<'a> {
             .map(str::to_owned);
         let base_condition = build_keyword_condition(keyword.as_deref());
         let total = user::Entity::find()
+            .select_only()
+            .column(user::Column::Id)
             .filter(base_condition.clone())
             .count(self.context.db)
             .await
             .map_err(to_app_error)?;
         let total = repository_core::pagination::count_i32(total).map_err(to_app_error)?;
 
-        if total == 0 {
+        if skip >= total {
             return Ok(PageListDto {
-                total: 0,
-                list: None,
+                total,
+                list: (total != 0).then(Vec::new),
             });
         }
 
-        let skip = page_offset(params.page, params.page_size);
-        let users = user::Entity::find()
+        let users = UserSummary::select_cols(user::Entity::find().select_only())
             .filter(base_condition)
             .order_by_desc(user::Column::Id)
             .signed_page(skip, params.page_size)
+            .into_model::<UserSummary>()
             .all(self.context.db)
             .await
             .map_err(to_app_error)?;
 
         // 角色信息单独批量查询 避免列表场景下出现 N + 1 查询
         let user_ids = users.iter().map(|item| item.id).collect::<Vec<_>>();
-        let (user_roles, roles) = load_roles_for_users(self.context.db, &user_ids)
+        let roles = load_roles_for_users(self.context.db, &user_ids)
             .await
             .map_err(to_app_error)?;
         let list = users
             .into_iter()
-            .map(|item| build_user_dto(item, &user_roles, &roles, "、"))
+            .map(|item| build_user_dto(item, &roles, "、"))
             .collect::<Vec<_>>();
 
         Ok(PageListDto {
@@ -159,6 +149,7 @@ impl<'a> UserService<'a> {
         let user_model = user::Entity::find()
             .filter(user::Column::Id.eq(target_id))
             .not_deleted(user::Column::DeleteTime)
+            .into_partial_model::<UserSummary>()
             .one(self.context.db)
             .await
             .map_err(to_app_error)?;
@@ -167,12 +158,18 @@ impl<'a> UserService<'a> {
             return Ok(None);
         };
 
-        let (user_roles, roles) = load_roles_for_users(self.context.db, &[user_model.id])
+        let role_codes = user_role::Entity::find()
+            .select_only()
+            .column(role::Column::Code)
+            .join(JoinType::InnerJoin, user_role::Relation::Role.def())
+            .filter(user_role::Column::UserId.eq(user_model.id))
+            .filter(role::Column::DeleteTime.is_null())
+            .order_by_asc(user_role::Column::Id)
+            .into_tuple::<String>()
+            .all(self.context.db)
             .await
             .map_err(to_app_error)?;
-        let mut dto = build_user_dto(user_model, &user_roles, &roles, ",");
-        dto.role_ids = None;
-        Ok(Some(dto))
+        Ok(Some(user_model.into_dto(role_codes.join(","), None)))
     }
 
     /// 获取用户角色列表
@@ -181,26 +178,31 @@ impl<'a> UserService<'a> {
         let checked_role_ids = user_role::Entity::find()
             .filter(user_role::Column::UserId.eq(user_id))
             .not_deleted(user_role::Column::DeleteTime)
+            .select_only()
+            .column(user_role::Column::RoleId)
+            .into_tuple::<i64>()
             .all(self.context.db)
             .await
             .map_err(to_app_error)?
             .into_iter()
-            .map(|item| item.role_id)
             .collect::<HashSet<_>>();
 
         let role_list = role::Entity::find()
             .not_deleted(role::Column::DeleteTime)
+            .select_only()
+            .columns([role::Column::Id, role::Column::Name, role::Column::Remark])
+            .into_tuple::<(i64, String, Option<String>)>()
             .all(self.context.db)
             .await
             .map_err(to_app_error)?;
 
         Ok(role_list
             .into_iter()
-            .map(|item| UserRoleDto {
-                id: item.id.to_string(),
-                name: item.name,
-                remark: item.remark,
-                is_check: checked_role_ids.contains(&item.id),
+            .map(|(id, name, remark)| UserRoleDto {
+                id: id.to_string(),
+                name,
+                remark,
+                is_check: checked_role_ids.contains(&id),
             })
             .collect())
     }
@@ -270,9 +272,24 @@ impl<'a> UserService<'a> {
         let role_ids = load_user_role_ids(self.context.db, user_id)
             .await
             .map_err(to_app_error)?;
-        load_user_function_tree(self.context.db, user_id, &role_ids, None, None)
-            .await
-            .map_err(to_app_error)
+        let mut owner = Condition::any().add(function_authorize::Column::UserId.eq(user_id));
+        if !role_ids.is_empty() {
+            owner = owner.add(function_authorize::Column::RoleId.is_in(role_ids));
+        }
+        load_permission_tree(
+            self.context.db,
+            owner,
+            |id, name, is_check, sign, child_list, function_list| UserFunctionDto {
+                id,
+                name,
+                is_check,
+                sign,
+                child_list,
+                function_list,
+            },
+        )
+        .await
+        .map_err(to_app_error)
     }
 
     /// 设置用户功能
@@ -794,175 +811,86 @@ where
     user_role::Entity::find()
         .filter(user_role::Column::UserId.eq(user_id))
         .not_deleted(user_role::Column::DeleteTime)
+        .select_only()
+        .column(user_role::Column::RoleId)
+        .into_tuple::<i64>()
         .all(db)
         .await
-        .map(|items| items.into_iter().map(|item| item.role_id).collect())
 }
 
-/// 批量加载用户角色信息
+#[derive(DerivePartialModel)]
+#[sea_orm(entity = "user::Entity")]
+struct UserSummary {
+    id: i64,
+    name: String,
+    user_name: String,
+    phone: String,
+    email: Option<String>,
+    create_time: DateTimeWithTimeZone,
+}
+
+#[derive(Default)]
+struct UserRoles {
+    by_user: HashMap<i64, Vec<i64>>,
+    codes: HashMap<i64, String>,
+}
+
+/// 批量加载有效的用户角色关联，按关联主键排序。
 async fn load_roles_for_users(
     db: &DatabaseConnection,
     user_ids: &[i64],
-) -> Result<(Vec<user_role::Model>, Vec<role::Model>), DbErr> {
-    // 先查关系表 再按角色标识批量加载角色定义
+) -> Result<UserRoles, DbErr> {
     if user_ids.is_empty() {
-        return Ok((vec![], vec![]));
+        return Ok(UserRoles::default());
     }
 
-    let user_roles = user_role::Entity::find()
-        .filter(user_role::Column::UserId.is_in(user_ids.to_vec()))
+    let rows = user_role::Entity::find()
+        .select_only()
+        .columns([user_role::Column::UserId, user_role::Column::RoleId])
+        .column(role::Column::Code)
+        .join(JoinType::InnerJoin, user_role::Relation::Role.def())
+        .filter(user_role::Column::UserId.is_in(user_ids.iter().copied()))
         .not_deleted(user_role::Column::DeleteTime)
+        .filter(role::Column::DeleteTime.is_null())
+        .order_by_asc(user_role::Column::Id)
+        .into_tuple::<(i64, i64, String)>()
         .all(db)
         .await?;
 
-    let role_ids = user_roles
-        .iter()
-        .map(|item| item.role_id)
-        .collect::<Vec<_>>();
-    let roles = if role_ids.is_empty() {
-        vec![]
-    } else {
-        role::Entity::find()
-            .filter(role::Column::Id.is_in(role_ids))
-            .not_deleted(role::Column::DeleteTime)
-            .all(db)
-            .await?
-    };
-
-    Ok((user_roles, roles))
+    let mut result = UserRoles::default();
+    for (user_id, role_id, code) in rows {
+        result.by_user.entry(user_id).or_default().push(role_id);
+        result.codes.entry(role_id).or_insert(code);
+    }
+    Ok(result)
 }
 
 /// 组装用户返回模型，按用户角色关系顺序关联有效角色。
-fn build_user_dto(
-    model: user::Model,
-    user_roles: &[user_role::Model],
-    roles: &[role::Model],
-    role_separator: &str,
-) -> UserDto {
-    let assigned_roles = user_roles
-        .iter()
-        .filter(|item| item.user_id == model.id)
-        .filter_map(|item| roles.iter().find(|role| role.id == item.role_id))
-        .collect::<Vec<_>>();
-    let role_codes = assigned_roles
-        .iter()
-        .map(|item| item.code.as_str())
-        .collect::<Vec<_>>();
+fn build_user_dto(model: UserSummary, roles: &UserRoles, role_separator: &str) -> UserDto {
+    let (role_codes, role_ids): (Vec<_>, Vec<_>) = roles
+        .by_user
+        .get(&model.id)
+        .into_iter()
+        .flatten()
+        .map(|id| (roles.codes[id].as_str(), id.to_string()))
+        .unzip();
 
-    UserDto {
-        id: model.id.to_string(),
-        name: model.name,
-        user_name: model.user_name,
-        phone: model.phone,
-        email: model.email,
-        roles: Some(role_codes.join(role_separator)),
-        role_ids: Some(
-            assigned_roles
-                .iter()
-                .map(|item| item.id.to_string())
-                .collect(),
-        ),
-        create_time: model.create_time,
-    }
+    model.into_dto(role_codes.join(role_separator), Some(role_ids))
 }
 
-/// 递归加载用户功能树
-#[async_recursion]
-async fn load_user_function_tree(
-    db: &DatabaseConnection,
-    user_id: i64,
-    role_ids: &[i64],
-    parent_id: Option<i64>,
-    parent_name: Option<String>,
-) -> Result<Vec<UserFunctionDto>, DbErr> {
-    let module_query = match parent_id {
-        Some(parent_id) => {
-            function::Entity::find().filter(function::Column::ParentId.eq(parent_id))
-        }
-        None => function::Entity::find().filter(function::Column::ParentId.is_null()),
-    };
-
-    let module_list = module_query
-        .filter(function::Column::Type.eq(FUNCTION_TYPE_MODULE))
-        .not_deleted(function::Column::DeleteTime)
-        .order_by_asc(function::Column::Id)
-        .all(db)
-        .await?;
-
-    if module_list.is_empty() {
-        return Ok(vec![]);
-    }
-
-    let module_ids = module_list.iter().map(|item| item.id).collect::<Vec<_>>();
-
-    let child_functions = function::Entity::find()
-        .filter(function::Column::ParentId.is_in(module_ids.clone()))
-        .filter(function::Column::Type.eq(FUNCTION_TYPE_FUNCTION))
-        .not_deleted(function::Column::DeleteTime)
-        .order_by_asc(function::Column::Id)
-        .all(db)
-        .await?;
-
-    let all_function_ids = module_ids
-        .iter()
-        .copied()
-        .chain(child_functions.iter().map(|item| item.id))
-        .collect::<Vec<_>>();
-
-    let mut authorize_condition =
-        Condition::any().add(function_authorize::Column::UserId.eq(user_id));
-
-    if !role_ids.is_empty() {
-        authorize_condition = authorize_condition
-            .add(function_authorize::Column::RoleId.is_in(role_ids.iter().copied()));
-    }
-
-    let checked_ids = function_authorize::Entity::find()
-        .not_deleted(function_authorize::Column::DeleteTime)
-        .filter(function_authorize::Column::FunctionId.is_in(all_function_ids))
-        .filter(authorize_condition)
-        .all(db)
-        .await?
-        .into_iter()
-        .map(|item| item.function_id)
-        .collect::<HashSet<_>>();
-
-    let mut result = Vec::with_capacity(module_list.len());
-
-    for module in module_list {
-        let module_name = trim_prefix_name(&module.name, parent_name.as_deref());
-        let children = load_user_function_tree(
-            db,
-            user_id,
+impl UserSummary {
+    fn into_dto(self, roles: String, role_ids: Option<Vec<String>>) -> UserDto {
+        UserDto {
+            id: self.id.to_string(),
+            name: self.name,
+            user_name: self.user_name,
+            phone: self.phone,
+            email: self.email,
+            roles: Some(roles),
             role_ids,
-            Some(module.id),
-            Some(module.name.clone()),
-        )
-        .await?;
-        let functions = child_functions
-            .iter()
-            .filter(|item| item.parent_id == Some(module.id))
-            .map(|item| UserFunctionDto {
-                id: item.id.to_string(),
-                name: trim_prefix_name(&item.name, Some(&module.name)),
-                is_check: checked_ids.contains(&item.id),
-                sign: item.sign.clone(),
-                child_list: None,
-                function_list: None,
-            })
-            .collect::<Vec<_>>();
-
-        result.push(UserFunctionDto {
-            id: module.id.to_string(),
-            name: module_name,
-            is_check: checked_ids.contains(&module.id),
-            sign: module.sign,
-            child_list: Some(children),
-            function_list: Some(functions),
-        });
+            create_time: self.create_time,
+        }
     }
-
-    Ok(result)
 }
 
 /// 用户资料关联的地区详情

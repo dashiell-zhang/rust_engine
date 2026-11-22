@@ -14,7 +14,7 @@ use application_interface::error::AppError;
 use application_runtime::context::{AppContext, CurrentUser};
 use common::identifier_generator::IdentifierGenerator;
 
-pub use application_model::shared::models::{page_offset, validate_page_request};
+pub use application_model::shared::models::page_offset;
 pub use common::string_helper::normalize_optional_text;
 
 /// 创建操作审计字段

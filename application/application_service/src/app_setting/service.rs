@@ -330,15 +330,18 @@ pub(crate) async fn read_value_list<C: sea_orm::ConnectionTrait>(
         .filter(app_setting::Column::Module.eq("Dictionary"))
         .filter(app_setting::Column::GroupId.eq(group_id))
         .not_deleted(app_setting::Column::DeleteTime)
+        .select_only()
+        .columns([app_setting::Column::Key, app_setting::Column::Value])
         .order_by_asc(app_setting::Column::Key)
+        .into_tuple::<(String, String)>()
         .all(db)
         .await
         .map_err(to_app_error)?;
 
     // 直接转换为键值对字典 供前端下拉选项等场景直接消费
     let mut result = HashMap::with_capacity(list.len());
-    for item in list {
-        if result.insert(item.key, item.value).is_some() {
+    for (key, value) in list {
+        if result.insert(key, value).is_some() {
             return Err(AppError::internal("字典分组包含重复的键"));
         }
     }

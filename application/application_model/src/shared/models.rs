@@ -29,7 +29,7 @@ pub struct PageListDto<T: Serialize + ToSchema> {
 #[derive(common::json_helper::input::QueryModel)]
 pub struct PageRequestDto {
     /// 页码
-    #[param(default = default_page)]
+    #[param(minimum = 1, default = default_page)]
     #[serde(default = "default_page")]
     pub page: i32,
 
@@ -50,8 +50,12 @@ pub fn default_page_size() -> i32 {
     PAGE_SIZE_DEFAULT
 }
 
-/// 校验每页条数范围；页码交由偏移计算和查询层处理。
-pub fn validate_page_request(_page: i32, page_size: i32) -> Result<(), AppError> {
+/// 检查页码、页大小及偏移。超出数据库分页参数范围时返回请求错误。
+pub fn page_offset(page: i32, page_size: i32) -> Result<i32, AppError> {
+    if page < PAGE_DEFAULT {
+        return Err(AppError::bad_request("page 必须大于 0"));
+    }
+
     if page_size <= 0 {
         return Err(AppError::bad_request("pageSize 必须大于 0"));
     }
@@ -62,12 +66,9 @@ pub fn validate_page_request(_page: i32, page_size: i32) -> Result<(), AppError>
         )));
     }
 
-    Ok(())
-}
-
-/// 对应源 PageRequestDto.Skip 的 Int32 运算；Debug 与 Release 保持相同行为。
-pub fn page_offset(page: i32, page_size: i32) -> i32 {
-    page.wrapping_sub(1).wrapping_mul(page_size)
+    let offset = (i64::from(page) - 1) * i64::from(page_size);
+    i32::try_from(offset)
+        .map_err(|_| AppError::bad_request(format!("分页偏移不可以大于 {}", i32::MAX)))
 }
 
 /// 通用分页请求约定

@@ -90,6 +90,12 @@ impl<'a> QueueTaskManagement<'a> {
         }
         let total = query.clone().count(self.db).await.map_err(database_error)?;
         let total = repository_core::pagination::count_i32(total).map_err(database_error)?;
+        if request.skip >= total {
+            return Ok(TaskPage {
+                total,
+                list: Vec::new(),
+            });
+        }
         let list = query
             .order_by_desc(queue_task::Column::Id)
             .offset(request.skip as u64)
@@ -113,6 +119,12 @@ impl<'a> QueueTaskManagement<'a> {
         }
         let total = query.clone().count(self.db).await.map_err(database_error)?;
         let total = repository_core::pagination::count_i32(total).map_err(database_error)?;
+        if skip >= total {
+            return Ok(TaskPage {
+                total,
+                list: Vec::new(),
+            });
+        }
         let list = query
             .order_by_desc(task_setting::Column::Id)
             .offset(skip as u64)

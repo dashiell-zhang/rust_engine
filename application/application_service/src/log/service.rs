@@ -3,7 +3,7 @@ use logger_database::query::{LogQueryRequest, LogQueryService};
 
 use super::models::{LogDto, LogPageListDto, LogPageRequest};
 use crate::user::models::PageListDto;
-use crate::write_support::{page_offset, validate_page_request};
+use crate::write_support::page_offset;
 
 /// 日志管理应用服务，只负责 DTO 转换，由日志组件执行查询。
 pub struct LogManageService<'a> {
@@ -16,8 +16,7 @@ impl<'a> LogManageService<'a> {
     }
 
     pub async fn get_log_list(&self, params: LogPageRequest) -> Result<LogPageListDto, AppError> {
-        validate_page_request(params.page, params.page_size)?;
-        let skip = page_offset(params.page, params.page_size);
+        let skip = page_offset(params.page, params.page_size)?;
         let result = self
             .query
             .query(LogQueryRequest {

@@ -95,7 +95,7 @@ impl LogQueryService {
         }
         let total =
             repository_core::pagination::count_i32(query.clone().count(self.connection()).await?)?;
-        let list = if total == 0 {
+        let list = if request.skip >= total {
             Vec::new()
         } else {
             query

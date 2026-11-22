@@ -2,6 +2,7 @@ use repository::extensions::SoftDeleteQueryExt;
 use repository_core::pagination::SignedPage;
 use repository_core::versioned::VersionedActiveModel;
 use std::cmp::Ordering;
+use std::collections::HashMap;
 use std::future::Future;
 use std::pin::Pin;
 
@@ -19,8 +20,8 @@ use application_runtime::context::{AppContext, CurrentUser};
 
 use crate::user::models::PageListDto;
 use crate::write_support::{
-    apply_soft_delete_audit_fields, build_create_audit_fields, page_offset, validate_page_request,
-    write_data_update_log, write_data_update_log_with_connection,
+    apply_soft_delete_audit_fields, build_create_audit_fields, page_offset, write_data_update_log,
+    write_data_update_log_with_connection,
 };
 
 use super::models::{
@@ -48,7 +49,7 @@ impl<'a> ArticleService<'a> {
         &self,
         params: CategoryPageRequest,
     ) -> Result<CategoryPageListDto, AppError> {
-        validate_page_request(params.page, params.page_size)?;
+        let skip = page_offset(params.page, params.page_size)?;
 
         let query = category::Entity::find().not_deleted(category::Column::DeleteTime);
 
@@ -59,14 +60,13 @@ impl<'a> ArticleService<'a> {
             .map_err(to_app_error)?;
         let total = repository_core::pagination::count_i32(total).map_err(to_app_error)?;
 
-        if total == 0 {
+        if skip >= total {
             return Ok(PageListDto {
-                total: 0,
-                list: None,
+                total,
+                list: (total != 0).then(Vec::new),
             });
         }
 
-        let skip = page_offset(params.page, params.page_size);
         let categories = query
             .order_by_desc(category::Column::Id)
             .signed_page(skip, params.page_size)
@@ -119,32 +119,25 @@ impl<'a> ArticleService<'a> {
         parent_id: Option<i64>,
     ) -> Pin<Box<dyn Future<Output = Result<Vec<CategorySelectDto>, AppError>> + Send + 'b>> {
         Box::pin(async move {
-            let mut query = category::Entity::find().not_deleted(category::Column::DeleteTime);
-
-            query = match parent_id {
-                Some(pid) => query.filter(category::Column::ParentId.eq(pid)),
-                None => query.filter(category::Column::ParentId.is_null()),
-            };
-
-            let categories = query
+            let rows = category::Entity::find()
+                .not_deleted(category::Column::DeleteTime)
                 .order_by_asc(category::Column::Sort)
                 .order_by_asc(category::Column::Id)
+                .select_only()
+                .columns([
+                    category::Column::Id,
+                    category::Column::ParentId,
+                    category::Column::Name,
+                ])
+                .into_tuple::<(i64, Option<i64>, String)>()
                 .all(self.context.db)
                 .await
                 .map_err(to_app_error)?;
-
-            let mut list = Vec::with_capacity(categories.len());
-
-            for item in categories {
-                let child_list = self.get_category_select_list(Some(item.id)).await?;
-                list.push(CategorySelectDto {
-                    id: item.id.to_string(),
-                    name: item.name,
-                    child_list,
-                });
+            let mut children: HashMap<Option<i64>, Vec<(i64, String)>> = HashMap::new();
+            for (id, parent, name) in rows {
+                children.entry(parent).or_default().push((id, name));
             }
-
-            Ok(list)
+            Ok(category_select_children(&mut children, parent_id))
         })
     }
 
@@ -164,11 +157,12 @@ impl<'a> ArticleService<'a> {
         let parent_name = if let Some(pid) = model.parent_id {
             category::Entity::find()
                 .filter(category::Column::Id.eq(pid))
-                .not_deleted(category::Column::DeleteTime)
+                .select_only()
+                .column(category::Column::Name)
+                .into_tuple::<String>()
                 .one(self.context.db)
                 .await
                 .map_err(to_app_error)?
-                .map(|p| p.name)
         } else {
             None
         };
@@ -388,7 +382,7 @@ impl<'a> ArticleService<'a> {
         &self,
         params: PageRequestDto,
     ) -> Result<ArticlePageListDto, AppError> {
-        validate_page_request(params.page, params.page_size)?;
+        let skip = page_offset(params.page, params.page_size)?;
 
         let query = article::Entity::find().not_deleted(article::Column::DeleteTime);
 
@@ -399,14 +393,13 @@ impl<'a> ArticleService<'a> {
             .map_err(to_app_error)?;
         let total = repository_core::pagination::count_i32(total).map_err(to_app_error)?;
 
-        if total == 0 {
+        if skip >= total {
             return Ok(PageListDto {
-                total: 0,
-                list: None,
+                total,
+                list: (total != 0).then(Vec::new),
             });
         }
 
-        let skip = page_offset(params.page, params.page_size);
         let articles = query
             .order_by_desc(article::Column::Id)
             .signed_page(skip, params.page_size)
@@ -498,7 +491,7 @@ impl<'a> ArticleService<'a> {
         &self,
         params: PublicArticlePageRequest,
     ) -> Result<PublicArticlePageListDto, AppError> {
-        validate_page_request(params.page, params.page_size)?;
+        let skip = page_offset(params.page, params.page_size)?;
 
         let mut query = article::Entity::find()
             .not_deleted(article::Column::DeleteTime)
@@ -530,14 +523,13 @@ impl<'a> ArticleService<'a> {
             .map_err(to_app_error)?;
         let total = repository_core::pagination::count_i32(total).map_err(to_app_error)?;
 
-        if total == 0 {
+        if skip >= total {
             return Ok(PageListDto {
-                total: 0,
-                list: Some(vec![]),
+                total,
+                list: Some(Vec::new()),
             });
         }
 
-        let skip = page_offset(params.page, params.page_size);
         let articles = query
             .order_by_desc(article::Column::Sort)
             .order_by_desc(article::Column::Id)
@@ -840,16 +832,6 @@ impl<'a> ArticleService<'a> {
             .get_id()
             .await
             .map_err(|error| AppError::internal(format!("生成文章主键失败: {error}")))?;
-        let audit_after = json!({
-            "id": id,
-            "category_id": category_id,
-            "title": dto.title,
-            "digest": digest,
-            "is_recommend": dto.is_recommend,
-            "is_display": dto.is_display,
-            "sort": dto.sort,
-            "click_count": dto.click_count,
-        });
         let audit_fields = build_create_audit_fields(current_user);
 
         let model = article::ActiveModel {
@@ -874,18 +856,6 @@ impl<'a> ArticleService<'a> {
             .await
             .map_err(|e| AppError::internal(format!("创建文章失败: {e}")))?;
 
-        write_data_update_log_with_connection(
-            db,
-            self.context.id_generator,
-            "Article",
-            id,
-            "create",
-            None,
-            Some(audit_after),
-            Some(current_user),
-        )
-        .await?;
-
         Ok(id.to_string())
     }
 
@@ -897,7 +867,8 @@ impl<'a> ArticleService<'a> {
         current_user: &CurrentUser,
     ) -> Result<bool, AppError> {
         self.update_article_with_connection(self.context.db, article_id, dto, current_user)
-            .await
+            .await?;
+        Ok(true)
     }
 
     /// 使用指定连接更新文章信息
@@ -907,7 +878,7 @@ impl<'a> ArticleService<'a> {
         article_id: i64,
         dto: EditArticleDto,
         current_user: &CurrentUser,
-    ) -> Result<bool, AppError>
+    ) -> Result<PublicArticleChanges, AppError>
     where
         C: ConnectionTrait + sea_orm::TransactionTrait,
     {
@@ -948,6 +919,12 @@ impl<'a> ArticleService<'a> {
             "sort": model.sort,
             "click_count": model.click_count,
         });
+        let changes = PublicArticleChanges {
+            recommendations: (model.is_display && model.is_recommend)
+                || (dto.is_display && dto.is_recommend),
+            navigation: model.is_display != dto.is_display
+                || (model.is_display && (model.sort != dto.sort || model.title != dto.title)),
+        };
         let mut active = model.into_active_model();
         active.category_id = Set(category_id);
         active.title = Set(dto.title);
@@ -984,7 +961,7 @@ impl<'a> ArticleService<'a> {
         )
         .await?;
 
-        Ok(true)
+        Ok(changes)
     }
 
     /// 软删除文章
@@ -1004,7 +981,7 @@ impl<'a> ArticleService<'a> {
         db: &C,
         article_id: i64,
         current_user: &CurrentUser,
-    ) -> Result<bool, AppError>
+    ) -> Result<Option<PublicArticleChanges>, AppError>
     where
         C: ConnectionTrait + sea_orm::TransactionTrait,
     {
@@ -1016,9 +993,13 @@ impl<'a> ArticleService<'a> {
             .map_err(to_app_error)?;
 
         let Some(model) = model else {
-            return Ok(false);
+            return Ok(None);
         };
 
+        let changes = PublicArticleChanges {
+            recommendations: model.is_display && model.is_recommend,
+            navigation: model.is_display,
+        };
         let before_log = json!({
             "id": model.id,
             "category_id": model.category_id,
@@ -1056,8 +1037,13 @@ impl<'a> ArticleService<'a> {
         )
         .await?;
 
-        Ok(true)
+        Ok(Some(changes))
     }
+}
+
+struct PublicArticleChanges {
+    recommendations: bool,
+    navigation: bool,
 }
 
 /// 仅在摘要为 null/空字符串且正文非空时自动生成，保留显式摘要的空白。
@@ -1141,6 +1127,22 @@ async fn validate_category_parent(
     Ok(())
 }
 
+fn category_select_children(
+    children: &mut HashMap<Option<i64>, Vec<(i64, String)>>,
+    parent: Option<i64>,
+) -> Vec<CategorySelectDto> {
+    children
+        .remove(&parent)
+        .unwrap_or_default()
+        .into_iter()
+        .map(|(id, name)| CategorySelectDto {
+            id: id.to_string(),
+            name,
+            child_list: category_select_children(children, Some(id)),
+        })
+        .collect()
+}
+
 /// 递归加载指定栏目下的全部子栏目 ID
 #[async_recursion]
 async fn load_child_category_ids(
@@ -1181,9 +1183,8 @@ fn to_app_error(error: sea_orm::DbErr) -> AppError {
 
 #[allow(clippy::collapsible_if)]
 mod webapi_impl {
-    use repository::extensions::SoftDeleteQueryExt;
 
-    use super::ArticleService;
+    use super::{ArticleService, PublicArticleChanges};
 
     use std::future::Future;
     use std::pin::Pin;
@@ -1200,8 +1201,12 @@ mod webapi_impl {
     use application_model::shared::models::PageRequestDto;
     use application_runtime::context::{CurrentUser, WebApiContext};
     use distributed_cache::{CacheEntryOptions, DistributedCacheExt};
-    use repository::article;
-    use sea_orm::{ColumnTrait, QueryFilter};
+    use serde::{Serialize, de::DeserializeOwned};
+
+    const CATEGORY_TREE: &str = "public:article:category_tree";
+    const RECOMMENDATIONS: &str = "public:article:recommend";
+    const NAVIGATION: &str = "public:article:navigation";
+    const PUBLIC_CACHE_TTL: std::time::Duration = std::time::Duration::from_secs(300);
 
     /// WebAPI 宿主文章应用服务
     pub struct ArticleWebApiService<'a> {
@@ -1215,19 +1220,87 @@ mod webapi_impl {
             Self { context }
         }
 
-        /// 公开栏目树缓存键
-        fn public_category_tree_cache_key() -> &'static str {
-            "public:article:category_tree"
+        async fn read_public_cache<T>(
+            &self,
+            scope: &str,
+            variant: &str,
+            load: impl Future<Output = Result<T, AppError>> + Send,
+        ) -> Result<T, AppError>
+        where
+            T: DeserializeOwned + Serialize + Send + Sync,
+        {
+            let Some(cache) = self.context.cache else {
+                return load.await;
+            };
+
+            let generation_key = format!("{scope}:generation");
+            let generation = match cache.get_string(&generation_key).await {
+                Ok(Some(generation)) => generation,
+                Ok(None) => {
+                    let generation = uuid::Uuid::new_v4().to_string();
+                    if let Err(error) = cache
+                        .set_string_with_options(
+                            &generation_key,
+                            &generation,
+                            CacheEntryOptions::relative(PUBLIC_CACHE_TTL),
+                        )
+                        .await
+                    {
+                        tracing::warn!(%scope, %error, "初始化公开文章缓存代次失败");
+                        return load.await;
+                    }
+                    generation
+                }
+                Err(error) => {
+                    tracing::warn!(%scope, %error, "读取公开文章缓存代次失败");
+                    return load.await;
+                }
+            };
+
+            // 在查询数据库前确定缓存键。写请求换代后，在途旧查询只能回填旧键。
+            let key = format!("{scope}:v:{generation}:{variant}");
+            match cache.get_json(&key).await {
+                Ok(Some(value)) => return Ok(value),
+                Ok(None) => {}
+                Err(error) => tracing::warn!(%scope, %error, "读取公开文章缓存失败"),
+            }
+            let value = load.await?;
+            if let Err(error) = cache
+                .set_json_with_options(&key, &value, CacheEntryOptions::relative(PUBLIC_CACHE_TTL))
+                .await
+            {
+                tracing::warn!(%scope, %error, "回填公开文章缓存失败");
+            }
+            Ok(value)
         }
 
-        /// 公开推荐文章缓存键
-        fn public_recommend_article_cache_key(take: u64) -> String {
-            format!("public:article:recommend:{take}")
+        async fn invalidate_public_cache(&self, scope: &str) {
+            if let Some(cache) = self.context.cache {
+                let key = format!("{scope}:generation");
+                let generation = uuid::Uuid::new_v4().to_string();
+                if let Err(error) = cache
+                    .set_string_with_options(
+                        &key,
+                        &generation,
+                        CacheEntryOptions::relative(PUBLIC_CACHE_TTL),
+                    )
+                    .await
+                {
+                    tracing::warn!(%scope, %error, "切换公开文章缓存代次失败");
+                    if let Err(error) = cache.remove(&key).await {
+                        tracing::error!(%scope, %error, "移除公开文章缓存代次失败");
+                    }
+                }
+            }
         }
 
-        /// 公开文章导航缓存键
-        fn public_article_navigation_cache_key(article_id: i64) -> String {
-            format!("public:article:navigation:{article_id}")
+        async fn invalidate_article_changes(&self, changes: PublicArticleChanges) {
+            if changes.navigation {
+                self.invalidate_public_cache(NAVIGATION).await;
+            }
+            if changes.recommendations {
+                self.invalidate_public_cache(RECOMMENDATIONS).await;
+            }
         }
 
         fn file_service(&self) -> Option<FileService<'a>> {
@@ -1261,10 +1334,21 @@ mod webapi_impl {
             &self,
             articles: &mut [ArticleDto],
         ) -> Result<(), AppError> {
-            for article in articles {
-                self.attach_cover_image_list(article).await?;
-            }
+            let Some(file_service) = self.file_service() else {
+                return Ok(());
+            };
+            let keys = articles
+                .iter()
+                .map(|article| article.id.parse::<i64>())
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(|error| AppError::internal(format!("文章 ID 解析失败: {error}")))?;
+            let mut groups = file_service
+                .get_file_lists("Article", "cover", &keys)
+                .await?;
 
+            for (article, key) in articles.iter_mut().zip(keys) {
+                article.cover_image_list = Some(groups.remove(&key).unwrap_or_default());
+            }
             Ok(())
         }
 
@@ -1310,7 +1394,7 @@ mod webapi_impl {
             let result = ArticleService::new(self.context.app)
                 .create_category(dto, current_user)
                 .await?;
-            self.invalidate_public_article_cache().await;
+            self.invalidate_public_cache(CATEGORY_TREE).await;
             Ok(result)
         }
 
@@ -1324,7 +1408,8 @@ mod webapi_impl {
             let result = ArticleService::new(self.context.app)
                 .update_category(category_id, dto, current_user)
                 .await?;
-            self.invalidate_public_article_cache().await;
+            self.invalidate_public_cache(CATEGORY_TREE).await;
+            self.invalidate_public_cache(RECOMMENDATIONS).await;
             Ok(result)
         }
 
@@ -1337,7 +1422,9 @@ mod webapi_impl {
             let result = ArticleService::new(self.context.app)
                 .delete_category(category_id, current_user)
                 .await?;
-            self.invalidate_public_article_cache().await;
+            if result {
+                self.invalidate_public_cache(CATEGORY_TREE).await;
+            }
             Ok(result)
         }
 
@@ -1380,6 +1467,10 @@ mod webapi_impl {
                 .ok_or_else(|| AppError::internal("文件服务未配置"))?;
             let content_file_id_list = dto.content_file_id_list.clone();
             let tx = begin_transaction(self.context.app.db).await?;
+            let changes = PublicArticleChanges {
+                recommendations: dto.is_display && dto.is_recommend,
+                navigation: dto.is_display,
+            };
             let result = ArticleService::new(self.context.app)
                 .create_article_with_connection(&tx, dto, current_user)
                 .await?;
@@ -1411,7 +1502,7 @@ mod webapi_impl {
                 .await
                 .map_err(|error| AppError::internal(format!("提交事务失败: {error}")))?;
 
-            self.invalidate_public_article_cache().await;
+            self.invalidate_article_changes(changes).await;
             Ok(result)
         }
 
@@ -1428,7 +1519,7 @@ mod webapi_impl {
                 .ok_or_else(|| AppError::internal("文件服务未配置"))?;
             let content_file_id_list = dto.content_file_id_list.clone();
             let tx = begin_transaction(self.context.app.db).await?;
-            let result = ArticleService::new(self.context.app)
+            let changes = ArticleService::new(self.context.app)
                 .update_article_with_connection(&tx, article_id, dto, current_user)
                 .await?;
             file_service
@@ -1454,8 +1545,8 @@ mod webapi_impl {
             tx.commit()
                 .await
                 .map_err(|error| AppError::internal(format!("提交事务失败: {error}")))?;
-            self.invalidate_public_article_cache().await;
-            Ok(result)
+            self.invalidate_article_changes(changes).await;
+            Ok(true)
         }
 
         /// 删除文章并清理公开内容缓存
@@ -1468,11 +1559,11 @@ mod webapi_impl {
                 .file_service()
                 .ok_or_else(|| AppError::internal("文件服务未配置"))?;
             let tx = begin_transaction(self.context.app.db).await?;
-            let article_exists = ArticleService::new(self.context.app)
+            let changes = ArticleService::new(self.context.app)
                 .delete_article_with_connection(&tx, article_id, current_user)
                 .await?;
 
-            if article_exists {
+            if changes.is_some() {
                 file_service
                     .soft_delete_business_files_with_connection(
                         &tx,
@@ -1486,7 +1577,9 @@ mod webapi_impl {
             tx.commit()
                 .await
                 .map_err(|error| AppError::internal(format!("提交事务失败: {error}")))?;
-            self.invalidate_public_article_cache().await;
+            if let Some(changes) = changes {
+                self.invalidate_article_changes(changes).await;
+            }
             Ok(true)
         }
 
@@ -1517,44 +1610,13 @@ mod webapi_impl {
         ) -> Pin<Box<dyn Future<Output = Result<Vec<PublicCategoryDto>, AppError>> + Send + 'b>>
         {
             Box::pin(async move {
+                let service = ArticleService::new(self.context.app);
+                let load = service.get_public_category_tree(parent_id);
                 if parent_id.is_none() {
-                    if let Some(cache) = self.context.cache {
-                        if let Some(cached_value) = cache
-                            .get_string(Self::public_category_tree_cache_key())
-                            .await?
-                        {
-                            let cached_list =
-                                serde_json::from_str::<Vec<PublicCategoryDto>>(&cached_value)
-                                    .map_err(|error| {
-                                        AppError::internal(format!(
-                                            "反序列化公开栏目树缓存失败: {error}"
-                                        ))
-                                    })?;
-                            return Ok(cached_list);
-                        }
-                    }
+                    self.read_public_cache(CATEGORY_TREE, "root", load).await
+                } else {
+                    load.await
                 }
-
-                let list = ArticleService::new(self.context.app)
-                    .get_public_category_tree(parent_id)
-                    .await?;
-
-                if parent_id.is_none() {
-                    if let Some(cache) = self.context.cache {
-                        let cache_value = serde_json::to_string(&list).map_err(|error| {
-                            AppError::internal(format!("序列化公开栏目树缓存失败: {error}"))
-                        })?;
-                        let _ = cache
-                            .set_string_with_options(
-                                Self::public_category_tree_cache_key(),
-                                &cache_value,
-                                CacheEntryOptions::relative(std::time::Duration::from_secs(300)),
-                            )
-                            .await;
-                    }
-                }
-
-                Ok(list)
             })
         }
 
@@ -1563,37 +1625,13 @@ mod webapi_impl {
             &self,
             params: PublicRecommendArticleRequest,
         ) -> Result<Vec<PublicArticleListItemDto>, AppError> {
-            let cache_key = Self::public_recommend_article_cache_key(params.take);
-
-            if let Some(cache) = self.context.cache {
-                if let Some(cached_value) = cache.get_string(&cache_key).await? {
-                    let cached_list =
-                        serde_json::from_str::<Vec<PublicArticleListItemDto>>(&cached_value)
-                            .map_err(|error| {
-                                AppError::internal(format!("反序列化公开推荐文章缓存失败: {error}"))
-                            })?;
-                    return Ok(cached_list);
-                }
-            }
-
-            let list = ArticleService::new(self.context.app)
-                .get_public_recommend_article_list(params)
-                .await?;
-
-            if let Some(cache) = self.context.cache {
-                let cache_value = serde_json::to_string(&list).map_err(|error| {
-                    AppError::internal(format!("序列化公开推荐文章缓存失败: {error}"))
-                })?;
-                let _ = cache
-                    .set_string_with_options(
-                        &cache_key,
-                        &cache_value,
-                        CacheEntryOptions::relative(std::time::Duration::from_secs(300)),
-                    )
-                    .await;
-            }
-
-            Ok(list)
+            let service = ArticleService::new(self.context.app);
+            self.read_public_cache(
+                RECOMMENDATIONS,
+                &params.take.to_string(),
+                service.get_public_recommend_article_list(params),
+            )
+            .await
         }
 
         /// 增加公开文章点击量并清理公开内容缓存
@@ -1604,7 +1642,9 @@ mod webapi_impl {
             let result = ArticleService::new(self.context.app)
                 .increase_public_article_click_count(article_id)
                 .await?;
-            self.invalidate_public_article_cache().await;
+            if result.is_some() {
+                self.invalidate_public_cache(RECOMMENDATIONS).await;
+            }
             Ok(result)
         }
 
@@ -1613,64 +1653,13 @@ mod webapi_impl {
             &self,
             article_id: i64,
         ) -> Result<Option<PublicArticleNavigationDto>, AppError> {
-            let cache_key = Self::public_article_navigation_cache_key(article_id);
-
-            if let Some(cache) = self.context.cache {
-                if let Some(cached_value) = cache.get_string(&cache_key).await? {
-                    let cached_navigation =
-                        serde_json::from_str::<Option<PublicArticleNavigationDto>>(&cached_value)
-                            .map_err(|error| {
-                            AppError::internal(format!("反序列化公开文章导航缓存失败: {error}"))
-                        })?;
-                    return Ok(cached_navigation);
-                }
-            }
-
-            let result = ArticleService::new(self.context.app)
-                .get_public_article_navigation(article_id)
-                .await?;
-
-            if let Some(cache) = self.context.cache {
-                let cache_value = serde_json::to_string(&result).map_err(|error| {
-                    AppError::internal(format!("序列化公开文章导航缓存失败: {error}"))
-                })?;
-                let _ = cache
-                    .set_string_with_options(
-                        &cache_key,
-                        &cache_value,
-                        CacheEntryOptions::relative(std::time::Duration::from_secs(300)),
-                    )
-                    .await;
-            }
-
-            Ok(result)
-        }
-
-        /// 清理公开文章相关缓存
-        async fn invalidate_public_article_cache(&self) {
-            if let Some(cache) = self.context.cache {
-                let _ = cache.remove(Self::public_category_tree_cache_key()).await;
-
-                for take in 1..=50 {
-                    let _ = cache
-                        .remove(&Self::public_recommend_article_cache_key(take))
-                        .await;
-                }
-
-                if let Ok(article_ids) = article::Entity::find()
-                    .not_deleted(article::Column::DeleteTime)
-                    .filter(article::Column::IsDisplay.eq(true))
-                    .all(self.context.app.db)
-                    .await
-                    .map(|items| items.into_iter().map(|item| item.id).collect::<Vec<_>>())
-                {
-                    for article_id in article_ids {
-                        let _ = cache
-                            .remove(&Self::public_article_navigation_cache_key(article_id))
-                            .await;
-                    }
-                }
-            }
+            let service = ArticleService::new(self.context.app);
+            self.read_public_cache(
+                NAVIGATION,
+                &article_id.to_string(),
+                service.get_public_article_navigation(article_id),
+            )
+            .await
         }
     }
 }

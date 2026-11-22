@@ -3,7 +3,9 @@ use repository_core::versioned::VersionedActiveModel;
 use std::collections::HashMap;
 
 use repository::app_setting;
-use sea_orm::{ActiveValue::Set, ColumnTrait, ConnectionTrait, IntoActiveModel, QueryFilter};
+use sea_orm::{
+    ActiveValue::Set, ColumnTrait, ConnectionTrait, IntoActiveModel, QueryFilter, QuerySelect,
+};
 use serde_json::json;
 
 use application_interface::error::AppError;
@@ -38,13 +40,8 @@ impl<'a> SiteService<'a> {
 
     /// 获取站点信息
     pub async fn get_site(&self) -> Result<SiteDto, AppError> {
-        let models = app_setting::Entity::find()
-            .filter(app_setting::Column::Module.eq(SITE_MODULE))
-            .not_deleted(app_setting::Column::DeleteTime)
-            .all(self.context.db)
+        self.get_site_without_cache_by_connection(self.context.db)
             .await
-            .map_err(to_app_error)?;
-        Ok(map_site_dto(&models))
     }
 
     /// 编辑站点信息
@@ -125,14 +122,16 @@ impl<'a> SiteService<'a> {
     where
         C: ConnectionTrait,
     {
-        let models = app_setting::Entity::find()
+        let values = app_setting::Entity::find()
             .filter(app_setting::Column::Module.eq(SITE_MODULE))
-            .not_deleted(app_setting::Column::DeleteTime)
+            .select_only()
+            .columns([app_setting::Column::Key, app_setting::Column::Value])
+            .into_tuple::<(String, String)>()
             .all(db)
             .await
             .map_err(to_app_error)?;
 
-        Ok(map_site_dto(&models))
+        Ok(map_site_dto(values))
     }
 
     /// 写入单个站点配置
@@ -193,27 +192,22 @@ impl<'a> SiteService<'a> {
 }
 
 /// 将配置实体映射为站点信息
-fn map_site_dto(models: &[app_setting::Model]) -> SiteDto {
-    let map = models
-        .iter()
-        .map(|item| (item.key.as_str(), item.value.clone()))
-        .collect::<HashMap<_, _>>();
+fn map_site_dto(values: Vec<(String, String)>) -> SiteDto {
+    let mut map: HashMap<_, _> = values.into_iter().collect();
 
     SiteDto {
-        web_url: map.get("WebUrl").cloned(),
-        manager_name: map.get("ManagerName").cloned(),
-        manager_address: map.get("ManagerAddress").cloned(),
-        manager_phone: map.get("ManagerPhone").cloned(),
-        manager_email: map.get("ManagerEmail").cloned(),
-        record_number: map.get("RecordNumber").cloned(),
-        seo_title: map.get("SeoTitle").cloned(),
-        seo_keywords: pick_site_value(
-            &map,
-            SITE_SEO_KEYWORDS_KEY,
-            Some(SITE_SEO_KEYWORDS_LEGACY_KEY),
-        ),
-        seo_description: map.get("SeoDescription").cloned(),
-        foot_code: map.get("FootCode").cloned(),
+        web_url: map.remove("WebUrl"),
+        manager_name: map.remove("ManagerName"),
+        manager_address: map.remove("ManagerAddress"),
+        manager_phone: map.remove("ManagerPhone"),
+        manager_email: map.remove("ManagerEmail"),
+        record_number: map.remove("RecordNumber"),
+        seo_title: map.remove("SeoTitle"),
+        seo_keywords: map
+            .remove(SITE_SEO_KEYWORDS_KEY)
+            .or_else(|| map.remove(SITE_SEO_KEYWORDS_LEGACY_KEY)),
+        seo_description: map.remove("SeoDescription"),
+        foot_code: map.remove("FootCode"),
     }
 }
 
@@ -231,17 +225,6 @@ fn site_setting_key_candidates(key: &str) -> Vec<&str> {
     } else {
         vec![key]
     }
-}
-
-/// 读取站点配置值，优先命中新键，必要时兼容旧键
-fn pick_site_value(
-    map: &HashMap<&str, String>,
-    key: &str,
-    fallback_key: Option<&str>,
-) -> Option<String> {
-    map.get(key)
-        .cloned()
-        .or_else(|| fallback_key.and_then(|legacy_key| map.get(legacy_key).cloned()))
 }
 
 /// 将数据库错误转换为应用层错误

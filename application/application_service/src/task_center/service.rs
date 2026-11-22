@@ -5,8 +5,7 @@ use super::models::{
 };
 use crate::user::models::PageListDto;
 use crate::write_support::{
-    begin_transaction, normalize_optional_text, page_offset, validate_page_request,
-    write_data_update_log_with_connection,
+    begin_transaction, normalize_optional_text, page_offset, write_data_update_log_with_connection,
 };
 use application_interface::error::AppError;
 use application_model::events::TaskSettingChangedEvent;
@@ -48,8 +47,7 @@ impl<'a> TaskCenterService<'a> {
         &self,
         params: TaskSettingPageRequest,
     ) -> Result<TaskSettingPageListDto, AppError> {
-        validate_page_request(params.page, params.page_size)?;
-        let skip = page_offset(params.page, params.page_size);
+        let skip = page_offset(params.page, params.page_size)?;
         let result = self
             .management()
             .query_settings(skip, params.page_size, params.category.as_deref())
@@ -174,8 +172,7 @@ impl<'a> TaskCenterService<'a> {
         &self,
         params: QueueTaskPageRequest,
     ) -> Result<QueueTaskPageListDto, AppError> {
-        validate_page_request(params.page, params.page_size)?;
-        let skip = page_offset(params.page, params.page_size);
+        let skip = page_offset(params.page, params.page_size)?;
         let result = self
             .management()
             .query_tasks(QueueTaskQuery {

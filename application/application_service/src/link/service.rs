@@ -2,7 +2,10 @@ use repository::extensions::SoftDeleteQueryExt;
 use repository::link;
 use repository_core::pagination::SignedPage;
 use repository_core::versioned::VersionedActiveModel;
-use sea_orm::{ColumnTrait, IntoActiveModel, PaginatorTrait, QueryFilter, QueryOrder, Set};
+use sea_orm::{
+    ColumnTrait, DerivePartialModel, IntoActiveModel, PaginatorTrait, PartialModelTrait,
+    QueryFilter, QueryOrder, QuerySelect, Set, prelude::DateTimeWithTimeZone,
+};
 use serde_json::json;
 
 use application_interface::error::AppError;
@@ -10,8 +13,7 @@ use application_runtime::context::{AppContext, CurrentUser};
 
 use crate::user::models::PageListDto;
 use crate::write_support::{
-    apply_soft_delete_audit_fields, build_create_audit_fields, page_offset, validate_page_request,
-    write_data_update_log,
+    apply_soft_delete_audit_fields, build_create_audit_fields, page_offset, write_data_update_log,
 };
 
 use super::models::{EditLinkDto, LinkDto, LinkPageListDto, LinkPageRequest, PublicLinkDto};
@@ -33,7 +35,7 @@ impl<'a> LinkService<'a> {
         &self,
         params: LinkPageRequest,
     ) -> Result<LinkPageListDto, AppError> {
-        validate_page_request(params.page, params.page_size)?;
+        let skip = page_offset(params.page, params.page_size)?;
 
         let query = link::Entity::find().not_deleted(link::Column::DeleteTime);
 
@@ -44,17 +46,17 @@ impl<'a> LinkService<'a> {
             .map_err(to_app_error)?;
         let total = repository_core::pagination::count_i32(total).map_err(to_app_error)?;
 
-        if total == 0 {
+        if skip >= total {
             return Ok(PageListDto {
-                total: 0,
-                list: None,
+                total,
+                list: (total != 0).then(Vec::new),
             });
         }
 
-        let skip = page_offset(params.page, params.page_size);
-        let list = query
+        let list = LinkDetails::select_cols(query.select_only())
             .order_by_desc(link::Column::Id)
             .signed_page(skip, params.page_size)
+            .into_model::<LinkDetails>()
             .all(self.context.db)
             .await
             .map_err(to_app_error)?
@@ -72,7 +74,7 @@ impl<'a> LinkService<'a> {
     pub async fn get_link(&self, link_id: i64) -> Result<Option<LinkDto>, AppError> {
         let model = link::Entity::find()
             .filter(link::Column::Id.eq(link_id))
-            .not_deleted(link::Column::DeleteTime)
+            .into_partial_model::<LinkDetails>()
             .one(self.context.db)
             .await
             .map_err(to_app_error)?;
@@ -275,8 +277,18 @@ fn validate_edit_link(dto: &EditLinkDto) -> Result<(), AppError> {
     Ok(())
 }
 
-/// 将实体模型转换为返回模型
-fn to_link_dto(model: link::Model) -> LinkDto {
+#[derive(DerivePartialModel)]
+#[sea_orm(entity = "link::Entity")]
+struct LinkDetails {
+    id: i64,
+    name: String,
+    url: String,
+    sort: i32,
+    create_time: DateTimeWithTimeZone,
+}
+
+/// 将友链详情投影转换为返回模型
+fn to_link_dto(model: LinkDetails) -> LinkDto {
     LinkDto {
         id: model.id.to_string(),
         name: model.name,

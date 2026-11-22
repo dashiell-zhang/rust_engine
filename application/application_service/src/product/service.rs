@@ -13,7 +13,7 @@ use application_runtime::context::{AppContext, CurrentUser};
 use crate::user::models::PageListDto;
 use crate::write_support::{
     apply_soft_delete_audit_fields, apply_update_user_audit_field, build_create_full_audit_fields,
-    page_offset, validate_page_request, write_data_update_log,
+    page_offset, write_data_update_log,
 };
 
 use super::models::{EditProductDto, ProductDto, ProductPageListDto, ProductPageRequest};
@@ -35,7 +35,7 @@ impl<'a> ProductService<'a> {
         &self,
         params: ProductPageRequest,
     ) -> Result<ProductPageListDto, AppError> {
-        validate_page_request(params.page, params.page_size)?;
+        let skip = page_offset(params.page, params.page_size)?;
 
         let mut query = product::Entity::find().not_deleted(product::Column::DeleteTime);
 
@@ -55,14 +55,13 @@ impl<'a> ProductService<'a> {
             .map_err(to_app_error)?;
         let total = repository_core::pagination::count_i32(total).map_err(to_app_error)?;
 
-        if total == 0 {
+        if skip >= total {
             return Ok(PageListDto {
-                total: 0,
-                list: Some(vec![]),
+                total,
+                list: Some(Vec::new()),
             });
         }
 
-        let skip = page_offset(params.page, params.page_size);
         let list = query
             .order_by_desc(product::Column::Id)
             .signed_page(skip, params.page_size)

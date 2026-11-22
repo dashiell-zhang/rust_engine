@@ -40,6 +40,8 @@ pub mod file;
 /// 权限路由应用服务
 pub mod permission_route;
 
+mod permission_tree;
+
 /// 站点模块应用服务
 pub mod site;
 

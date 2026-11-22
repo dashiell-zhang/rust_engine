@@ -1,31 +1,23 @@
-use async_recursion::async_recursion;
 use chrono::Utc;
-use common::string_helper::trim_prefix_name;
 use repository::extensions::SoftDeleteQueryExt;
-use repository::{function, function_authorize, role, user_role};
+use repository::{function_authorize, role, user_role};
 use repository_core::pagination::SignedPage;
 use repository_core::versioned::VersionedActiveModel;
 use sea_orm::{
-    ColumnTrait, DatabaseConnection, DbErr, IntoActiveModel, PaginatorTrait, QueryFilter,
-    QueryOrder, Set,
+    ColumnTrait, DbErr, DerivePartialModel, IntoActiveModel, PaginatorTrait, PartialModelTrait,
+    QueryFilter, QueryOrder, QuerySelect, Set, prelude::DateTimeWithTimeZone, sea_query::Condition,
 };
-use std::collections::HashSet;
 
 use application_interface::error::AppError;
 use application_runtime::context::{CurrentUser, RoleContext};
 
-use crate::write_support::{build_system_create_audit_fields, page_offset, validate_page_request};
+use crate::permission_tree::load_permission_tree;
+use crate::write_support::{build_system_create_audit_fields, page_offset};
 
 use super::models::{
     EditRoleDto, RoleDto, RoleFunctionDto, RolePageListDto, RolePageRequest, RoleSelectDto,
     SetRoleFunctionDto,
 };
-
-/// 模块类型
-const FUNCTION_TYPE_MODULE: i32 = 1;
-
-/// 功能类型
-const FUNCTION_TYPE_FUNCTION: i32 = 2;
 
 /// 角色模块应用服务
 pub struct RoleService<'a> {
@@ -44,7 +36,7 @@ impl<'a> RoleService<'a> {
         &self,
         params: RolePageRequest,
     ) -> Result<RolePageListDto, AppError> {
-        validate_page_request(params.page, params.page_size)?;
+        let skip = page_offset(params.page, params.page_size)?;
 
         let total = role::Entity::find()
             .not_deleted(role::Column::DeleteTime)
@@ -53,19 +45,17 @@ impl<'a> RoleService<'a> {
             .map_err(to_app_error)?;
         let total = repository_core::pagination::count_i32(total).map_err(to_app_error)?;
 
-        if total == 0 {
+        if skip >= total {
             return Ok(RolePageListDto {
-                total: 0,
-                list: None,
+                total,
+                list: (total != 0).then(Vec::new),
             });
         }
 
-        let skip = page_offset(params.page, params.page_size);
-
-        let roles = role::Entity::find()
-            .not_deleted(role::Column::DeleteTime)
+        let roles = RoleDetails::select_cols(role::Entity::find().select_only())
             .order_by_desc(role::Column::Id)
             .signed_page(skip, params.page_size)
+            .into_model::<RoleDetails>()
             .all(self.context.app.db)
             .await
             .map_err(to_app_error)?;
@@ -80,7 +70,7 @@ impl<'a> RoleService<'a> {
     pub async fn get_role(&self, role_id: i64) -> Result<Option<RoleDto>, AppError> {
         let role_model = role::Entity::find()
             .filter(role::Column::Id.eq(role_id))
-            .not_deleted(role::Column::DeleteTime)
+            .into_partial_model::<RoleDetails>()
             .one(self.context.app.db)
             .await
             .map_err(to_app_error)?;
@@ -117,7 +107,9 @@ impl<'a> RoleService<'a> {
         let result = async {
             if role::Entity::find()
                 .filter(role::Column::Code.eq(&dto.code))
-                .not_deleted(role::Column::DeleteTime)
+                .select_only()
+                .column(role::Column::Id)
+                .into_tuple::<i64>()
                 .one(self.context.app.db)
                 .await
                 .map_err(to_app_error)?
@@ -169,7 +161,9 @@ impl<'a> RoleService<'a> {
             if role::Entity::find()
                 .filter(role::Column::Code.eq(&dto.code))
                 .filter(role::Column::Id.ne(role_id))
-                .not_deleted(role::Column::DeleteTime)
+                .select_only()
+                .column(role::Column::Id)
+                .into_tuple::<i64>()
                 .one(self.context.app.db)
                 .await
                 .map_err(to_app_error)?
@@ -231,9 +225,20 @@ impl<'a> RoleService<'a> {
 
     /// 获取角色功能树
     pub async fn get_role_function(&self, role_id: i64) -> Result<Vec<RoleFunctionDto>, AppError> {
-        load_role_function_tree(self.context.app.db, role_id, None, None)
-            .await
-            .map_err(to_app_error)
+        load_permission_tree(
+            self.context.app.db,
+            Condition::all().add(function_authorize::Column::RoleId.eq(role_id)),
+            |id, name, is_check, sign, child_list, function_list| RoleFunctionDto {
+                id,
+                name,
+                is_check,
+                sign,
+                child_list,
+                function_list,
+            },
+        )
+        .await
+        .map_err(to_app_error)
     }
 
     /// 设置角色功能；每次只修改查询到的第一条有效关联。
@@ -292,23 +297,35 @@ impl<'a> RoleService<'a> {
     /// 获取角色下拉列表
     pub async fn get_role_select(&self) -> Result<Vec<RoleSelectDto>, AppError> {
         let roles = role::Entity::find()
-            .not_deleted(role::Column::DeleteTime)
+            .select_only()
+            .columns([role::Column::Id, role::Column::Name])
+            .into_tuple::<(i64, String)>()
             .all(self.context.app.db)
             .await
             .map_err(to_app_error)?;
 
         Ok(roles
             .into_iter()
-            .map(|item| RoleSelectDto {
-                id: item.id.to_string(),
-                name: item.name,
+            .map(|(id, name)| RoleSelectDto {
+                id: id.to_string(),
+                name,
             })
             .collect())
     }
 }
 
-/// 将角色实体组装为角色返回模型
-fn build_role_dto(model: role::Model) -> RoleDto {
+#[derive(DerivePartialModel)]
+#[sea_orm(entity = "role::Entity")]
+struct RoleDetails {
+    id: i64,
+    code: String,
+    name: String,
+    remark: Option<String>,
+    create_time: DateTimeWithTimeZone,
+}
+
+/// 将角色详情投影组装为返回模型
+fn build_role_dto(model: RoleDetails) -> RoleDto {
     RoleDto {
         id: model.id.to_string(),
         code: model.code,
@@ -316,91 +333,6 @@ fn build_role_dto(model: role::Model) -> RoleDto {
         remark: model.remark,
         create_time: model.create_time.to_rfc3339(),
     }
-}
-
-/// 递归加载角色功能树
-#[async_recursion]
-async fn load_role_function_tree(
-    db: &DatabaseConnection,
-    role_id: i64,
-    parent_id: Option<i64>,
-    parent_name: Option<String>,
-) -> Result<Vec<RoleFunctionDto>, DbErr> {
-    let module_query = match parent_id {
-        Some(parent_id) => {
-            function::Entity::find().filter(function::Column::ParentId.eq(parent_id))
-        }
-        None => function::Entity::find().filter(function::Column::ParentId.is_null()),
-    };
-
-    let module_list = module_query
-        .filter(function::Column::Type.eq(FUNCTION_TYPE_MODULE))
-        .not_deleted(function::Column::DeleteTime)
-        .order_by_asc(function::Column::Id)
-        .all(db)
-        .await?;
-
-    if module_list.is_empty() {
-        return Ok(vec![]);
-    }
-
-    let module_ids = module_list.iter().map(|item| item.id).collect::<Vec<_>>();
-
-    let child_functions = function::Entity::find()
-        .filter(function::Column::ParentId.is_in(module_ids.clone()))
-        .filter(function::Column::Type.eq(FUNCTION_TYPE_FUNCTION))
-        .not_deleted(function::Column::DeleteTime)
-        .order_by_asc(function::Column::Id)
-        .all(db)
-        .await?;
-
-    let all_function_ids = module_ids
-        .iter()
-        .copied()
-        .chain(child_functions.iter().map(|item| item.id))
-        .collect::<Vec<_>>();
-
-    let checked_ids = function_authorize::Entity::find()
-        .filter(function_authorize::Column::RoleId.eq(role_id))
-        .not_deleted(function_authorize::Column::DeleteTime)
-        .filter(function_authorize::Column::FunctionId.is_in(all_function_ids))
-        .all(db)
-        .await?
-        .into_iter()
-        .map(|item| item.function_id)
-        .collect::<HashSet<_>>();
-
-    let mut result = Vec::with_capacity(module_list.len());
-
-    for module in module_list {
-        let module_name = trim_prefix_name(&module.name, parent_name.as_deref());
-        let children =
-            load_role_function_tree(db, role_id, Some(module.id), Some(module.name.clone()))
-                .await?;
-        let functions = child_functions
-            .iter()
-            .filter(|item| item.parent_id == Some(module.id))
-            .map(|item| RoleFunctionDto {
-                id: item.id.to_string(),
-                name: trim_prefix_name(&item.name, Some(&module.name)),
-                is_check: checked_ids.contains(&item.id),
-                sign: item.sign.clone(),
-                child_list: None,
-                function_list: None,
-            })
-            .collect::<Vec<_>>();
-
-        result.push(RoleFunctionDto {
-            id: module.id.to_string(),
-            name: module_name,
-            is_check: checked_ids.contains(&module.id),
-            sign: module.sign,
-            child_list: Some(children),
-            function_list: Some(functions),
-        });
-    }
-
-    Ok(result)
 }
 
 /// 转换数据库异常

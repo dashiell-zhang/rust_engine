@@ -18,7 +18,7 @@ use application_interface::{
     error::AppError,
     llm::{AppLlmChatRequest, AppLlmClient, AppLlmMessage, AppLlmRole, AppLlmUsage},
 };
-use application_model::shared::models::{page_offset, validate_page_request};
+use application_model::shared::models::page_offset;
 use application_model::user::models::PageListDto;
 use application_runtime::context::{CurrentUser, LlmContext};
 
@@ -49,7 +49,7 @@ impl<'a> LlmAppService<'a> {
         &self,
         params: LlmAppPageRequest,
     ) -> Result<LlmAppPageListDto, AppError> {
-        validate_page_request(params.page, params.page_size)?;
+        let skip = page_offset(params.page, params.page_size)?;
 
         let mut query = llm_app::Entity::find().not_deleted(llm_app::Column::DeleteTime);
 
@@ -77,14 +77,13 @@ impl<'a> LlmAppService<'a> {
             .map_err(to_app_error)?;
         let total = repository_core::pagination::count_i32(total).map_err(to_app_error)?;
 
-        if total == 0 {
+        if skip >= total {
             return Ok(PageListDto {
-                total: 0,
-                list: None,
+                total,
+                list: (total != 0).then(Vec::new),
             });
         }
 
-        let skip = page_offset(params.page, params.page_size);
         let apps = query
             .order_by_desc(llm_app::Column::Id)
             .signed_page(skip, params.page_size)
