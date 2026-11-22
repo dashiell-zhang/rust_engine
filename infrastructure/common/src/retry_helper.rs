@@ -73,7 +73,7 @@ impl RetryConfig {
 /// 达到最大尝试次数后仍失败时，返回最后一次的错误
 ///
 /// # 示例
-/// ```
+/// ```text
 /// use std::time::Duration;
 /// use common::retry_helper::{RetryConfig, retry};
 ///

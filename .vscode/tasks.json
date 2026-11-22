@@ -238,16 +238,6 @@
       "problemMatcher": ["$rustc"]
     },
     {
-      "label": "cargo test workspace",
-      "type": "process",
-      "command": "docker",
-      "args": ["compose", "exec", "-T", "dev", "cargo", "test", "--locked", "--workspace"],
-      "options": { "cwd": "${workspaceFolder}" },
-      "dependsOn": "container dev up",
-      "group": "test",
-      "problemMatcher": ["$rustc"]
-    },
-    {
       "label": "cargo check workspace",
       "type": "process",
       "command": "docker",
