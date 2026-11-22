@@ -25,4 +25,4 @@ tokio = { version = "1.54.1", features = ["net", "time", "signal"] }
 tracing = "0.1.44"
 
 futures-util = "0.3.34"
-uuid = { version = "1.29.0", features = ["v4"] }
+uuid = { version = "1.29.3", features = ["v4"] }

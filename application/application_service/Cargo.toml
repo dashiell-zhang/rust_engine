@@ -23,10 +23,10 @@ source_generator_runtime = { path = "../../source_generator/source_generator_run
 chrono = "0.4.45"
 indexmap = { version = "2.14.2", features = ["serde"] }
 async-recursion = "1.2.0"
-rand = "0.10.3"
+rand = "0.10.4"
 tokio = { version = "1.54.1", features = ["rt", "fs", "io-util", "macros"] }
 sea-orm = { version = "2.0.4", features = ["sqlx-postgres", "runtime-tokio-rustls", "macros"] }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = { version = "1.0.154", features = ["raw_value"] }
 tracing = "0.1.44"
-uuid = { version = "1.29.0", features = ["v4"] }
+uuid = { version = "1.29.3", features = ["v4"] }

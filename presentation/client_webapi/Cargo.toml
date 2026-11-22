@@ -46,4 +46,4 @@ mime_guess = "2.0.5"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
 tracing = "0.1.44"
-uuid = "1.29.0"
+uuid = "1.29.3"

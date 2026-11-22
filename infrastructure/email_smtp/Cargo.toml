@@ -7,6 +7,6 @@ edition = "2024"
 common = { path = "../common" }
 email = { path = "../email" }
 async-trait = "0.1.92"
-lettre = { version = "0.11.23", default-features = false, features = ["smtp-transport", "tokio1-rustls", "ring", "rustls-native-certs", "hostname", "builder"] }
+lettre = { version = "0.11.24", default-features = false, features = ["smtp-transport", "tokio1-rustls", "ring", "rustls-native-certs", "hostname", "builder"] }
 serde = { version = "1.0.229", features = ["derive"] }
 tracing = "0.1.44"

@@ -24,7 +24,7 @@ config = "0.15.27"
 dashmap = "6.2.1"
 futures-util = "0.3.34"
 flate2 = "1.1.11"
-jsonwebtoken = { version = "11.1.0", features = ["rust_crypto"] }
+jsonwebtoken = { version = "12.0.0", features = ["rust_crypto"] }
 http-body = "1.1.0"
 httpdate = "1.0.3"
 percent-encoding = "2.3.2"
@@ -42,7 +42,7 @@ tokio-rustls = { version = "0.26.6", default-features = false, features = ["ring
 tower = { version = "0.5.3", features = ["util"] }
 tower-http = { version = "0.7.1", features = ["fs", "compression-br", "compression-gzip"] }
 tracing = "0.1.44"
-url = "2.5.8"
+url = "2.5.9"
 utoipa = { version = "6.0.0", features = ["axum_extras", "chrono"] }
 utoipa-swagger-ui = { version = "10.0.2", features = ["axum"] }
-uuid = { version = "1.29.0", features = ["v4"] }
+uuid = { version = "1.29.3", features = ["v4"] }

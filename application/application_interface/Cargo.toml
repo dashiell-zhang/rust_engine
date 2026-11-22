@@ -8,7 +8,7 @@ sms = { path = "../../infrastructure/sms" }
 email = { path = "../../infrastructure/email" }
 file_storage = { path = "../../infrastructure/file_storage", default-features = false }
 application_model = { path = "../application_model" }
-uuid = "1.29.0"
+uuid = "1.29.3"
 event_bus = { path = "../../infrastructure/event_bus" }
 async-trait = "0.1.92"
 chrono = "0.4.45"

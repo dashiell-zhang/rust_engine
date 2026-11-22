@@ -14,4 +14,4 @@ tracing = "0.1.44"
 
 serde = { version = "1.0.229", features = ["derive"] }
 tokio-util = { version = "0.7.20", features = ["rt"] }
-uuid = { version = "1.29.0", features = ["v4"] }
+uuid = { version = "1.29.3", features = ["v4"] }

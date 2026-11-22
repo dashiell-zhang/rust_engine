@@ -22,5 +22,5 @@ sea-orm = { version = "2.0.4", features = ["sqlx-postgres", "runtime-tokio-rustl
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = { version = "1.0.154", features = ["raw_value"] }
 tracing = "0.1.44"
-url = "2.5.8"
-x509-cert = { version = "0.3.0", features = ["pem"] }
+url = "2.5.9"
+x509-cert = { version = "0.3.1", features = ["pem"] }

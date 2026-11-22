@@ -11,4 +11,4 @@ async-trait = "0.1.92"
 chrono = "0.4.45"
 sea-orm = { version = "2.0.4", features = ["sqlx-postgres", "runtime-tokio-rustls", "macros", "with-uuid"] }
 tokio = { version = "1.54.1", features = ["sync"] }
-uuid = "1.29.0"
+uuid = "1.29.3"
