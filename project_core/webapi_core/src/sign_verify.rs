@@ -80,9 +80,8 @@ where
         return internal_error_response("Authorization 中的 JWT 格式无效");
     }
 
-    let encoded_signature = match state.jwt_codec().encoded_signature(&auth_token) {
-        Some(value) => value,
-        None => return internal_error_response("Authorization 中的 JWT 格式无效"),
+    let Some(encoded_signature) = state.jwt_codec().encoded_signature(&auth_token) else {
+        return internal_error_response("Authorization 中的 JWT 格式无效");
     };
 
     let (parts, body) = request.into_parts();

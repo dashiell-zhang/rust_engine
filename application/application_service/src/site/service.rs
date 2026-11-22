@@ -260,14 +260,14 @@ mod webapi_impl {
 
         /// 获取站点信息并缓存结果
         pub async fn get_site(&self) -> Result<SiteDto, AppError> {
-            if let Some(cache) = self.context.cache {
-                if let Some(cached_value) = cache.get_string(Self::site_cache_key()).await? {
-                    let cached_site =
-                        serde_json::from_str::<SiteDto>(&cached_value).map_err(|error| {
-                            AppError::internal(format!("反序列化站点缓存失败: {error}"))
-                        })?;
-                    return Ok(cached_site);
-                }
+            if let Some(cache) = self.context.cache
+                && let Some(cached_value) = cache.get_string(Self::site_cache_key()).await?
+            {
+                let cached_site =
+                    serde_json::from_str::<SiteDto>(&cached_value).map_err(|error| {
+                        AppError::internal(format!("反序列化站点缓存失败: {error}"))
+                    })?;
+                return Ok(cached_site);
             }
 
             let site = SiteService::new(self.context.app).get_site().await?;

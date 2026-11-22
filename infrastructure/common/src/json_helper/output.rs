@@ -82,14 +82,13 @@ fn transparent_type_name(mut name: &str) -> &str {
             name = inner.strip_prefix("mut ").unwrap_or(inner);
             continue;
         }
-        let inner = pointers.iter().find_map(|pointer| {
+        let Some(inner) = pointers.iter().find_map(|pointer| {
             let prefix = pointer.strip_suffix("()>")?;
             name.strip_prefix(prefix)?.strip_suffix('>')
-        });
-        match inner {
-            Some(inner) => name = inner,
-            None => return name,
-        }
+        }) else {
+            return name;
+        };
+        name = inner;
     }
 }
 

@@ -168,10 +168,10 @@ fn complete_utf8_prefix(bytes: &[u8]) -> usize {
     let mut offset = 0;
     while let Err(error) = std::str::from_utf8(&bytes[offset..]) {
         offset += error.valid_up_to();
-        match error.error_len() {
-            Some(length) => offset += length,
-            None => return offset,
-        }
+        let Some(length) = error.error_len() else {
+            return offset;
+        };
+        offset += length;
     }
     bytes.len()
 }

@@ -358,14 +358,14 @@ mod webapi_impl {
 
         /// 获取公开友情链接列表并缓存结果
         pub async fn get_public_link_list(&self) -> Result<Vec<PublicLinkDto>, AppError> {
-            if let Some(cache) = self.context.cache {
-                if let Some(cached_value) = cache.get_string(Self::public_link_cache_key()).await? {
-                    let cached_list = serde_json::from_str::<Vec<PublicLinkDto>>(&cached_value)
-                        .map_err(|error| {
-                            AppError::internal(format!("反序列化友情链接缓存失败: {error}"))
-                        })?;
-                    return Ok(cached_list);
-                }
+            if let Some(cache) = self.context.cache
+                && let Some(cached_value) = cache.get_string(Self::public_link_cache_key()).await?
+            {
+                let cached_list = serde_json::from_str::<Vec<PublicLinkDto>>(&cached_value)
+                    .map_err(|error| {
+                        AppError::internal(format!("反序列化友情链接缓存失败: {error}"))
+                    })?;
+                return Ok(cached_list);
             }
 
             let list = LinkService::new(self.context.app)

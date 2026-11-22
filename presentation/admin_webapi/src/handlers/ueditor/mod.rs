@@ -302,15 +302,12 @@ async fn handle_base64_upload_request(
         &alphabet::STANDARD,
         general_purpose::GeneralPurposeConfig::new().with_decode_allow_trailing_bits(true),
     );
-    let decoded = match decoder.decode(&payload) {
-        Ok(bytes) => bytes,
-        Err(_) => {
-            return Ok(upload_error(
-                "上传请求不正确",
-                Some("Base64 文件内容格式不正确".into()),
-                None,
-            ));
-        }
+    let Ok(decoded) = decoder.decode(&payload) else {
+        return Ok(upload_error(
+            "上传请求不正确",
+            Some("Base64 文件内容格式不正确".into()),
+            None,
+        ));
     };
     if decoded.len() > upload_spec.max_size {
         return Ok(upload_error("文件大小超出服务器限制", None, None));

@@ -69,9 +69,8 @@ impl DistributedCache for InMemoryCache {
         validate_key(key)?;
 
         let now = SystemTime::now();
-        let mut record = match self.records.get_mut(key) {
-            Some(record) => record,
-            None => return Ok(None),
+        let Some(mut record) = self.records.get_mut(key) else {
+            return Ok(None);
         };
 
         if record.metadata.is_expired(now) {

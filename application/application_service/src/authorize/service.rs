@@ -726,7 +726,7 @@ impl<'a> AuthorizeService<'a> {
         if i128::from(Utc::now().timestamp_millis()) <= half_life_millis {
             return Ok(None);
         }
-        let _renew_guard = match self
+        let Some(_renew_guard) = self
             .context
             .authorize_lock
             .try_lock(
@@ -735,9 +735,8 @@ impl<'a> AuthorizeService<'a> {
                 1,
             )
             .await?
-        {
-            Some(guard) => guard,
-            None => return Ok(None),
+        else {
+            return Ok(None);
         };
         let cache = self
             .context

@@ -118,9 +118,8 @@ impl CacheMetadata {
 
     /// 在滑动过期场景下刷新过期时间
     pub fn refresh_sliding(&mut self, now: SystemTime) -> Result<Option<Duration>, CacheError> {
-        let expiry_ms = match self.sliding_expiration_ms {
-            Some(value) => value,
-            None => return Ok(None),
+        let Some(expiry_ms) = self.sliding_expiration_ms else {
+            return Ok(None);
         };
 
         let new_expiry = now + Duration::from_millis(expiry_ms);

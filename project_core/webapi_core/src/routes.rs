@@ -290,18 +290,15 @@ pub(crate) fn dispatch(router: Router, paths: RoutePaths) -> Router {
         let paths = paths.clone();
         let router = router.clone();
         async move {
-            let path = match crate::request_path::RequestPath::parse(request.uri().path()) {
-                Ok(path) => path,
-                Err(()) => {
-                    let mut response = StatusCode::BAD_REQUEST.into_response();
-                    // Kestrel 将非法请求路径视为传输层错误，HTTP/1 不再复用连接。
-                    if matches!(request.version(), Version::HTTP_10 | Version::HTTP_11) {
-                        response
-                            .headers_mut()
-                            .insert(header::CONNECTION, HeaderValue::from_static("close"));
-                    }
-                    return Ok(response);
+            let Ok(path) = crate::request_path::RequestPath::parse(request.uri().path()) else {
+                let mut response = StatusCode::BAD_REQUEST.into_response();
+                // Kestrel 将非法请求路径视为传输层错误，HTTP/1 不再复用连接。
+                if matches!(request.version(), Version::HTTP_10 | Version::HTTP_11) {
+                    response
+                        .headers_mut()
+                        .insert(header::CONNECTION, HeaderValue::from_static("close"));
                 }
+                return Ok(response);
             };
             let canonical = paths.canonical_path(path.value());
             let routing_path = crate::request_path::routing_path(
